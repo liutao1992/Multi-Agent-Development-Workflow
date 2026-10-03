@@ -391,7 +391,7 @@ Lead is the lifecycle transition authority. Impl and Review create evidence/arti
 | REVIEWING | Lead | validate Review PASS | READY_FOR_FINAL_ACCEPTANCE |
 | REVIEWING | Lead | reviewer environment mismatch only; reset Review environment | READY_FOR_REVIEW |
 | REVIEWING | Lead | frozen Code Target was mutated / invalidated | REWORK |
-| REWORK | Lead | hand confirmed RW items to Implementation | IMPLEMENTING |
+| REWORK | Lead | hand confirmed RW items to Impl | IMPLEMENTING |
 | READY_FOR_FINAL_ACCEPTANCE | Lead | final acceptance succeeds and ACCEPTANCE.md exists | ACCEPTED |
 | READY_FOR_FINAL_ACCEPTANCE | Lead | final acceptance finds blocking issue | REWORK |
 | any non-terminal state | Lead | external dependency prevents progress | BLOCKED |
@@ -510,7 +510,7 @@ Frozen: true
 
 Before submission Impl must commit intended Code Plane changes.
 
-After READY_FOR_REVIEW, Implementation must not mutate that submitted Code Head target. Any later Code Plane change creates a new implementation round.
+After READY_FOR_REVIEW, Impl must not mutate that submitted Code Head target. Any later Code Plane change creates a new implementation round.
 
 ## Review Target verification
 
