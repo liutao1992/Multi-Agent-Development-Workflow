@@ -1,0 +1,31 @@
+name: Orchestrator Tests
+
+on:
+  push:
+    branches:
+      - feature/agent-orchestrator
+  pull_request:
+    paths:
+      - "skills/multi-agent-development-workflow/scripts/**"
+      - "skills/multi-agent-development-workflow/tests/**"
+      - ".github/workflows/orchestrator-tests.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile
+        run: |
+          python -m py_compile \
+            skills/multi-agent-development-workflow/scripts/orchestrator.py \
+            skills/multi-agent-development-workflow/scripts/agent_team_lib/*.py
+      - name: Unit tests
+        run: |
+          python -W error::ResourceWarning -m unittest discover \
+            -s skills/multi-agent-development-workflow/tests \
+            -p "test_*.py" \
+            -v

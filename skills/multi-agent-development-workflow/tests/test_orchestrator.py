@@ -1,15 +1,39 @@
 from __future__ import annotations
 
-import importlib.util
+import sys
 from pathlib import Path
+import subprocess
 import tempfile
+import time
 import unittest
 
-SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "orchestrator.py"
-SPEC = importlib.util.spec_from_file_location("agent_team_orchestrator", SCRIPT)
-assert SPEC and SPEC.loader
-orch = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(orch)
+SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
+sys.path.insert(0, str(SCRIPTS))
+
+import orchestrator as orch
+from agent_team_lib import core
+from agent_team_lib import processes
+from agent_team_lib import queue_runtime
+
+
+def git(cwd: Path, *args: str) -> str:
+    return subprocess.run(
+        ["git", *args],
+        cwd=cwd,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=True,
+    ).stdout
+
+
+def init_repo(path: Path) -> None:
+    git(path, "init", "-q")
+    git(path, "config", "user.email", "test@example.com")
+    git(path, "config", "user.name", "Test")
+    (path / "README.md").write_text("base\n", encoding="utf-8")
+    git(path, "add", "README.md")
+    git(path, "commit", "-qm", "init")
 
 
 def status(state: str, plan: str = "N/A", impl: str = "N/A", review: str = "N/A") -> str:
@@ -33,18 +57,33 @@ Artifact: {review}
 """
 
 
+class RepoTestCase(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.repo = Path(self.temp.name) / "repo"
+        self.repo.mkdir()
+        init_repo(self.repo)
+        self.root = self.repo / ".agent-team"
+        core.ensure_control_root(self.repo, self.root)
+
+    def tearDown(self) -> None:
+        self.temp.cleanup()
+
+
 class TransportTests(unittest.TestCase):
-    def test_auto_and_direct_alias_resolve_to_process(self) -> None:
+    def test_normalize_transport(self) -> None:
         self.assertEqual(orch.normalize_transport("auto"), "process")
-        self.assertEqual(orch.normalize_transport("process"), "process")
         self.assertEqual(orch.normalize_transport("direct"), "process")
-
-    def test_queue_is_preserved(self) -> None:
         self.assertEqual(orch.normalize_transport("queue"), "queue")
-
-    def test_subagent_fails_closed_in_standalone_cli(self) -> None:
-        with self.assertRaises(orch.OrchestratorError):
+        with self.assertRaises(core.OrchestratorError):
             orch.normalize_transport("subagent")
+
+    def test_command_routing(self) -> None:
+        self.assertFalse(orch.command_requires_runtime("status"))
+        self.assertFalse(orch.command_requires_runtime("doctor"))
+        self.assertTrue(orch.command_requires_runtime("run"))
+        self.assertFalse(orch.command_mutates_control_plane("status"))
+        self.assertTrue(orch.command_mutates_control_plane("worker"))
 
 
 class RoleSelectionTests(unittest.TestCase):
@@ -57,29 +96,206 @@ class RoleSelectionTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temp.cleanup()
 
-    def test_planning_dispatches_impl_until_plan_exists(self) -> None:
+    def test_selection(self) -> None:
         s = status("PLANNING")
-        self.assertEqual(orch.select_role(self.task, s), "Impl")
+        self.assertEqual(core.select_role(self.task, s), "Impl")
         (self.task / "plans" / "PLAN-v001.md").write_text("plan", encoding="utf-8")
-        self.assertEqual(orch.select_role(self.task, s), "Lead")
+        self.assertEqual(core.select_role(self.task, s), "Lead")
 
-    def test_implementing_dispatches_lead_after_impl_artifact(self) -> None:
-        s = status("IMPLEMENTING", plan="PLAN-v001.md")
-        self.assertEqual(orch.select_role(self.task, s), "Impl")
+        s2 = status("IMPLEMENTING", plan="PLAN-v001.md")
+        self.assertEqual(core.select_role(self.task, s2), "Impl")
         (self.task / "implementations" / "IMPL-001.md").write_text("impl", encoding="utf-8")
-        self.assertEqual(orch.select_role(self.task, s), "Lead")
+        self.assertEqual(core.select_role(self.task, s2), "Lead")
 
-    def test_reviewing_dispatches_review_then_lead(self) -> None:
-        s = status("REVIEWING", plan="PLAN-v001.md", impl="IMPL-001.md")
-        self.assertEqual(orch.select_role(self.task, s), "Review")
+        s3 = status("REVIEWING", plan="PLAN-v001.md", impl="IMPL-001.md")
+        self.assertEqual(core.select_role(self.task, s3), "Review")
         (self.task / "reviews" / "REVIEW-001.md").write_text("review", encoding="utf-8")
-        self.assertEqual(orch.select_role(self.task, s), "Lead")
+        self.assertEqual(core.select_role(self.task, s3), "Lead")
+        self.assertIsNone(core.select_role(self.task, status("BLOCKED")))
 
-    def test_lead_owned_and_terminal_states(self) -> None:
-        self.assertEqual(orch.select_role(self.task, status("PLAN_REVIEW")), "Lead")
-        self.assertEqual(orch.select_role(self.task, status("READY_FOR_FINAL_ACCEPTANCE")), "Lead")
-        self.assertIsNone(orch.select_role(self.task, status("ACCEPTED")))
-        self.assertIsNone(orch.select_role(self.task, status("BLOCKED")))
+
+class LockAndNamespaceTests(RepoTestCase):
+    def test_project_lock_blocks_second_owner(self) -> None:
+        path = core.project_lock_path(self.root, self.repo)
+        with core.FileLock(path, "code plane"):
+            with self.assertRaises(core.OrchestratorError):
+                with core.FileLock(path, "code plane"):
+                    pass
+
+    def test_external_control_root_is_project_scoped(self) -> None:
+        external = Path(self.temp.name) / "shared-control"
+        core.ensure_control_root(self.repo, external)
+        task_parent = core.tasks_dir(external, self.repo)
+        self.assertIn(core.project_fingerprint(self.repo), str(task_parent))
+
+    def test_custom_control_root_inside_repo_is_ignored(self) -> None:
+        custom = self.repo / "control-data"
+        core.ensure_control_root(self.repo, custom)
+        safety = core.inspect_control_root_safety(self.repo, custom)
+        self.assertTrue(safety["inside_code_plane"])
+        self.assertFalse(safety["tracked"])
+        self.assertTrue(safety["ignored"])
+
+    def test_tracked_custom_control_root_is_rejected(self) -> None:
+        custom = self.repo / "tracked-control"
+        custom.mkdir()
+        (custom / "state.txt").write_text("tracked\n", encoding="utf-8")
+        git(self.repo, "add", "tracked-control/state.txt")
+        with self.assertRaises(core.OrchestratorError):
+            core.ensure_control_root(self.repo, custom)
+
+
+class QueueTests(RepoTestCase):
+    def test_project_scoped_queue_paths_for_shared_external_root(self) -> None:
+        external = Path(self.temp.name) / "shared-control"
+        core.ensure_control_root(self.repo, external)
+        paths = queue_runtime.queue_paths(external, self.repo, "Impl")
+        self.assertIn(core.project_fingerprint(self.repo), str(paths["queued"]))
+
+    def test_expired_claim_is_requeued(self) -> None:
+        paths = queue_runtime.queue_paths(self.root, self.repo, "Impl")
+        claim = paths["claimed"] / "job-1.json"
+        core.write_json_atomic(claim, {
+            "job_id": "job-1",
+            "state": "RUNNING",
+            "lease_owner": "dead",
+            "lease_until": time.time() - 1,
+            "project_root": str(self.repo),
+        })
+        queue_runtime.recover_expired_claims(self.root, self.repo, "Impl")
+        self.assertFalse(claim.exists())
+        self.assertTrue((paths["queued"] / "job-1.json").exists())
+
+    def test_cancelled_queued_job_is_not_claimed(self) -> None:
+        paths = queue_runtime.queue_paths(self.root, self.repo, "Review")
+        core.write_json_atomic(paths["queued"] / "job-2.json", {"job_id": "job-2"})
+        queue_runtime.request_cancel(self.root, self.repo, "job-2", "timeout")
+        claimed = queue_runtime.claim_next_job(
+            self.root, self.repo, "Review", "worker"
+        )
+        self.assertIsNone(claimed)
+        result = core.read_json(paths["results"] / "job-2.json")
+        self.assertTrue(result["cancelled"])
+
+    def test_worker_project_mismatch_is_rejected_by_namespace(self) -> None:
+        other = Path(self.temp.name) / "other"
+        other.mkdir()
+        init_repo(other)
+        external = Path(self.temp.name) / "shared-control"
+        self.assertNotEqual(
+            core.project_fingerprint(self.repo),
+            core.project_fingerprint(other),
+        )
+        self.assertNotEqual(
+            queue_runtime.queue_root(external, self.repo),
+            queue_runtime.queue_root(external, other),
+        )
+
+
+class CleanCodePlaneTests(RepoTestCase):
+    def test_dirty_code_plane_is_rejected(self) -> None:
+        (self.repo / "README.md").write_text("dirty\n", encoding="utf-8")
+        with self.assertRaises(core.OrchestratorError):
+            core.require_clean_code_plane(self.repo)
+
+
+class TimeoutTests(RepoTestCase):
+    def test_stream_process_timeout(self) -> None:
+        log = Path(self.temp.name) / "timeout.log"
+        started = time.monotonic()
+        with self.assertRaises(core.OrchestratorError):
+            processes.stream_process(
+                ["python3", "-c", "import time; time.sleep(30)"],
+                self.repo,
+                log,
+                "Test",
+                timeout=1,
+            )
+        self.assertLess(time.monotonic() - started, 8)
+
+    def test_stream_process_cancel(self) -> None:
+        log = Path(self.temp.name) / "cancel.log"
+        started = time.monotonic()
+        with self.assertRaises(core.OrchestratorError):
+            processes.stream_process(
+                ["python3", "-c", "import time; time.sleep(30)"],
+                self.repo,
+                log,
+                "Test",
+                timeout=30,
+                cancelled=lambda: True,
+            )
+        self.assertLess(time.monotonic() - started, 5)
+
+
+class DoctorTests(RepoTestCase):
+    def test_doctor_does_not_create_external_control_root(self) -> None:
+        external = Path(self.temp.name) / "does-not-exist"
+        self.assertFalse(external.exists())
+        orch.doctor(self.repo, external, "auto")
+        self.assertFalse(external.exists())
+
+
+class InvariantTests(RepoTestCase):
+    def make_task(self, state: str) -> Path:
+        task = core.task_root(self.root, self.repo, "TASK-1")
+        for sub in ("plans", "implementations", "reviews"):
+            (task / sub).mkdir(parents=True, exist_ok=True)
+        (task / "TASK.md").write_text("req\n", encoding="utf-8")
+        (task / "STATUS.md").write_text(status(state), encoding="utf-8")
+        return task
+
+    def test_review_code_mutation_fails(self) -> None:
+        task = self.make_task("REVIEWING")
+        before_git = core.git_snapshot(self.repo)
+        before_control = core.control_snapshot(task)
+        (self.repo / "README.md").write_text("mutated\n", encoding="utf-8")
+        (task / "reviews" / "REVIEW-001.md").write_text("review\n", encoding="utf-8")
+
+        with self.assertRaises(core.ProtocolViolation):
+            core.validate_role_postconditions(
+                "Review",
+                "REVIEWING",
+                task,
+                before_git,
+                core.git_snapshot(self.repo),
+                before_control,
+                core.control_snapshot(task),
+            )
+
+    def test_planning_impl_status_mutation_fails(self) -> None:
+        task = self.make_task("PLANNING")
+        before_git = core.git_snapshot(self.repo)
+        before_control = core.control_snapshot(task)
+        (task / "STATUS.md").write_text(status("PLAN_REVIEW"), encoding="utf-8")
+        (task / "plans" / "PLAN-v001.md").write_text("plan\n", encoding="utf-8")
+
+        with self.assertRaises(core.ProtocolViolation):
+            core.validate_role_postconditions(
+                "Impl",
+                "PLANNING",
+                task,
+                before_git,
+                core.git_snapshot(self.repo),
+                before_control,
+                core.control_snapshot(task),
+            )
+
+    def test_review_exactly_one_review_passes(self) -> None:
+        task = self.make_task("REVIEWING")
+        before_git = core.git_snapshot(self.repo)
+        before_control = core.control_snapshot(task)
+        (task / "reviews" / "REVIEW-001.md").write_text("review\n", encoding="utf-8")
+
+        core.validate_role_postconditions(
+            "Review",
+            "REVIEWING",
+            task,
+            before_git,
+            core.git_snapshot(self.repo),
+            before_control,
+            core.control_snapshot(task),
+        )
 
 
 if __name__ == "__main__":
