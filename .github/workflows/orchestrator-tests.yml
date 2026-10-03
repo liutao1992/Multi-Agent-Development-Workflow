@@ -3,6 +3,7 @@ name: Orchestrator Tests
 on:
   push:
     branches:
+      - main
       - feature/agent-orchestrator
   pull_request:
     paths:

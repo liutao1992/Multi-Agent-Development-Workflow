@@ -7,7 +7,7 @@ import time
 import uuid
 
 from .core import (
-    OrchestratorError, process_alive, project_fingerprint, project_runtime_root,
+    FileLock, OrchestratorError, process_alive, project_fingerprint, project_runtime_root,
     read_json, task_runtime_dir, write_json_atomic,
 )
 from .processes import choose_runtime, run_codex, run_pi_rpc, terminate_pid_group
@@ -26,6 +26,7 @@ def queue_paths(root: Path, project_root: Path, role: str) -> dict[str, Path]:
         "claimed": base / "claimed" / role.lower(),
         "results": base / "results",
         "cancelled": base / "cancelled",
+        "quarantined": base / "quarantined" / role.lower(),
     }
     for path in paths.values():
         path.mkdir(parents=True, exist_ok=True)
@@ -72,37 +73,107 @@ def is_cancelled(root: Path, project_root: Path, job_id: str) -> bool:
     return cancellation_path(root, project_root, job_id).exists()
 
 
+def quarantine_claim(
+    root: Path, project_root: Path, role: str, claim: Path, reason: str,
+) -> Path:
+    paths = queue_paths(root, project_root, role)
+    target = paths["quarantined"] / claim.name
+    try:
+        os.replace(claim, target)
+    except FileNotFoundError:
+        target = paths["quarantined"] / f"missing-{int(time.time() * 1000)}.json"
+    write_json_atomic(target.with_suffix(target.suffix + ".error.json"), {
+        "claim": target.name,
+        "reason": reason,
+        "quarantined_at": time.time(),
+    })
+    return target
+
+
+def quarantined_jobs(root: Path, project_root: Path) -> list[Path]:
+    base = queue_root(root, project_root) / "quarantined"
+    if not base.exists():
+        return []
+    return sorted(
+        p for p in base.rglob("*.json")
+        if not p.name.endswith(".error.json")
+    )
+
+
+def require_no_quarantined_jobs(root: Path, project_root: Path) -> None:
+    jobs = quarantined_jobs(root, project_root)
+    if jobs:
+        raise OrchestratorError(
+            "Queue contains quarantined claims with UNKNOWN_ORPHAN_RISK. "
+            f"Inspect before continuing: {[str(p) for p in jobs]}"
+        )
+
+
 def recover_expired_claims(root: Path, project_root: Path, role: str) -> None:
     paths = queue_paths(root, project_root, role)
     now = time.time()
     for claim in sorted(paths["claimed"].glob("*.json")):
         try:
             data = read_json(claim)
-            if float(data.get("lease_until", 0)) > now:
-                continue
-            job_id = data["job_id"]
-            child_pid = data.get("child_pid")
-            if child_pid and process_alive(int(child_pid)):
-                terminate_pid_group(int(child_pid), grace=1.0)
-
-            if is_cancelled(root, project_root, job_id):
-                write_json_atomic(paths["results"] / f"{job_id}.json", {
-                    "job_id": job_id,
-                    "success": False,
-                    "cancelled": True,
-                    "error": "Recovered expired cancelled claim.",
-                })
-                claim.unlink(missing_ok=True)
-                continue
-
-            for key in ("lease_owner", "lease_until", "child_pid"):
-                data.pop(key, None)
-            data["state"] = "QUEUED"
-            write_json_atomic(paths["queued"] / f"{job_id}.json", data)
-            claim.unlink(missing_ok=True)
-        except Exception:
+        except Exception as exc:
+            quarantine_claim(
+                root, project_root, role, claim,
+                f"Malformed/unreadable claimed job: {exc}",
+            )
             continue
 
+        try:
+            if float(data.get("lease_until", 0)) > now:
+                continue
+        except (TypeError, ValueError):
+            quarantine_claim(
+                root, project_root, role, claim,
+                "Claim has invalid lease_until.",
+            )
+            continue
+
+        job_id = str(data.get("job_id") or claim.stem)
+        child_pid = data.get("child_pid")
+        if not child_pid:
+            quarantine_claim(
+                root, project_root, role, claim,
+                "UNKNOWN_ORPHAN_RISK: expired claim has no recorded child_pid.",
+            )
+            continue
+
+        try:
+            pid = int(child_pid)
+        except (TypeError, ValueError):
+            quarantine_claim(
+                root, project_root, role, claim,
+                "UNKNOWN_ORPHAN_RISK: invalid child_pid.",
+            )
+            continue
+
+        if process_alive(pid):
+            terminate_pid_group(pid, grace=1.0)
+        if process_alive(pid):
+            quarantine_claim(
+                root, project_root, role, claim,
+                f"UNKNOWN_ORPHAN_RISK: child process {pid} could not be quiesced.",
+            )
+            continue
+
+        if is_cancelled(root, project_root, job_id):
+            write_json_atomic(paths["results"] / f"{job_id}.json", {
+                "job_id": job_id,
+                "success": False,
+                "cancelled": True,
+                "error": "Recovered expired cancelled claim.",
+            })
+            claim.unlink(missing_ok=True)
+            continue
+
+        for key in ("lease_owner", "lease_until", "child_pid"):
+            data.pop(key, None)
+        data["state"] = "QUEUED"
+        write_json_atomic(paths["queued"] / f"{job_id}.json", data)
+        claim.unlink(missing_ok=True)
 
 def claim_next_job(root: Path, project_root: Path, role: str, worker_id: str) -> Path | None:
     paths = queue_paths(root, project_root, role)
@@ -159,10 +230,34 @@ def cancel_and_quiesce_job(
     if claim.exists():
         try:
             child_pid = read_json(claim).get("child_pid")
-            if child_pid and process_alive(int(child_pid)):
+            if not child_pid:
+                quarantine_claim(
+                    root, project_root, role, claim,
+                    "UNKNOWN_ORPHAN_RISK: cancellation found no recorded child_pid.",
+                )
+                raise OrchestratorError(
+                    f"Queue job {job_id} quarantined: child process identity is unknown."
+                )
+            if process_alive(int(child_pid)):
                 terminate_pid_group(int(child_pid), grace=1.0)
-        except Exception:
-            pass
+            if process_alive(int(child_pid)):
+                quarantine_claim(
+                    root, project_root, role, claim,
+                    f"UNKNOWN_ORPHAN_RISK: child process {child_pid} survived cancellation.",
+                )
+                raise OrchestratorError(
+                    f"Queue job {job_id} quarantined: child process could not be stopped."
+                )
+        except OrchestratorError:
+            raise
+        except Exception as exc:
+            quarantine_claim(
+                root, project_root, role, claim,
+                f"Cancellation could not inspect claimed job: {exc}",
+            )
+            raise OrchestratorError(
+                f"Queue job {job_id} quarantined during cancellation."
+            ) from exc
 
     result_path = paths["results"] / f"{job_id}.json"
     deadline = time.monotonic() + wait_seconds
@@ -228,21 +323,27 @@ def worker_loop(
 ) -> int:
     worker_id = f"{os.getpid()}-{uuid.uuid4().hex[:8]}"
     heartbeat = heartbeat_path(root, project_root, role)
-    if worker_available(root, project_root, role):
-        raise OrchestratorError(f"A {role} pane worker is already running for this project.")
+    registration_lock = workers_dir(root, project_root) / f".{role.lower()}.register.lock"
+    with FileLock(registration_lock, f"{role} worker registration"):
+        if worker_available(root, project_root, role):
+            raise OrchestratorError(
+                f"A {role} pane worker is already running for this project."
+            )
+        write_json_atomic(heartbeat, {
+            "pid": os.getpid(),
+            "worker_id": worker_id,
+            "role": role,
+            "project_root": str(project_root),
+            "project_fingerprint": project_fingerprint(project_root),
+            "started_at": time.time(),
+        })
 
-    write_json_atomic(heartbeat, {
-        "pid": os.getpid(),
-        "worker_id": worker_id,
-        "role": role,
-        "project_root": str(project_root),
-        "project_fingerprint": project_fingerprint(project_root),
-        "started_at": time.time(),
-    })
+    require_no_quarantined_jobs(root, project_root)
 
     try:
         while True:
             recover_expired_claims(root, project_root, role)
+            require_no_quarantined_jobs(root, project_root)
             claim = claim_next_job(root, project_root, role, worker_id)
             if claim is None:
                 if once:
