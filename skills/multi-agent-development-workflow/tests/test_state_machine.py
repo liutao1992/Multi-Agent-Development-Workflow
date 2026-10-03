@@ -611,11 +611,69 @@ Reason: User changed requirement.
             "Lead", before, after, before_status, after_status
         )
 
-        broken = changed.replace("Revision: 2", "Revision: 3", 1)
+        broken = changed.replace("Task Contract Revision: 2", "Task Contract Revision: 3", 1)
         (self.task_a / "TASK.md").write_text(broken, encoding="utf-8")
+        broken_after = core.task_contract_snapshot(self.task_a)
         with self.assertRaises(core.ProtocolViolation):
-            core.task_contract_snapshot(self.task_a)
+            core.validate_task_contract_mutation(
+                "Lead", before, broken_after, before_status, after_status
+            )
 
+
+    def test_contract_amendment_with_existing_plan_must_enter_plan_rework(self) -> None:
+        before_task, old_hash = make_task_text()
+        (self.task_a / "TASK.md").write_text(before_task, encoding="utf-8")
+        plan = self.task_a / "plans" / "PLAN-v001.md"
+        plan.write_text("plan\n", encoding="utf-8")
+        before = core.task_contract_snapshot(self.task_a)
+        before_status = status(
+            "READY_FOR_FINAL_ACCEPTANCE",
+            old_hash,
+            plan_artifact="PLAN-v001.md",
+            plan_approval="APPROVED",
+        )
+        changed, new_hash = make_task_text(
+            revision=2,
+            requirement="Must support A and C.",
+            change_log=f"""### CHANGE-001
+Revision: 2
+Previous Hash: {old_hash}
+New Hash: PLACEHOLDER
+Reason: Late requirement change.
+""",
+        )
+        changed = changed.replace("New Hash: PLACEHOLDER", f"New Hash: {new_hash}")
+        (self.task_a / "TASK.md").write_text(changed, encoding="utf-8")
+        after = core.task_contract_snapshot(self.task_a)
+
+        with self.assertRaises(core.ProtocolViolation):
+            core.validate_task_contract_mutation(
+                "Lead",
+                before,
+                after,
+                before_status,
+                status(
+                    "REWORK",
+                    new_hash,
+                    contract_revision=2,
+                    plan_artifact="PLAN-v001.md",
+                    plan_approval="APPROVED",
+                ),
+            )
+
+        core.validate_task_contract_mutation(
+            "Lead",
+            before,
+            after,
+            before_status,
+            status(
+                "PLAN_REWORK",
+                new_hash,
+                contract_revision=2,
+                plan_artifact="PLAN-v001.md",
+                plan_approval="APPROVED",
+            ),
+        )
 
 if __name__ == "__main__":
     unittest.main()

@@ -399,6 +399,15 @@ def validate_task_contract_mutation(
         )
 
     after_state = current_state(after_status)
+    has_prior_evidence = any(
+        section_field(before_status, section_name, "Artifact") not in {"", "N/A", "None"}
+        for section_name in ("Current Plan", "Current Implementation", "Current Review")
+    )
+    if has_prior_evidence and after_state != "PLAN_REWORK":
+        raise ProtocolViolation(
+            "A requirement contract amendment invalidates prior Plan/Implementation/Review evidence "
+            "and must transition to PLAN_REWORK."
+        )
     if after_state in {"READY_FOR_FINAL_ACCEPTANCE", "ACCEPTED"}:
         raise ProtocolViolation(
             "A requirement contract amendment invalidates existing acceptance evidence and cannot enter final acceptance."

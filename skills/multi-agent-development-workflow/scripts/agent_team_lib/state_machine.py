@@ -15,12 +15,12 @@ ALLOWED_TRANSITIONS: dict[str, set[str]] = {
     "PLANNING": {"PLAN_REVIEW", "BLOCKED", "CANCELLED"},
     "PLAN_REVIEW": {"READY_FOR_IMPLEMENTATION", "PLAN_REWORK", "BLOCKED", "CANCELLED"},
     "PLAN_REWORK": {"PLAN_REVIEW", "BLOCKED", "CANCELLED"},
-    "READY_FOR_IMPLEMENTATION": {"IMPLEMENTING", "BLOCKED", "CANCELLED"},
+    "READY_FOR_IMPLEMENTATION": {"IMPLEMENTING", "PLAN_REWORK", "BLOCKED", "CANCELLED"},
     "IMPLEMENTING": {"READY_FOR_REVIEW", "PLAN_REWORK", "BLOCKED", "CANCELLED"},
-    "READY_FOR_REVIEW": {"REVIEWING", "BLOCKED", "CANCELLED"},
-    "REVIEWING": {"REWORK", "READY_FOR_FINAL_ACCEPTANCE", "READY_FOR_REVIEW", "BLOCKED", "CANCELLED"},
-    "REWORK": {"IMPLEMENTING", "BLOCKED", "CANCELLED"},
-    "READY_FOR_FINAL_ACCEPTANCE": {"ACCEPTED", "REWORK", "BLOCKED", "CANCELLED"},
+    "READY_FOR_REVIEW": {"REVIEWING", "PLAN_REWORK", "BLOCKED", "CANCELLED"},
+    "REVIEWING": {"REWORK", "PLAN_REWORK", "READY_FOR_FINAL_ACCEPTANCE", "READY_FOR_REVIEW", "BLOCKED", "CANCELLED"},
+    "REWORK": {"IMPLEMENTING", "PLAN_REWORK", "BLOCKED", "CANCELLED"},
+    "READY_FOR_FINAL_ACCEPTANCE": {"ACCEPTED", "REWORK", "PLAN_REWORK", "BLOCKED", "CANCELLED"},
     "BLOCKED": {"CANCELLED"},
     "ACCEPTED": set(),
     "CANCELLED": set(),
@@ -298,6 +298,8 @@ def validate_transition(task: Path, before_status: str, after_status: str, obser
         if gate == "REQUIRED":
             if section_field(after_status, "Current Plan", "Approval") != "APPROVED":
                 raise ProtocolViolation("Implementation requires an approved Plan.")
+            if _plan_approval(task, after_status) != "APPROVED":
+                raise ProtocolViolation("Implementation Plan artifact must be APPROVED and bound to current Task Contract.")
         elif gate != "SKIPPED":
             raise ProtocolViolation(f"Unknown Plan Gate value: {gate}")
 
@@ -330,6 +332,11 @@ def validate_transition(task: Path, before_status: str, after_status: str, obser
         rw = section_field(after_status, "Rework", "Active RW IDs")
         if rw in {"", "N/A", "None"}:
             raise ProtocolViolation("REWORK -> IMPLEMENTING requires confirmed Active RW IDs.")
+        if section_field(after_status, "Workflow", "Plan Gate") == "REQUIRED":
+            if _plan_approval(task, after_status) != "APPROVED":
+                raise ProtocolViolation(
+                    "REWORK implementation requires an APPROVED Plan bound to the current Task Contract."
+                )
 
     if before == "READY_FOR_FINAL_ACCEPTANCE" and after == "ACCEPTED":
         _validate_implementation_target(task, after_status, observed_head)

@@ -164,6 +164,7 @@ def run_task_locked(
                 return 0
 
             require_clean_code_plane(project_root)
+            validate_task_contract_integrity(task, status)
             before_digest = task_digest(task)
             before_git = git_snapshot(project_root)
             before_control = control_snapshot(task)
@@ -266,6 +267,7 @@ def resume_task(
 
         with FileLock(task_lock_path(root, project_root, task_id), f"Task {task_id}"):
             before_status = read_status(task)
+            validate_task_contract_integrity(task, before_status)
             if current_state(before_status) != "BLOCKED":
                 raise OrchestratorError(
                     f"resume requires STATUS=BLOCKED; current state is {current_state(before_status)}"
