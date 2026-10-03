@@ -45,6 +45,17 @@ Never reuse Review-1 to produce REVIEW-2.
 
 A Review child receives bounded evidence only and must not inherit Impl private reasoning or the parent/Impl implementation conversation.
 
+## Working-tree concurrency policy
+
+Native SubAgent mode must not run two automated Tasks against the same Git working tree concurrently.
+
+```text
+one working tree
+→ one active automated Task
+```
+
+For parallel Tasks, use separate Git worktrees. The Python fallback enforces this with a Code Plane lock; native mode relies on the Lead parent to enforce the same protocol invariant.
+
 ## Serial write policy
 
 Impl and Review MUST NOT edit/review the same mutable working tree concurrently.
@@ -64,6 +75,8 @@ Lead action
 \`\`\`
 
 Subagents may parallelize read-only investigation internally only when that does not create conflicting writes or weaken Review independence.
+
+The Lead parent should also verify role postconditions after child completion: Review must not mutate Code Plane/STATUS, Planning Impl must not mutate Code Plane/STATUS, and implementation must end on a clean committed snapshot.
 
 ## Coordination pseudocode
 

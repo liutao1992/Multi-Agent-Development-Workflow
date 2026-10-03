@@ -174,6 +174,12 @@ git check-ignore -q .agent-team/
 
 Do not force-add it.
 
+### Automated Task concurrency
+
+Within one working tree, run at most one automated Task at a time. The standalone Orchestrator enforces this with a Code Plane lock.
+
+To run multiple automated Tasks in parallel, use separate Git worktrees.
+
 ### Multiple worktrees / concurrent agents
 
 Prefer the primary project checkout's project-local Control Root:

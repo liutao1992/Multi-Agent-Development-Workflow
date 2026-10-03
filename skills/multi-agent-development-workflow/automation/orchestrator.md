@@ -26,7 +26,7 @@ Warp panes are independent terminal sessions. Synchronized input broadcasts the 
 
 The automation layer uses either:
 
-- **direct transport** — Orchestrator launches fresh role workers itself;
+- **process transport** — Orchestrator launches fresh role workers itself;
 - **queue transport** — Lead pane queues jobs and dedicated Impl/Review pane workers consume them.
 
 Queue transport gives the desired visible three-pane experience without UI automation or keystroke injection.
@@ -112,6 +112,25 @@ The left pane executes Lead actions directly and routes Impl/Review actions to t
 
 These files are operational metadata only.
 
+## Queue lifecycle
+
+Queue transport uses explicit job state and lease semantics:
+
+```text
+QUEUED
+→ CLAIMED
+→ RUNNING + renewable lease
+→ SUCCEEDED / FAILED / CANCELLED
+```
+
+On orchestrator timeout, a cancellation marker is written. Running workers observe cancellation and terminate the child process group. Expired claims are recovered; if a stale claim recorded an orphan child process, recovery attempts to terminate it before requeueing.
+
+Every job is project-scoped and carries both canonical project root and project fingerprint.
+
+## Role enforcement
+
+Process/Queue fallback validates pre/post conditions in code, not only prompts. A role that mutates forbidden state causes orchestration to stop.
+
 ## Failure model
 
 The Orchestrator is deliberately fail-closed.
@@ -129,9 +148,14 @@ It never invents a product decision merely to keep automation moving.
 
 ## Concurrency
 
-One Orchestrator may control a Task at a time. A task-local lock prevents accidental duplicate orchestration.
+Two locks are used:
 
-Different Tasks may be orchestrated independently if their Code Plane changes do not conflict. The current protocol does not automatically resolve concurrent Git edits.
+1. **Code Plane lock** — one automated Task per Git working tree.
+2. **Task lock** — prevents duplicate orchestration of the same Task.
+
+Even disjoint file edits cannot safely share a working tree because Git HEAD and index are shared.
+
+Parallel Tasks require separate Git worktrees. Worktree-native parallel orchestration is the intended future concurrency model.
 
 ## Review isolation
 

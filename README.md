@@ -36,6 +36,17 @@ manual
 
 For normal use, **start with Native SubAgent mode**.
 
+### Concurrency rule
+
+A single Git working tree is one mutable Code Plane. Do not run two automated Tasks against the same working tree at the same time.
+
+```text
+one working tree
+→ one automated Task at a time
+```
+
+The standalone Process/Queue runtime enforces this with a Code Plane lock. For true parallel Tasks, create a separate Git worktree per Task. Native SubAgent mode must follow the same rule even though its scheduling happens inside the parent Agent.
+
 ---
 
 ## 2. Install the Skill
@@ -202,6 +213,8 @@ A Review SubAgent must not inherit Impl private reasoning.
 
 > A separate `codex exec` process or Pi RPC process is a **worker process**, not a native SubAgent.
 
+Native SubAgent orchestration is **Skill-level orchestration**: Lead uses the host runtime's native child-agent tools. The bundled `agent-team` CLI implements only Process and Queue fallback transports.
+
 ---
 
 ## 4. Do I still need three Warp panes?
@@ -276,14 +289,18 @@ AGENT_TEAM="$HOME/.codex/skills/multi-agent-development-workflow/scripts/agent-t
   run TASK-20261003-001-ios-system-dictionary-meaning
 ```
 
-Process mode still preserves:
+Process mode also enforces runtime safety:
 
-- Lead-only lifecycle transitions;
-- Plan Gate;
-- immutable Plan / IMPL / REVIEW artifacts;
-- stable Git Review target;
-- fresh Review context;
-- automatic rework loop.
+- one automated Task per working tree through a Code Plane lock;
+- clean Code Plane before every dispatch;
+- real per-worker timeout for Codex and Pi;
+- process-group termination on timeout/cancel;
+- role postconditions after every worker;
+- immutable existing Plan / IMPL / REVIEW artifacts;
+- Review cannot change HEAD/index/worktree or STATUS;
+- Planning Impl cannot change Code Plane or STATUS;
+- Implementation Impl must leave a clean committed Code Plane and create exactly one IMPL artifact;
+- Lead cannot modify Code Plane.
 
 ---
 
@@ -387,6 +404,20 @@ agent-team worker Review
 
 Those worker processes launch the configured runtime when a job arrives.
 
+Queue jobs are project-scoped. When multiple projects share an external `AGENT_TEAM_DIR`, each project gets a fingerprint namespace. Workers reject jobs whose project root/fingerprint does not match.
+
+Queue jobs use lease + cancellation semantics:
+
+```text
+QUEUED
+  ↓
+CLAIMED / RUNNING + lease
+  ↓
+SUCCEEDED / FAILED / CANCELLED
+```
+
+Expired claims are recovered. A timed-out orchestrator cancels the job, and a running worker terminates its child runtime instead of continuing to make ghost changes.
+
 ---
 
 ## 7. Where task data is stored
@@ -418,6 +449,18 @@ The Skill must not automatically use:
 ```
 
 unless you explicitly configure an external Control Root.
+
+If `AGENT_TEAM_DIR` is external and shared by multiple projects, storage becomes project-scoped:
+
+```text
+<AGENT_TEAM_DIR>/
+└── projects/
+    └── <project-fingerprint>/
+        ├── tasks/
+        └── runtime/
+```
+
+If a custom Control Root is still inside the Git working tree, the CLI verifies that it is untracked and adds that path to `.git/info/exclude`. A tracked Control Root is rejected.
 
 The default root is resolved from:
 
@@ -531,14 +574,18 @@ AGENT_TEAM="$HOME/.codex/skills/multi-agent-development-workflow/scripts/agent-t
 Environment check:
 
 ```bash
-"$AGENT_TEAM" --runtime codex doctor
+"$AGENT_TEAM" doctor
 ```
+
+`doctor` does not require Codex/Pi to be installed. It reports missing runtimes instead of failing and does not create Control Plane directories.
 
 Current Task state:
 
 ```bash
 "$AGENT_TEAM" status TASK-20261003-001-ios-system-dictionary-meaning
 ```
+
+`status` is read-only: it does not resolve a runtime, create directories, or modify `.git/info/exclude`.
 
 Automatic process fallback:
 
@@ -572,6 +619,9 @@ Automatic execution stops rather than guessing when:
 - no protocol progress is produced;
 - the Review target is invalid;
 - a required worker disappears;
+- a worker violates its role postconditions;
+- the Code Plane is dirty before dispatch;
+- another automated Task already owns the same working tree;
 - the maximum orchestration step limit is reached.
 
 Example:

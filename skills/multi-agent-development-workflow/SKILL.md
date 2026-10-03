@@ -237,6 +237,31 @@ Automatic execution chooses transports in this order:
 
 The standalone \`scripts/agent-team\` CLI cannot attach to the native SubAgent tools of an already-running parent conversation. Therefore it implements only the fallback execution transports. Native SubAgent orchestration happens **inside the Lead parent session**.
 
+### Code Plane concurrency invariant
+
+Automatic orchestration MUST serialize mutable work by working tree:
+
+```text
+one Git working tree = at most one automated Task at a time
+```
+
+A Task-level lock is not sufficient because HEAD, index, and working tree are shared resources.
+
+Standalone Process/Queue orchestration MUST hold a Code Plane lock for the full Task run, including Task creation. Native SubAgent orchestration MUST obey the same invariant at the parent-agent level.
+
+Parallel automated Tasks require separate Git worktrees.
+
+### Programmatic role postconditions
+
+Executable fallback transports MUST validate role boundaries after every worker action.
+
+- **Planning Impl:** Code Plane unchanged; STATUS/TASK unchanged; existing immutable artifacts unchanged; exactly one new PLAN.
+- **Implementation Impl:** STATUS/TASK unchanged; existing immutable artifacts unchanged; exactly one new IMPL; Code Plane clean after commit; IMPL Code Head matches observed HEAD.
+- **Review:** Code Plane HEAD/index/worktree unchanged; STATUS/TASK unchanged; existing immutable artifacts unchanged; exactly one new REVIEW.
+- **Lead:** Code Plane unchanged; existing IMPL/REVIEW immutable; no role-owned artifacts created.
+
+A postcondition violation is a protocol failure. Stop orchestration rather than advancing STATUS.
+
 ### Automatic lifecycle driver
 
 The Orchestrator repeatedly reads:
