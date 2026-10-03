@@ -16,17 +16,21 @@ For an existing task:
 
 For a new task:
 
-1. select workflow once;
-2. verify Control Plane is excluded from Code Plane Git tracking;
-3. verify a stable clean Code Plane starting point;
-4. freeze Task Baseline SHA from Code Plane HEAD;
-5. create TASK/STATUS workspace.
+1. resolve the project root with `git rev-parse --show-toplevel`;
+2. unless explicitly configured otherwise, set Control Root to `<project-root>/.agent-team/`;
+3. never choose `/tmp` or `/private/tmp` automatically;
+4. create the task namespace under `<project-root>/.agent-team/tasks/`;
+5. select workflow once;
+6. verify Control Plane is excluded from Code Plane Git tracking;
+7. verify a stable clean Code Plane starting point;
+8. freeze Task Baseline SHA from Code Plane HEAD;
+9. create TASK/STATUS workspace.
 
 ## Control Plane / Code Plane
 
 Treat workflow artifacts as Control Plane metadata. They must not be committed into the reviewed Code Plane branch.
 
-If `.agent-team/` is local inside the project, verify it is ignored and untracked.
+Project-local `<project-root>/.agent-team/` is the default. Verify it is ignored and untracked. External storage is opt-in only.
 
 ## Plan Gate
 

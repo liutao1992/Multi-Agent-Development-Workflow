@@ -111,3 +111,29 @@ Lead:
 ```
 
 See [the Skill definition](./skills/multi-agent-development-workflow/SKILL.md) for the full protocol.
+
+
+## Project-local Agent Team data
+
+For normal use, task coordination data is stored in the current project's Git root:
+
+```text
+<project-root>/
+├── .agent-team/
+│   ├── INDEX.md
+│   └── tasks/
+└── ...
+```
+
+The Skill should **not** automatically put task data in `/private/tmp` or `/tmp`.
+
+Initialize it with:
+
+```bash
+PROJECT_ROOT="$(git rev-parse --show-toplevel)"
+mkdir -p "$PROJECT_ROOT/.agent-team/tasks"
+grep -qxF ".agent-team/" "$PROJECT_ROOT/.git/info/exclude" 2>/dev/null \
+  || printf "\n.agent-team/\n" >> "$PROJECT_ROOT/.git/info/exclude"
+```
+
+An external Control Root is only used when explicitly configured.

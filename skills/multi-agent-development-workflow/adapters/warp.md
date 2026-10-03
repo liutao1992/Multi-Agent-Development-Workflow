@@ -70,9 +70,19 @@ Each pane must recover authoritative state from STATUS.md and the task artifacts
 
 ## Control Plane location
 
-### Shared single working tree
+### Default: current project directory
 
-You may keep `.agent-team/` inside the project directory only when it is excluded from Code Plane Git tracking.
+Use the current project's Git root as the canonical location:
+
+```bash
+PROJECT_ROOT="$(git rev-parse --show-toplevel)"
+CONTROL_ROOT="$PROJECT_ROOT/.agent-team"
+mkdir -p "$CONTROL_ROOT/tasks"
+```
+
+Do not automatically use `/private/tmp`, `/tmp`, or another external directory.
+
+Keep `.agent-team/` excluded from Code Plane Git tracking.
 
 Prefer a local exclude so the project does not need a workflow-specific committed `.gitignore` entry:
 
@@ -91,17 +101,19 @@ Do not force-add it.
 
 ### Multiple worktrees / concurrent agents
 
-Use one shared Control Plane directory outside all code worktrees, for example:
+Prefer the primary project checkout's project-local Control Root:
 
 ```text
 workspace/
 ├── project-main/
+│   └── .agent-team/        ← canonical Control Root
 ├── project-implementation/
-├── project-review/
-└── project.agent-team/
+└── project-review/
 ```
 
-All three agents reference the same external Control Root.
+The Impl and Review worktrees should reference `project-main/.agent-team/` as their shared Control Root.
+
+Use an external directory only when the user explicitly configures one, for example through `AGENT_TEAM_DIR`.
 
 ## Stable Review handoff
 

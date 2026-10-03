@@ -191,6 +191,49 @@ Impl cannot approve itself.
 Review cannot redefine requirements.
 Only Lead can accept.
 
+## Default Control Root
+
+The default Control Plane location is always inside the current Code Plane project:
+
+```text
+<project-root>/.agent-team/
+```
+
+Resolve `<project-root>` with:
+
+```bash
+git rev-parse --show-toplevel
+```
+
+Then use:
+
+```text
+<project-root>/.agent-team/
+├── INDEX.md
+└── tasks/
+```
+
+Rules:
+
+1. For a normal single-project workflow, create and use `.agent-team/` under the current project's Git root.
+2. Do **not** automatically place Control Plane data under `/tmp`, `/private/tmp`, the user's home directory, or another global cache location.
+3. An external Control Root is allowed only when:
+   - the user explicitly requests it; or
+   - an explicit configuration such as `AGENT_TEAM_DIR` points to it.
+4. If `AGENT_TEAM_DIR` is not explicitly configured, project-local `.agent-team/` wins.
+5. The project-local `.agent-team/` must remain excluded from Code Plane Git tracking, normally through `.git/info/exclude`.
+6. All roles working on the same Task must resolve to the same canonical Control Root.
+7. If an older task was created in a temporary external location and the user requests project-local storage, Lead should move/copy the complete Control Plane task namespace into `<project-root>/.agent-team/`, update references, and continue from the project-local copy.
+
+Recommended initialization:
+
+```bash
+PROJECT_ROOT="$(git rev-parse --show-toplevel)"
+mkdir -p "$PROJECT_ROOT/.agent-team/tasks"
+grep -qxF ".agent-team/" "$PROJECT_ROOT/.git/info/exclude" 2>/dev/null \
+  || printf "\n.agent-team/\n" >> "$PROJECT_ROOT/.git/info/exclude"
+```
+
 ## Control Plane and Code Plane
 
 ### Control Plane
@@ -224,8 +267,8 @@ The reviewed `Code Head SHA` must not change merely because a workflow artifact 
 
 Preferred setups:
 
-1. **Single shared worktree:** keep `.agent-team/` locally inside the project but exclude it from Git using `.git/info/exclude` or an equivalent local ignore mechanism.
-2. **Multiple worktrees / concurrent agents:** keep one shared Control Plane directory outside all Code Plane worktrees.
+1. **Default:** use `<project-root>/.agent-team/` and exclude it from Git with `.git/info/exclude`.
+2. **Multiple worktrees / concurrent agents:** still prefer the primary project checkout's `.agent-team/` as the canonical Control Root; other worktrees should point to that same directory. Use an external Control Root only when explicitly configured.
 3. **Versioned workflow metadata:** if artifacts must be versioned, store them in a separate control repository or other storage that does not alter Code Plane commits.
 
 Do not force-add Control Plane artifacts to the Code Plane branch.
@@ -256,7 +299,7 @@ If Control Plane files are already tracked in the Code Plane, migrate them out o
         └── ACCEPTANCE.md
 ```
 
-The logical Control Root may be outside the Code Plane repository.
+By default the Control Root is `<project-root>/.agent-team/`. An external Control Root is opt-in, not automatic.
 
 ## Sources of truth
 

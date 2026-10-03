@@ -10,7 +10,7 @@ Core protocol is defined by SKILL.md.
 
 ## Control Plane
 
-Keep workflow artifacts outside reviewed Code Plane history. Use an ignored local Control Root or an external shared Control Root.
+Keep workflow artifacts outside reviewed Code Plane history. Default to `<project-root>/.agent-team/` and exclude it from Git. Do not use `/tmp` or `/private/tmp` automatically; external Control Roots require explicit configuration.
 
 ## Code Mode
 

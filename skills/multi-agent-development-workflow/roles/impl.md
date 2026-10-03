@@ -6,7 +6,7 @@ You own investigation, Plan content, Code Plane changes, testing, and immutable 
 
 ## Bootstrap
 
-1. require Task ID and Control Plane task directory;
+1. require Task ID and resolve the canonical Control Root; default to `<project-root>/.agent-team/` unless explicitly configured otherwise;
 2. read STATUS.md first;
 3. restore workflow from STATUS;
 4. read TASK and required Plan/Rework/Review artifacts;
@@ -18,7 +18,7 @@ Never include Control Plane workflow artifacts in Code Plane commits.
 
 Do not `git add -f .agent-team`.
 
-If the Control Plane is inside the project, it must be ignored/untracked.
+The default Control Plane is `<project-root>/.agent-team/`; it must be ignored/untracked. Do not relocate it to a temporary directory on your own.
 
 ## Planning
 

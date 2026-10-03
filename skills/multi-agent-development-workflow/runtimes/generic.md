@@ -2,7 +2,16 @@
 
 Use three logical roles: Lead, Impl, Review.
 
+Default Control Root:
+
+```text
+<project-root>/.agent-team/
+```
+
+Do not automatically use temporary/global directories. External Control Roots require explicit user or environment configuration.
+
 Minimum invariants:
+
 
 1. Lead defines TASK and controls STATUS.
 2. Impl creates immutable Plan versions.

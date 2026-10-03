@@ -14,7 +14,7 @@ Consume only the required artifacts and repository/test evidence.
 
 ## Bootstrap
 
-1. require Task ID and Control Plane task directory;
+1. require Task ID and resolve the canonical Control Root; default to `<project-root>/.agent-team/` unless explicitly configured otherwise;
 2. read STATUS.md first and restore workflow;
 3. identify exact IMPL-NNN;
 4. read Plan reference, which may be N/A when Plan Gate was SKIPPED;
