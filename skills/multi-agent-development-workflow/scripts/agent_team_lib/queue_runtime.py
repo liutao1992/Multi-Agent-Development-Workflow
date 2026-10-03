@@ -10,7 +10,10 @@ from .core import (
     FileLock, OrchestratorError, process_alive, project_fingerprint, project_runtime_root,
     read_json, task_runtime_dir, write_json_atomic,
 )
-from .processes import choose_runtime, run_codex, run_pi_rpc, terminate_pid_group
+from .processes import (
+    choose_runtime, process_identity, process_identity_matches,
+    run_codex, run_pi_rpc, terminate_pid_group,
+)
 
 LEASE_SECONDS = 20
 
@@ -171,6 +174,13 @@ def recover_expired_claims(root: Path, project_root: Path, role: str) -> None:
             continue
 
         if not child_process_quiesced(pid):
+            identity = data.get("child_identity")
+            if not isinstance(identity, dict) or not process_identity_matches(identity):
+                quarantine_claim(
+                    root, project_root, role, claim,
+                    f"UNKNOWN_PROCESS_IDENTITY: live PID {pid} does not match recorded child identity.",
+                )
+                continue
             terminate_pid_group(pid, grace=1.0)
         if not child_process_quiesced(pid):
             quarantine_claim(
@@ -189,7 +199,7 @@ def recover_expired_claims(root: Path, project_root: Path, role: str) -> None:
             claim.unlink(missing_ok=True)
             continue
 
-        for key in ("lease_owner", "lease_until", "child_pid"):
+        for key in ("lease_owner", "lease_until", "child_pid", "child_identity"):
             data.pop(key, None)
         data["state"] = "QUEUED"
         write_json_atomic(paths["queued"] / f"{job_id}.json", data)
@@ -227,7 +237,12 @@ def claim_next_job(root: Path, project_root: Path, role: str, worker_id: str) ->
     return None
 
 
-def renew_claim(claim: Path, worker_id: str, child_pid: int | None = None) -> None:
+def renew_claim(
+    claim: Path,
+    worker_id: str,
+    child_pid: int | None = None,
+    child_identity: dict[str, object] | None = None,
+) -> None:
     data = read_json(claim)
     if data.get("lease_owner") != worker_id:
         raise OrchestratorError("Queue lease ownership changed unexpectedly.")
@@ -235,6 +250,8 @@ def renew_claim(claim: Path, worker_id: str, child_pid: int | None = None) -> No
     data["lease_until"] = time.time() + LEASE_SECONDS
     if child_pid:
         data["child_pid"] = child_pid
+    if child_identity:
+        data["child_identity"] = child_identity
     write_json_atomic(claim, data)
 
 
@@ -259,6 +276,16 @@ def cancel_and_quiesce_job(
                     f"Queue job {job_id} quarantined: child process identity is unknown."
                 )
             if not child_process_quiesced(int(child_pid)):
+                data = read_json(claim)
+                identity = data.get("child_identity")
+                if not isinstance(identity, dict) or not process_identity_matches(identity):
+                    quarantine_claim(
+                        root, project_root, role, claim,
+                        f"UNKNOWN_PROCESS_IDENTITY: live PID {child_pid} does not match recorded child identity.",
+                    )
+                    raise OrchestratorError(
+                        f"Queue job {job_id} quarantined: process identity cannot be proven."
+                    )
                 terminate_pid_group(int(child_pid), grace=1.0)
             if not child_process_quiesced(int(child_pid)):
                 quarantine_claim(
@@ -392,8 +419,18 @@ def worker_loop(
                     root, project_root, job["task_id"]
                 ) / f"{role.lower()}.log"
 
+                child_identity_cache: dict[str, object] | None = None
+
                 def tick(proc: subprocess.Popen) -> None:
-                    renew_claim(claim, worker_id, proc.pid)
+                    nonlocal child_identity_cache
+                    if child_identity_cache is None:
+                        child_identity_cache = process_identity(proc.pid)
+                    renew_claim(
+                        claim,
+                        worker_id,
+                        proc.pid,
+                        child_identity=child_identity_cache,
+                    )
                     heartbeat.touch()
 
                 cancelled = lambda: is_cancelled(root, project_root, job_id)

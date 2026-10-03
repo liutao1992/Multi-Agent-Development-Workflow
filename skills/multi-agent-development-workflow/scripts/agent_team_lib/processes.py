@@ -29,6 +29,52 @@ def choose_runtime(requested: str) -> str:
     raise OrchestratorError("Neither codex nor pi is available.")
 
 
+def process_identity(pid: int) -> dict[str, object] | None:
+    """Return a stable-enough process identity for stale-claim verification."""
+    if not process_alive(pid):
+        return None
+    identity: dict[str, object] = {"pid": pid}
+    if os.name == "posix":
+        try:
+            identity["pgid"] = os.getpgid(pid)
+            start = subprocess.run(
+                ["ps", "-o", "lstart=", "-p", str(pid)],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            ).stdout.strip()
+            command = subprocess.run(
+                ["ps", "-o", "command=", "-p", str(pid)],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            ).stdout.strip()
+            if not start:
+                return None
+            identity["start_time"] = start
+            identity["command"] = command
+        except (OSError, ProcessLookupError, PermissionError):
+            return None
+    return identity
+
+
+def process_identity_matches(expected: dict[str, object] | None) -> bool:
+    if not expected or "pid" not in expected:
+        return False
+    try:
+        current = process_identity(int(expected["pid"]))
+    except (TypeError, ValueError):
+        return False
+    if current is None:
+        return False
+    for key in ("pid", "pgid", "start_time", "command"):
+        if key in expected and current.get(key) != expected.get(key):
+            return False
+    return True
+
+
 def terminate_pid_group(pid: int, grace: float = 1.0) -> None:
     if not process_alive(pid):
         return

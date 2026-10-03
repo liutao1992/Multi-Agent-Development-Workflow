@@ -74,6 +74,35 @@ Do not modify production code. Do not invoke the orchestrator recursively.
 """
 
 
+def build_resume_prompt(
+    task_id: str,
+    project_root: Path,
+    root: Path,
+    decision: str | None,
+) -> str:
+    task = task_root(root, project_root, task_id)
+    decision_text = decision.strip() if decision else "No new decision text was supplied; use existing Task artifacts."
+    return f"""Use multi-agent-development-workflow.
+Role: Lead.
+Invocation Mode: Orchestrated Worker.
+Project Root: {project_root}
+Control Root: {root}
+Task Root: {task}
+Task: {task_id}
+Action: Resume BLOCKED task.
+
+Human resolution / decision:
+{decision_text}
+
+Read STATUS.md first. The current state MUST be BLOCKED.
+Resolve the blocker using the supplied human decision and existing artifacts.
+Transition STATUS exactly to the recorded Resume State, or CANCELLED only if the human decision explicitly cancels the Task.
+Do not modify production code.
+Do not invoke the orchestrator recursively.
+Stop after the lifecycle transition.
+"""
+
+
 def normalize_transport(requested: str) -> str:
     if requested in {"auto", "process", "direct"}:
         return "process"
@@ -189,6 +218,81 @@ def run_task(
         )
 
 
+def resume_task(
+    project_root: Path,
+    root: Path,
+    task_id: str,
+    decision: str | None,
+    runtime: str,
+    transport: str,
+    max_steps: int,
+    timeout: int,
+) -> int:
+    task = task_root(root, project_root, task_id)
+    if not task.is_dir():
+        raise OrchestratorError(f"Task not found: {task}")
+
+    with FileLock(
+        project_lock_path(root, project_root),
+        f"Code Plane {project_root}",
+        recover_stale=False,
+    ):
+        require_no_quarantined_jobs(root, project_root)
+        require_clean_code_plane(project_root)
+
+        with FileLock(task_lock_path(root, project_root, task_id), f"Task {task_id}"):
+            before_status = read_status(task)
+            if current_state(before_status) != "BLOCKED":
+                raise OrchestratorError(
+                    f"resume requires STATUS=BLOCKED; current state is {current_state(before_status)}"
+                )
+
+            before_git = git_snapshot(project_root)
+            before_control = control_snapshot(task)
+            before_project_control = project_control_snapshot(root, project_root)
+            before_plan_content = plan_content_snapshot(task)
+
+            dispatch(
+                runtime,
+                transport,
+                "Lead",
+                build_resume_prompt(task_id, project_root, root, decision),
+                project_root,
+                root,
+                task_id,
+                timeout,
+            )
+
+            after_git = git_snapshot(project_root)
+            after_control = control_snapshot(task)
+            after_project_control = project_control_snapshot(root, project_root)
+            after_plan_content = plan_content_snapshot(task)
+            after_status = read_status(task)
+
+            validate_plan_content_boundary("Lead", before_plan_content, after_plan_content)
+            validate_project_control_boundary(
+                "Lead", task, before_project_control, after_project_control,
+            )
+            validate_role_postconditions(
+                "Lead",
+                "BLOCKED",
+                task,
+                before_git,
+                after_git,
+                before_control,
+                after_control,
+            )
+            validate_transition(task, before_status, after_status, after_git["head"])
+
+        if current_state(read_status(task)) == "CANCELLED":
+            print(f"Task {task_id}: CANCELLED")
+            return 0
+
+        return run_task_locked(
+            project_root, root, task_id, runtime, transport, max_steps, timeout
+        )
+
+
 def create_task_and_run(
     project_root: Path, root: Path, requirement: str, runtime: str,
     transport: str, max_steps: int, timeout: int,
@@ -269,11 +373,11 @@ def doctor(project_root: Path, root: Path, requested_runtime: str) -> int:
 
 
 def command_requires_runtime(command: str) -> bool:
-    return command in {"start", "run", "worker"}
+    return command in {"start", "run", "resume", "worker"}
 
 
 def command_mutates_control_plane(command: str) -> bool:
-    return command in {"start", "run", "worker"}
+    return command in {"start", "run", "resume", "worker"}
 
 
 def main() -> int:
@@ -304,6 +408,14 @@ def main() -> int:
     status_p = sub.add_parser("status")
     status_p.add_argument("task_id")
 
+    resume_p = sub.add_parser("resume")
+    resume_p.add_argument("task_id")
+    resume_p.add_argument(
+        "decision",
+        nargs="?",
+        help="Human resolution/decision used to resume the BLOCKED Task.",
+    )
+
     worker_p = sub.add_parser("worker")
     worker_p.add_argument("role", choices=["Impl", "Review"])
     worker_p.add_argument("--once", action="store_true")
@@ -331,6 +443,11 @@ def main() -> int:
     if args.command == "run":
         return run_task(
             project_root, root, args.task_id,
+            runtime, transport, args.max_steps, args.timeout,
+        )
+    if args.command == "resume":
+        return resume_task(
+            project_root, root, args.task_id, args.decision,
             runtime, transport, args.max_steps, args.timeout,
         )
     if args.command == "start":
