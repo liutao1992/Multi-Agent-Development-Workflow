@@ -4,10 +4,19 @@ Task ID: TASK-YYYYMMDD-NNN-short-name
 Task Name: <human-readable name>
 
 Final Result: ACCEPTED
-Accepted Plan: PLAN-vNNN.md
+
+## Plan Reference
+
+Plan Gate: REQUIRED | SKIPPED
+Accepted Plan Artifact: PLAN-vNNN.md | N/A
+Accepted Plan Version: NNN | N/A
+
+## Accepted Evidence
+
 Accepted Implementation: IMPL-NNN.md
 Accepted Review: REVIEW-NNN.md
-Accepted Head SHA: <sha>
+Task Baseline SHA: <sha>
+Accepted Code Head SHA: <sha>
 Accepted By: Lead Agent
 Acceptance Date: YYYY-MM-DD
 
@@ -34,7 +43,3 @@ Acceptance Date: YYYY-MM-DD
 ## Residual Risks
 
 None
-
-## Final Notes
-
-<optional>

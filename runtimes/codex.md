@@ -8,18 +8,18 @@ Core protocol is defined by SKILL.md.
 - Right top → Codex Implementation
 - Right bottom → Codex Review
 
+## Control Plane
+
+Do not include .agent-team workflow artifacts in Code Plane commits. Use an ignored local Control Root or an external shared Control Root.
+
 ## Review isolation
 
-Prefer a fresh Codex review session/context.
+Prefer a fresh Codex Review session/context.
 
-Give Review artifacts and exact Git target, not Implementation private reasoning.
+Give Review artifacts plus Task Baseline SHA, Previous Head SHA, and exact Code Head SHA. Do not provide Implementation private reasoning as proof.
 
-## Git target
-
-Implementation submits a committed Head SHA. Review checks out or inspects that exact SHA.
-
-A moving branch name is not sufficient. New code changes require a new implementation round.
+Review should inspect the exact clean Code Head snapshot and both full-task and current-round diffs.
 
 ## Subagents
 
-Codex subagents/delegation may implement logical roles but must preserve lifecycle control, Plan Gate, stable Head SHA, independent Review, and Lead Acceptance.
+Codex subagents/delegation may implement logical roles, but STATUS transitions remain Lead-controlled and protocol gates remain mandatory.

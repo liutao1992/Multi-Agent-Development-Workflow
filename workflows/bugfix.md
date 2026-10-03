@@ -2,30 +2,26 @@
 
 TASK should record Expected Behavior, Actual Behavior, Reproduction Steps, Environment, frequency/conditions, and regression range when available.
 
+Task Baseline SHA is frozen before the fix.
+
 ```text
 Bug Task
  ↓
-Reproduce
- ↓
-Root cause
- ↓
-PLAN-vNNN
+Reproduce / root cause
  ↓
 Plan Gate unless ALL trivial criteria pass
  ↓
 Fix + regression tests
  ↓
-Commit stable Review Target
+commit Code Plane
  ↓
-IMPL-NNN
+IMPL-NNN with Baseline / Previous / Code Head
  ↓
-Independent Review at exact Head SHA
+independent Review at clean exact Code Head
  ↓
-REVIEW-NNN
- ↓
-Lead ACCEPTANCE.md
+Lead Acceptance
 ```
 
-Testing should reproduce the original defect, prove the fix, and cover adjacent regressions when appropriate.
+Review should inspect both the full task diff and, for rework, the delta from the previous submitted Head.
 
-Review of an uncommitted or moving target is invalid.
+An uncommitted, dirty, or Control-Plane-contaminated review target is invalid.

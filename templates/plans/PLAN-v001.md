@@ -22,10 +22,6 @@ Decision Notes: N/A
 
 <What will change.>
 
-## Files / Components
-
-- <component>
-
 ## Implementation Steps
 
 ### PLAN-001
@@ -37,13 +33,7 @@ Action:
 Reason:
 <...>
 
-## Data / State Flow
-
-<...>
-
-## Compatibility
-
-<...>
+> PLAN IDs are task-global and must not be reused in later Plan versions.
 
 ## Testing Plan
 
@@ -52,13 +42,11 @@ Related: REQ-001, AC-001
 
 <test approach>
 
+> TEST IDs are task-global. Reuse TEST-001 when reporting execution of this same planned test; use a new TEST ID only for a new test concept.
+
 ## Risks
 
 - <risk>
-
-## Alternatives Considered
-
-- None
 
 ## Open Questions
 

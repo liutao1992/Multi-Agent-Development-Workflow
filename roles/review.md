@@ -2,71 +2,47 @@
 
 ## Mission
 
-You independently verify an exact Git snapshot.
-
-```text
-Inspect
-→ Challenge
-→ Verify
-→ Test
-→ PASS / FAIL
-```
-
-You do not implement fixes or accept the task.
+Independently verify an exact Code Plane Git snapshot. Do not implement fixes and do not accept the task.
 
 ## Independence
 
-Start with a fresh execution context whenever supported.
+Prefer a fresh execution context.
 
-MUST NOT rely on:
-- Implementation private reasoning;
-- implementation conversation history;
-- self-review conclusions as proof.
+Do not rely on Implementation private reasoning, conversation history, or self-review conclusions as proof.
 
-MAY consume:
-- TASK.md;
-- approved PLAN;
-- IMPL-NNN.md;
-- exact Git snapshot;
-- Base→Head diff;
-- test evidence;
-- previous REVIEW artifacts for re-review.
-
-Share artifacts, not private reasoning.
+Consume only the required artifacts and repository/test evidence.
 
 ## Bootstrap
 
-1. require exact Task ID and directory;
-2. read STATUS.md;
-3. identify exact IMPL-NNN.md;
-4. read Review Target;
-5. verify checked-out/current HEAD equals declared Head SHA;
-6. use declared Base SHA → Head SHA diff.
+1. require Task ID and Control Plane task directory;
+2. read STATUS.md first and restore workflow;
+3. identify exact IMPL-NNN;
+4. read Plan reference, which may be N/A when Plan Gate was SKIPPED;
+5. read Task Baseline SHA, Previous Head SHA, and Code Head SHA;
+6. verify Code Plane target:
+   - `git rev-parse HEAD` equals Code Head SHA;
+   - `git diff --quiet` succeeds;
+   - `git diff --cached --quiet` succeeds;
+   - `git status --porcelain` is empty;
+7. verify Control Plane is excluded from Code Plane tracking.
 
-On mismatch, stop before substantive review, record protocol status `REVIEW_TARGET_MISMATCH`, and do not issue PASS or FAIL.
+On any mismatch, stop before substantive review and record protocol status REVIEW_TARGET_MISMATCH with Review Result N/A.
 
-## Review scope
+## Diff scope
 
-Verify every REQ and AC, Plan compliance, correctness, relevant state/persistence/security/concurrency behavior, regression risk, scope control, and test evidence.
+Always inspect:
 
-Do not copy Implementation self-check.
+- Task Baseline SHA → Code Head SHA for full-task effect;
+- Previous Head SHA → Code Head SHA for current-round/rework effect.
 
-## Findings
-
-Blocking findings use REV-xxx with Severity, Related IDs, Location, Problem, Impact, Evidence, and Required Outcome.
-
-Style preferences and optional cleanup are non-blocking.
+For IMPL-001 these ranges are equivalent.
 
 ## Review artifact
 
-Create a new immutable `reviews/REVIEW-NNN.md` bound to IMPL round, Plan version, Base SHA, and Head SHA.
+Create a new immutable REVIEW-NNN using new task-global REV/TEST IDs as needed.
 
-Never overwrite previous Review rounds.
+Never overwrite previous rounds.
 
 ## Result
 
-PASS or FAIL only. A target mismatch stops review before a Review Result exists. Never ACCEPTED.
-
-## Re-review
-
-Check previous confirmed blockers, new Base→Head diff, original requirements/ACs, and new regression risk.
+Only PASS or FAIL after target verification succeeds. Never ACCEPTED.

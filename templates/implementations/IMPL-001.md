@@ -3,37 +3,43 @@
 Task ID: TASK-YYYYMMDD-NNN-short-name
 Task Name: <human-readable name>
 Implementation Round: 1
-Plan Version: 1
 Round Result: READY_FOR_REVIEW
+
+## Plan Reference
+
+Plan Gate: REQUIRED | SKIPPED
+Plan Artifact: PLAN-v001.md | N/A
+Plan Version: 1 | N/A
 
 ## Review Target
 
+Task Baseline SHA: <sha>
+Previous Head SHA: <sha>
+Code Head SHA: <sha>
 Branch: <branch or detached>
-Base SHA: <sha>
-Head SHA: <sha>
-Working Tree: CLEAN
+Code Working Tree: CLEAN
+Control Plane Excluded: YES
 Frozen: true
 
-> Head SHA is authoritative. Any later code change creates a new implementation round.
+> For IMPL-001, Previous Head SHA equals Task Baseline SHA.
+> For later rounds, Previous Head SHA equals the previous submitted Code Head SHA.
 
 ## Summary
 
 <What was implemented.>
 
-## Completed Plan Steps
-
-- [ ] PLAN-001
-
 ## Changes
 
 ### CHANGE-001
-Related: REQ-001, PLAN-001
+Related: REQ-001, PLAN-001 | N/A
 
 Files:
-- <path>
+- <code-plane path>
 
 Description:
 <...>
+
+> CHANGE IDs are task-global and must not be reused in later rounds.
 
 ## Acceptance Criteria Self-Check
 
@@ -65,7 +71,3 @@ None
 ## Risks
 
 - None
-
-## Review Focus
-
-- <area>

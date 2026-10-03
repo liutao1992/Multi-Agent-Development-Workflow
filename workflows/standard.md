@@ -1,33 +1,49 @@
 # Standard Workflow
 
-Use for normal feature development and medium-risk changes.
+Use for normal feature work and medium-risk changes.
+
+## Normal path
 
 ```text
-Lead → TASK.md + STATUS CREATED
- ↓
-Implementation → PLAN-v001
- ↓
-Lead Plan Gate
- ├─ REWORK → PLAN-v002
+CREATED
+ ↓ Lead
+PLANNING
+ ↓ Implementation writes Plan
+PLAN_REVIEW
+ ├─ REWORK → PLAN_REWORK → next Plan
  └─ APPROVED
        ↓
-STATUS READY_FOR_IMPLEMENTATION
- ↓
-Implementation → code + tests + commit
- ↓
-IMPL-001 binds Base SHA / Head SHA
- ↓
-STATUS READY_FOR_REVIEW
- ↓
-Fresh Review verifies exact Head SHA
- ↓
-REVIEW-001
- ├─ FAIL → Lead confirms RW-xxx → REWORK → IMPL-002 → REVIEW-002
+READY_FOR_IMPLEMENTATION
+ ↓ Lead handoff
+IMPLEMENTING
+ ↓ Implementation commits Code Plane + writes IMPL
+READY_FOR_REVIEW
+ ↓ Lead
+REVIEWING
+ ├─ FAIL → REWORK → IMPLEMENTING
  └─ PASS → READY_FOR_FINAL_ACCEPTANCE
               ↓
-            Lead → ACCEPTANCE.md
+            ACCEPTANCE.md
               ↓
             ACCEPTED
 ```
 
-Required gates: TASK, lifecycle STATUS, Plan approval unless ALL trivial criteria pass, committed/frozen Review Target, independent Review, and Lead ACCEPTANCE.md.
+## Fast path
+
+If and only if ALL trivial-task criteria pass:
+
+```text
+CREATED
+ ↓ Lead records Plan Gate SKIPPED
+READY_FOR_IMPLEMENTATION
+ ↓
+IMPLEMENTING
+ ↓
+stable Code snapshot + IMPL with Plan=N/A
+ ↓
+independent Review with Plan=N/A
+ ↓
+Lead Acceptance with Plan=N/A
+```
+
+Review and final acceptance are never skipped.

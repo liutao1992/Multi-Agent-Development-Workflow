@@ -1,8 +1,8 @@
 # Multi-Agent Development Workflow
 
-A runtime-independent development protocol for coordinating **Lead**, **Implementation**, and **Review** agents across Codex, Pi, Claude Code, Cursor, OpenCode, or other coding agents.
+A runtime-independent, artifact-driven development protocol for coordinating **Lead**, **Implementation**, and **Review** agents across Codex, Pi, Claude Code, Cursor, OpenCode, or other coding agents.
 
-The protocol separates three questions:
+The protocol separates:
 
 - **What should be built?** → Lead Agent
 - **How should it be built?** → Implementation Agent
@@ -10,37 +10,55 @@ The protocol separates three questions:
 
 Only the Lead Agent can declare a task **ACCEPTED**.
 
-Warp is the preferred interactive terminal environment, but the protocol is terminal- and runtime-independent.
+Warp is the preferred interactive terminal environment, but terminal and agent runtime are adapters rather than protocol authorities.
 
 ## Core lifecycle
 
 ```text
 User
  ↓
-Lead → TASK.md
+Lead → TASK.md + STATUS.md
  ↓
 Implementation → PLAN-v001.md
  ↓
 Lead Plan Gate
- ├─ PLAN_REWORK → PLAN-v002.md
+ ├─ REWORK → PLAN-v002.md
  └─ APPROVED
        ↓
-Implementation → Git snapshot → IMPL-001.md
+Implementation → Code Plane commit → IMPL-001.md
  ↓
-Independent Review → REVIEW-001.md
- ├─ FAIL → Lead → RW-001 → IMPL-002.md → REVIEW-002.md
+Independent Review → exact Code Head SHA → REVIEW-001.md
+ ├─ FAIL → RW-001 → IMPL-002.md → REVIEW-002.md
  └─ PASS
        ↓
-Lead Final Acceptance
- ↓
-ACCEPTANCE.md
+Lead → ACCEPTANCE.md
  ↓
 ACCEPTED
 ```
 
-## Task workspace
+## Control Plane vs Code Plane
 
-Each task has its own namespace and immutable round history:
+The protocol explicitly separates workflow metadata from reviewed code:
+
+```text
+Control Plane
+.agent-team/
+TASK / STATUS / PLAN / IMPL / REVIEW / ACCEPTANCE
+
+Code Plane
+production source / tests / migrations / resources / configuration
+```
+
+**Control Plane artifacts MUST NOT be tracked in the reviewed Code Plane Git history.**
+
+Recommended local setup:
+
+- shared single worktree: keep `.agent-team/` inside the project directory but exclude it with `.git/info/exclude`;
+- multiple worktrees / concurrent agents: use one shared control directory outside all code worktrees.
+
+This avoids the self-referential problem where an IMPL artifact records a Git SHA and committing that artifact changes the SHA.
+
+## Task workspace
 
 ```text
 .agent-team/
@@ -61,45 +79,23 @@ Each task has its own namespace and immutable round history:
         └── ACCEPTANCE.md
 ```
 
-## Sources of truth
+## Review snapshots
 
-| Concern | Source of truth |
-|---|---|
-| Requirements | `TASK.md` |
-| Approved implementation intent | approved `PLAN-vNNN.md` |
-| Implemented code | immutable Git Head SHA |
-| Verification evidence | `REVIEW-NNN.md` |
-| Current lifecycle state | `STATUS.md` |
-| Final closure | `ACCEPTANCE.md` |
-| Multi-task dashboard | `INDEX.md` (derived only) |
+Every task freezes a **Task Baseline SHA** at creation.
 
-## Stable review target
-
-Every implementation round submitted for review must bind to a stable Git snapshot:
+Each implementation round records:
 
 ```text
-Branch: feature/foo
-Base SHA: abc123
-Head SHA: def456
-Working Tree: CLEAN
-Frozen: true
+Task Baseline SHA
+Previous Head SHA
+Code Head SHA
 ```
 
-The **Head SHA** is the authoritative review target. Any later code change creates a new implementation round and review round.
+Review uses both:
 
-## Warp layout
+- Task Baseline SHA → Code Head SHA: full task impact;
+- Previous Head SHA → Code Head SHA: current implementation/rework round.
 
-```text
-┌──────────────────────────┬──────────────────────────┐
-│ Lead Agent               │ Implementation Agent     │
-│                          │                          │
-│ Task / Plan Gate         │ Plan / Code / Test       │
-│ Rework / Acceptance      │                          │
-│                          ├──────────────────────────┤
-│                          │ Review Agent             │
-│                          │                          │
-│                          │ Verify / PASS / FAIL     │
-└──────────────────────────┴──────────────────────────┘
-```
+The reviewer also verifies the Code Plane working tree is clean before substantive review.
 
-See [SKILL.md](./SKILL.md) for the executable protocol.
+See [SKILL.md](./SKILL.md) for the full executable protocol.

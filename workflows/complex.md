@@ -2,14 +2,14 @@
 
 Use when architecture, migration, security, concurrency, API/contract, cross-module behavior, major refactor, or high regression risk is involved.
 
-Plan Gate is mandatory.
+Plan Gate is mandatory and may not be skipped.
 
-PLAN should cover relevant architecture impact, migration/rollback, compatibility, failure modes, data integrity, observability, security/concurrency, tests, and rollout.
+Task Baseline SHA is frozen at task creation.
 
-Any material deviation requires STOP → new Plan version → Lead approval.
+Every implementation round must provide Previous Head SHA and Code Head SHA.
 
-Implementation must produce a committed stable Review Target.
+Review must inspect both full-task diff and current-round diff and verify a clean exact Code Plane checkout.
 
-Review must use a fresh context when supported and verify both local correctness and system-level impact against the exact Head SHA.
+Any material deviation requires STOP → PLAN_REWORK → next Plan version → Lead approval.
 
-Final closure requires ACCEPTANCE.md.
+Final closure requires ACCEPTANCE.md bound to the exact accepted Code Head SHA.

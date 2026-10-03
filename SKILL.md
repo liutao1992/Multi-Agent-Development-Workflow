@@ -1,6 +1,6 @@
 ---
 name: multi-agent-development-workflow
-description: Use for non-trivial software-development tasks that need multi-agent coordination, task definition, plan approval, implementation, independent review, rework, stable Git review snapshots, and final acceptance across Codex, Pi, Warp, or other coding-agent environments.
+description: Use for non-trivial software-development tasks that need multi-agent coordination, task definition, plan approval, implementation, independent review, rework, stable Git code snapshots, lifecycle control, and final acceptance across Codex, Pi, Warp, or other coding-agent environments.
 ---
 
 # Multi-Agent Development Workflow
@@ -11,32 +11,45 @@ This skill defines a deterministic, runtime-independent development protocol usi
 
 1. **Lead Agent** — requirements, lifecycle control, plan approval, rework decisions, final acceptance.
 2. **Implementation Agent** — investigation, planning, implementation, testing, immutable implementation-round evidence.
-3. **Review Agent** — fresh-context independent verification of a stable Git snapshot.
+3. **Review Agent** — fresh-context independent verification of an exact Code Plane Git snapshot.
 
-Only the Lead Agent may declare a task **ACCEPTED**.
-
-Warp is the preferred interactive terminal adapter. Codex, Pi, and other coding agents are runtime adapters. Neither terminal nor runtime may redefine the protocol.
+Only Lead may declare a task **ACCEPTED**.
 
 ## Invocation protocol
 
-When this skill is invoked, execute this bootstrap before task work:
+### Existing task
 
-1. Determine invocation mode: new task; planning / plan rework; implementation / implementation rework; review / re-review; or final acceptance.
-2. Determine the acting role: Lead, Implementation, or Review. If the request is general orchestration and no role is explicit, use Lead.
-3. Determine the exact Task ID and task directory.
-   - Prefer an explicitly supplied Task ID.
-   - If exactly one active task exists, it may be selected from `.agent-team/INDEX.md`.
-   - If multiple active tasks exist, never infer which one is intended.
-4. Determine workflow: `bugfix`, `standard`, or `complex`.
-5. Determine runtime: Codex, Pi, or generic.
-6. Load the matching role file, workflow file, runtime adapter, and `adapters/warp.md` when Warp is used.
-7. Read the task's `STATUS.md` before acting.
-8. Perform only actions allowed by the current lifecycle state.
-9. After a lifecycle transition, update `STATUS.md` first, then refresh the derived `INDEX.md`.
+When an existing Task ID is known or discovered:
+
+1. Determine acting role: Lead, Implementation, or Review. If orchestration is requested without an explicit role, use Lead.
+2. Determine exact Task ID and Control Plane task directory.
+   - Prefer an explicit Task ID.
+   - If exactly one active task exists, it may be selected from INDEX.md.
+   - If multiple active tasks exist, never infer the intended task.
+3. **Read STATUS.md before classifying workflow or deciding the next action.**
+4. Restore workflow from `STATUS.md → Workflow.Type`.
+   - Do not reclassify an existing task on every invocation.
+   - A workflow-type change requires an explicit Lead decision recorded in STATUS history.
+5. Determine invocation mode from STATUS and the request: planning, plan rework, implementation, implementation rework, review, re-review, or final acceptance.
+6. Determine runtime: Codex, Pi, or generic.
+7. Load the matching role file, the workflow recorded in STATUS, runtime adapter, and Warp adapter when applicable.
+8. Perform only actions allowed by the Lifecycle Transition Table.
+9. After a lifecycle transition, update STATUS.md first, then refresh INDEX.md.
+
+### New task
+
+For a new task:
+
+1. Use Lead role.
+2. Select workflow once: standard, complex, or bugfix.
+3. Establish Control Plane / Code Plane separation.
+4. Verify the Code Plane has a stable clean starting point.
+5. Freeze `Task Baseline SHA = git rev-parse HEAD`.
+6. Create Task ID and task workspace.
+7. Create TASK.md and STATUS.md with the selected workflow and baseline.
+8. Continue according to the Lifecycle Transition Table.
 
 ## Core rule
-
-Never collapse these questions:
 
 - **What should be built?** → Lead
 - **How should it be built?** → Implementation
@@ -45,6 +58,56 @@ Never collapse these questions:
 Implementation cannot approve itself.
 Review cannot redefine requirements.
 Only Lead can accept.
+
+## Control Plane and Code Plane
+
+### Control Plane
+
+Workflow metadata:
+
+- INDEX.md
+- TASK.md
+- STATUS.md
+- PLAN-vNNN.md
+- IMPL-NNN.md
+- REVIEW-NNN.md
+- ACCEPTANCE.md
+
+### Code Plane
+
+The repository content whose behavior is being changed and reviewed, including relevant:
+
+- production source;
+- tests;
+- migrations;
+- resources;
+- runtime/build configuration;
+- other tracked project files.
+
+### Separation invariant
+
+Control Plane artifacts **MUST NOT be included in the reviewed Code Plane Git snapshot**.
+
+The reviewed `Code Head SHA` must not change merely because a workflow artifact was created or updated.
+
+Preferred setups:
+
+1. **Single shared worktree:** keep `.agent-team/` locally inside the project but exclude it from Git using `.git/info/exclude` or an equivalent local ignore mechanism.
+2. **Multiple worktrees / concurrent agents:** keep one shared Control Plane directory outside all Code Plane worktrees.
+3. **Versioned workflow metadata:** if artifacts must be versioned, store them in a separate control repository or other storage that does not alter Code Plane commits.
+
+Do not force-add Control Plane artifacts to the Code Plane branch.
+
+Before using an in-project `.agent-team/`, verify:
+
+```bash
+git ls-files .agent-team
+git check-ignore -q .agent-team/
+```
+
+`git ls-files .agent-team` should return nothing.
+
+If Control Plane files are already tracked in the Code Plane, migrate them out of the reviewed history/index before relying on this protocol.
 
 ## Task workspace
 
@@ -56,33 +119,60 @@ Only Lead can accept.
         ├── TASK.md
         ├── STATUS.md
         ├── plans/
-        │   ├── PLAN-v001.md
-        │   └── PLAN-v002.md
         ├── implementations/
-        │   ├── IMPL-001.md
-        │   └── IMPL-002.md
         ├── reviews/
-        │   ├── REVIEW-001.md
-        │   └── REVIEW-002.md
         └── ACCEPTANCE.md
 ```
 
-Do not overwrite prior plan, implementation, or review rounds.
+The logical Control Root may be outside the Code Plane repository.
 
-## Single-source-of-truth model
+## Sources of truth
 
-Authoritative mapping:
-
-- `TASK.md` = **requirement source of truth**.
-- approved `PLAN-vNNN.md` = **implementation-intent source of truth**.
-- Git `Head SHA` = **implementation source of truth** for an implementation round.
-- `REVIEW-NNN.md` = **verification evidence** for its exact review target.
-- `STATUS.md` = **only lifecycle source of truth**.
-- `ACCEPTANCE.md` = **final closure evidence**.
-- `INDEX.md` = **derived dashboard only**; never overrides STATUS.md.
+- TASK.md = requirement source of truth.
+- approved PLAN-vNNN.md = implementation-intent source of truth.
+- Code Head SHA = implementation source of truth.
+- REVIEW-NNN.md = verification evidence.
+- STATUS.md = only lifecycle source of truth.
+- ACCEPTANCE.md = final closure evidence.
+- INDEX.md = derived dashboard only.
 - conversation history = supporting context only.
 
-Artifact-local fields such as Plan Approval Status, Implementation Result, or Review Result describe that artifact only; they do not override `STATUS.md`.
+Artifact-local fields never override STATUS lifecycle state.
+
+## Task baseline and implementation snapshots
+
+At task creation Lead freezes:
+
+```text
+Task Baseline SHA: <code-plane sha>
+```
+
+It does not change for the lifetime of the task.
+
+Each IMPL round records:
+
+```text
+Task Baseline SHA: <task start>
+Previous Head SHA: <previous submitted implementation head>
+Code Head SHA: <current submitted implementation head>
+```
+
+For IMPL-001:
+
+```text
+Previous Head SHA = Task Baseline SHA
+```
+
+For IMPL-002+:
+
+```text
+Previous Head SHA = previous IMPL round Code Head SHA
+```
+
+Review uses:
+
+- `Task Baseline SHA → Code Head SHA` for full-task impact;
+- `Previous Head SHA → Code Head SHA` for current-round changes.
 
 ## Lifecycle states
 
@@ -102,185 +192,203 @@ BLOCKED
 CANCELLED
 ```
 
-Only Lead normally transitions lifecycle state.
+Lead is the lifecycle transition authority. Implementation and Review create evidence/artifacts; Lead validates the handoff and changes STATUS.
+
+## Lifecycle Transition Table
+
+| Current | Actor | Action / evidence | Next |
+|---|---|---|---|
+| CREATED | Lead | start normal planning | PLANNING |
+| CREATED | Lead | confirm ALL trivial-task criteria and skip Plan Gate | READY_FOR_IMPLEMENTATION |
+| PLANNING | Implementation | create next PLAN-vNNN | PLANNING |
+| PLANNING | Lead | receive complete Plan for decision | PLAN_REVIEW |
+| PLAN_REVIEW | Lead | approve Plan | READY_FOR_IMPLEMENTATION |
+| PLAN_REVIEW | Lead | reject Plan | PLAN_REWORK |
+| PLAN_REWORK | Implementation | create next Plan version | PLAN_REWORK |
+| PLAN_REWORK | Lead | receive next Plan for decision | PLAN_REVIEW |
+| READY_FOR_IMPLEMENTATION | Lead | hand off approved/fast-path task | IMPLEMENTING |
+| IMPLEMENTING | Implementation | create committed IMPL-NNN evidence | IMPLEMENTING |
+| IMPLEMENTING | Lead | validate snapshot/evidence | READY_FOR_REVIEW |
+| IMPLEMENTING | Lead | accept material-deviation signal | PLAN_REWORK |
+| READY_FOR_REVIEW | Lead | start independent Review | REVIEWING |
+| REVIEWING | Review | create REVIEW-NNN evidence | REVIEWING |
+| REVIEWING | Lead | validate Review FAIL | REWORK |
+| REVIEWING | Lead | validate Review PASS | READY_FOR_FINAL_ACCEPTANCE |
+| REVIEWING | Lead | reviewer environment mismatch only; reset Review environment | READY_FOR_REVIEW |
+| REVIEWING | Lead | frozen Code Target was mutated / invalidated | REWORK |
+| REWORK | Lead | hand confirmed RW items to Implementation | IMPLEMENTING |
+| READY_FOR_FINAL_ACCEPTANCE | Lead | final acceptance succeeds and ACCEPTANCE.md exists | ACCEPTED |
+| READY_FOR_FINAL_ACCEPTANCE | Lead | final acceptance finds blocking issue | REWORK |
+| any non-terminal state | Lead | external dependency prevents progress | BLOCKED |
+| BLOCKED | Lead | dependency resolved; restore recorded Resume State | <Resume State> |
+| any non-terminal state | Lead | cancel task | CANCELLED |
+
+ACCEPTED and CANCELLED are terminal unless an explicit new task is created.
+
+STATUS.md must record `Resume State` when entering BLOCKED.
 
 ## Artifact history
 
-Plan, implementation, and review artifacts are append-only by version/round:
+Plan, implementation, and review artifacts are append-only:
 
-- `PLAN-v001.md`, `PLAN-v002.md`, ...
-- `IMPL-001.md`, `IMPL-002.md`, ...
-- `REVIEW-001.md`, `REVIEW-002.md`, ...
+- PLAN-v001.md, PLAN-v002.md, ...
+- IMPL-001.md, IMPL-002.md, ...
+- REVIEW-001.md, REVIEW-002.md, ...
 
 Never edit an old artifact into a new version/round.
-`STATUS.md` and `INDEX.md` are mutable projections.
-`TASK.md` may be amended only by Lead with changes explicitly recorded.
 
-## Stable identifiers
+STATUS.md and INDEX.md are mutable projections.
+TASK.md may be amended only by Lead with changes explicitly logged.
 
-Use:
-- Requirements: `REQ-001`
-- Acceptance criteria: `AC-001`
-- Plan steps: `PLAN-001`
-- Implementation changes: `CHANGE-001`
-- Tests: `TEST-001`
-- Review findings: `REV-001`
-- Rework items: `RW-001`
+## Identifier uniqueness
+
+Identifiers are task-global within their prefix and MUST NOT be reused inside the same Task namespace, even across Plan versions, implementation rounds, or review rounds.
+
+Examples:
+
+```text
+PLAN-v001: PLAN-001, PLAN-002
+PLAN-v002: PLAN-003, PLAN-004
+
+IMPL-001: CHANGE-001
+IMPL-002: CHANGE-002
+
+REVIEW-001: REV-001
+REVIEW-002: REV-002
+```
+
+The same planned test keeps its existing TEST ID when executed. A newly introduced test gets the next unused TEST-xxx ID.
+
+Do not reset numbering when a new artifact version is created.
 
 ## Plan ownership and approval
 
-Responsibilities are split:
+- Plan Content Owner: Implementation.
+- Plan Approval Owner: Lead.
 
-- **Plan Content Owner:** Implementation Agent.
-- **Plan Approval Owner:** Lead Agent.
+Implementation creates PLAN-vNNN with Approval Status PENDING.
+Lead may modify only the Approval block to record APPROVED or REWORK.
 
-Implementation creates `PLAN-vNNN.md` with Approval Status `PENDING`.
-Lead may modify only its Approval block to record `APPROVED` or `REWORK`, reviewer, date, and notes.
+Once decided, freeze that Plan version.
 
-Once Lead records a decision, freeze that plan version. Plan rework creates the next version.
+## Plan Gate classification
 
-## Plan gate classification
+A task may skip Plan Gate only when **ALL** are true:
 
-A task may skip the Plan Gate only when it is **trivial and low-risk**.
-
-A task is trivial only if **ALL** are true:
-
-- change is localized;
+- localized change;
 - no database/schema/data migration;
-- no public API or contract change;
+- no public API/contract change;
 - no security/auth/permission impact;
-- no concurrency or synchronization impact;
+- no concurrency/synchronization impact;
 - no architecture-boundary change;
 - no cross-module behavioral change;
 - low regression risk;
 - easily reversible;
-- expected implementation is small and directly understood from existing code.
+- small and directly understood from existing code.
 
-If any condition is false or uncertain, require Plan approval.
+If any item is false or uncertain, Plan Gate is REQUIRED.
 
-Skipping the Plan Gate does not skip Review, stable Review Target, or final acceptance.
+Fast path still requires stable Code snapshot, independent Review, and final acceptance.
 
-## Material plan deviation
+When Plan Gate is SKIPPED, downstream artifacts must record:
 
-A deviation is material when it changes an approved architecture/component boundary, API/data/schema contract, security/concurrency behavior, requirement scope, major data/state flow, migration/rollback strategy, test strategy in a way that reduces coverage, or major risk assumption.
+```text
+Plan Gate: SKIPPED
+Plan Reference: N/A
+Plan Version: N/A
+```
 
-For a material deviation:
+They must not invent PLAN-v001.
+
+## Material Plan deviation
+
+A deviation is material when it changes approved architecture/component boundaries, API/data/schema contracts, security/concurrency behavior, requirement scope, major data/state flow, migration/rollback strategy, test coverage strategy, or major risk assumptions.
+
+Protocol:
 
 ```text
 STOP implementation
  ↓
-Lead sets STATUS.md → PLAN_REWORK
+Lead STATUS → PLAN_REWORK
  ↓
-Implementation creates next PLAN version
+Implementation creates next Plan version
  ↓
 Lead PLAN_REVIEW
  ↓
 APPROVED
  ↓
-continue implementation
+continue
 ```
-
-Do not finish an alternative design first and explain it later.
 
 ## Stable Review Target
 
-Every implementation round submitted for Review must produce:
+Each implementation round must bind to a Code Plane snapshot:
 
 ```text
-Review Target
-Branch: <branch or detached>
-Base SHA: <sha>
-Head SHA: <sha>
-Working Tree: CLEAN
+Task Baseline SHA: <sha>
+Previous Head SHA: <sha>
+Code Head SHA: <sha>
+Code Working Tree: CLEAN
+Control Plane Excluded: YES
 Frozen: true
 ```
 
-Rules:
+Before submission Implementation must commit intended Code Plane changes.
 
-1. `Head SHA` is authoritative.
-2. Implementation must commit intended review changes and make the working tree clean.
-3. `IMPL-NNN.md` binds to Base SHA and Head SHA.
-4. After READY_FOR_REVIEW, Implementation must not mutate that Review Target.
-5. Any post-submission code change creates a new implementation round and new Head SHA.
-6. Review verifies checked-out HEAD equals declared Head SHA before substantive review.
-7. Review compares Base SHA → Head SHA.
-8. On mismatch, stop before substantive Review and record protocol status `REVIEW_TARGET_MISMATCH`; no Review Result is issued.
+After READY_FOR_REVIEW, Implementation must not mutate that submitted Code Head target. Any later Code Plane change creates a new implementation round.
 
-A branch name is descriptive only because it may move.
+## Review Target verification
+
+Before substantive Review, verify all:
+
+```bash
+git rev-parse HEAD
+git diff --quiet
+git diff --cached --quiet
+git status --porcelain
+```
+
+Requirements:
+
+1. observed HEAD == declared Code Head SHA;
+2. unstaged tracked diff is empty;
+3. staged diff is empty;
+4. `git status --porcelain` is empty for the Code Plane checkout;
+5. Control Plane is excluded/ignored and therefore does not make the Code Plane dirty.
+
+If any check fails, do not perform substantive review. Record protocol status `REVIEW_TARGET_MISMATCH`; no PASS/FAIL exists yet.
 
 ## Independent Review context
 
-Review should begin with a fresh execution context whenever the runtime permits.
+Review should start in a fresh execution context whenever supported.
 
-Review MUST NOT rely on:
-- Implementation private reasoning;
-- implementation conversation history;
-- self-review conclusions as proof.
+MUST NOT rely on Implementation private reasoning, implementation conversation history, or self-review conclusions as proof.
 
-Review MAY consume:
-- TASK.md;
-- approved PLAN version;
-- IMPL-NNN.md;
-- repository state at exact Head SHA;
-- Base→Head diff;
-- test evidence;
-- prior REVIEW artifacts for re-review.
+MAY consume TASK, approved Plan or fast-path marker, IMPL, exact Code snapshot, full-task diff, round diff, test evidence, and prior Reviews for re-review.
 
 Principle: **share artifacts, not private reasoning**.
 
-## Review and rework
-
-Review Result is only PASS or FAIL. `REVIEW_TARGET_MISMATCH` is a pre-review protocol failure, not a Review Result.
-
-When Review fails:
-
-1. Lead validates findings.
-2. Confirmed findings become `RW-xxx` entries in TASK.md.
-3. Lead sets STATUS.md → REWORK.
-4. Implementation creates a new implementation round and Head SHA.
-5. Review creates a new REVIEW-NNN.md.
-
-A re-review checks prior blockers, the new diff, original requirements/ACs, and new regression risk.
-
 ## Final acceptance
 
-After PASS, Lead creates `ACCEPTANCE.md` bound to:
+After validated Review PASS, Lead creates ACCEPTANCE.md bound to:
 
-- accepted Plan version;
-- accepted Implementation round;
+- Plan Gate status;
+- accepted Plan reference or N/A;
+- accepted IMPL round;
 - accepted Review round;
-- accepted Head SHA;
-- REQ / AC verification;
+- Task Baseline SHA;
+- accepted Code Head SHA;
+- REQ/AC verification;
 - test evidence;
 - residual risks.
 
-Only after ACCEPTANCE.md exists may Lead set STATUS.md → ACCEPTED.
-
-## Handoff contract
-
-Every handoff identifies:
-
-- Task ID;
-- task directory;
-- current lifecycle state;
-- requested action;
-- expected output artifact;
-- exact Plan/Implementation/Review version when relevant;
-- exact Head SHA for Review.
+Only then may STATUS become ACCEPTED.
 
 ## Workflow selection
 
-Use:
-- `workflows/standard.md`
-- `workflows/complex.md`
-- `workflows/bugfix.md`
+Existing task: restore `Workflow.Type` from STATUS.md.
+New task: select standard, complex, or bugfix once and record it in STATUS.md.
 
 ## Runtime and terminal adapters
 
-Use:
-- `adapters/warp.md`
-- `runtimes/codex.md`
-- `runtimes/pi.md`
-- `runtimes/generic.md`
-
-Adapters may describe startup, tools, worktrees, subagents, RPC, Code Mode, or sandboxing, but may not bypass protocol gates.
+Use adapters under `adapters/` and `runtimes/`. They may describe startup, tools, worktrees, subagents, RPC, Code Mode, or sandboxing but may not bypass protocol invariants.

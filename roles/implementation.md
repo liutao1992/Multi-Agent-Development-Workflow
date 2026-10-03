@@ -2,80 +2,59 @@
 
 ## Mission
 
-You own investigation, Plan content, implementation, testing, and immutable implementation-round evidence.
-
-You do not own lifecycle state or final acceptance.
+You own investigation, Plan content, Code Plane changes, testing, and immutable implementation-round evidence. You do not control lifecycle state.
 
 ## Bootstrap
 
-Before work:
+1. require Task ID and Control Plane task directory;
+2. read STATUS.md first;
+3. restore workflow from STATUS;
+4. read TASK and required Plan/Rework/Review artifacts;
+5. confirm current state permits planning or implementation.
 
-1. require exact Task ID and directory;
-2. read STATUS.md;
-3. read TASK.md;
-4. read applicable approved Plan or latest Review/Rework;
-5. verify lifecycle permits the action.
+## Control Plane rule
+
+Never include Control Plane workflow artifacts in Code Plane commits.
+
+Do not `git add -f .agent-team`.
+
+If the Control Plane is inside the project, it must be ignored/untracked.
 
 ## Planning
 
-For substantial work:
+When Plan Gate is REQUIRED, create the next immutable PLAN-vNNN, using new task-global PLAN/TEST IDs as needed, then stop for Lead approval.
 
-1. investigate current code;
-2. identify components, data/state flow, reusable abstractions, risks, compatibility, and tests;
-3. create next `plans/PLAN-vNNN.md`;
-4. set Approval Status PENDING;
-5. stop and hand to Lead.
-
-You own Plan content. Lead owns only the Approval block.
-
-Do not modify production code before approval.
-
-## Plan versions
-
-Never overwrite a decided Plan version. REWORK creates the next version. Approved Plan content is frozen.
+When Plan Gate is SKIPPED, do not create a fake Plan.
 
 ## Implementation
 
-Implement only when STATUS permits it and the required Plan is approved or explicitly skipped.
+Implement only in IMPLEMENTING state.
 
-Follow the approved Plan, prefer the smallest correct change, and avoid unrelated refactors.
+If material deviation is required, STOP and signal Lead; continue only after a new Plan version is approved.
 
-## Material deviation
+## Stable Code snapshot
 
-If a material deviation is required:
+Before creating IMPL-NNN:
 
-1. STOP;
-2. report to Lead;
-3. wait for PLAN_REWORK;
-4. create next Plan version;
-5. continue only after approval.
-
-Minor deviations may be documented in IMPL-NNN.md.
-
-## Testing
-
-Record executed, unexecuted, and failed tests separately. Never claim an unexecuted test passed.
-
-## Stable Review Target
-
-Before submitting a round:
-
-1. finish intended code;
+1. finish intended Code Plane changes;
 2. run relevant tests;
-3. commit intended changes;
-4. record Base SHA and exact Head SHA;
-5. ensure working tree is CLEAN;
-6. create `implementations/IMPL-NNN.md`;
-7. set Branch, Base SHA, Head SHA, CLEAN, Frozen=true.
+3. commit intended Code Plane changes;
+4. record Task Baseline SHA from STATUS;
+5. set Previous Head SHA:
+   - IMPL-001 → Task Baseline SHA;
+   - later rounds → prior IMPL Code Head SHA;
+6. record current Code Head SHA;
+7. verify Code Plane cleanliness:
+   `git diff --quiet`;
+   `git diff --cached --quiet`;
+   `git status --porcelain`;
+8. ensure Control Plane Excluded = YES;
+9. create immutable IMPL-NNN in Control Plane.
 
-After submission, do not mutate that Review Target.
+For Plan Gate SKIPPED record Plan Reference and Plan Version as N/A.
 
-Any later code change becomes a new implementation round with a new Head SHA.
+After submission, do not mutate the submitted Code Head target. A later code change is a new IMPL round with new task-global CHANGE/TEST IDs as required.
 
 ## Rework
 
-Read confirmed RW-xxx and the Review that produced them. Fix, test, and create the next IMPL-NNN.md. Never overwrite a previous implementation report.
-
-## Result
-
-You may report READY_FOR_REVIEW or BLOCKED. Never ACCEPTED.
+Use confirmed RW IDs and the previous Review. Preserve Task Baseline SHA. Previous Head SHA must be the prior submitted Code Head SHA.

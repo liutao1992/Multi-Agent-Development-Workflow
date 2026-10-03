@@ -7,8 +7,8 @@ Warp is the preferred human-visible control surface. It does not define lifecycl
 ```text
 ┌──────────────────────────────┬──────────────────────────────┐
 │ Lead Agent                   │ Implementation Agent         │
-│ Task / STATUS / Plan Gate    │ Plan / Code / Test           │
-│ Rework / Acceptance          │ Stable Review Target         │
+│ STATUS / Task / Plan Gate    │ Plan / Code / Test           │
+│ Rework / Acceptance          │ Code Snapshot / IMPL         │
 │                              ├──────────────────────────────┤
 │                              │ Review Agent                 │
 │                              │ Fresh Review / Exact SHA     │
@@ -17,38 +17,58 @@ Warp is the preferred human-visible control surface. It does not define lifecycl
 
 Do not enable synchronized input.
 
-## Shared working tree mode
+## Control Plane location
 
-Allowed only for sequential manual coordination.
+### Shared single working tree
 
-- Lead: read-oriented.
-- Implementation: production-code writer.
-- Review: read-oriented.
+You may keep `.agent-team/` inside the project directory only when it is excluded from Code Plane Git tracking.
 
-Before Review:
+Prefer a local exclude so the project does not need a workflow-specific committed `.gitignore` entry:
 
-1. Implementation commits intended changes.
-2. Working tree is clean.
-3. IMPL-NNN records Base SHA and Head SHA.
-4. Lead sets READY_FOR_REVIEW.
-5. Implementation stops modifying repository code until Review finishes.
-
-Review verifies `git rev-parse HEAD` equals Head SHA and uses Base→Head diff.
-
-Any code change during Review invalidates the target and requires a new round.
-
-## Recommended concurrent mode
-
-Prefer worktrees:
-
-```text
-project-main/
-project-implementation/
-project-review/
+```bash
+printf "\n.agent-team/\n" >> .git/info/exclude
 ```
 
-Review worktree should inspect the exact Head SHA, not only a branch name.
+Verify:
 
-## Handoffs
+```bash
+git ls-files .agent-team
+git check-ignore -q .agent-team/
+```
 
-Every handoff includes Task ID, directory, lifecycle state, artifact/version, and exact Head SHA for Review.
+Do not force-add it.
+
+### Multiple worktrees / concurrent agents
+
+Use one shared Control Plane directory outside all code worktrees, for example:
+
+```text
+workspace/
+├── project-main/
+├── project-implementation/
+├── project-review/
+└── project.agent-team/
+```
+
+All three agents reference the same external Control Root.
+
+## Stable Review handoff
+
+Before Review, Implementation commits Code Plane changes and records:
+
+- Task Baseline SHA;
+- Previous Head SHA;
+- Code Head SHA.
+
+Review verifies:
+
+```bash
+git rev-parse HEAD
+git diff --quiet
+git diff --cached --quiet
+git status --porcelain
+```
+
+Only an exact clean Code Plane target may be reviewed.
+
+Any Code Plane change after submission creates a new implementation round.

@@ -4,29 +4,41 @@ Task ID: TASK-YYYYMMDD-NNN-short-name
 Task Name: <human-readable name>
 Review Round: 1
 Reviewed Implementation: IMPL-001
-Reviewed Plan Version: 1
+
+## Plan Reference
+
+Plan Gate: REQUIRED | SKIPPED
+Reviewed Plan Artifact: PLAN-v001.md | N/A
+Reviewed Plan Version: 1 | N/A
 
 ## Review Target Verification
 
-Declared Base SHA: <sha>
-Declared Head SHA: <sha>
-Observed Head SHA: <sha>
-Target Match: YES / NO
-Protocol Status: READY_FOR_REVIEW / REVIEW_TARGET_MISMATCH
+Task Baseline SHA: <sha>
+Previous Head SHA: <sha>
+Declared Code Head SHA: <sha>
+Observed Code Head SHA: <sha>
 
-If Target Match is NO, substantive review stops. Set Protocol Status to REVIEW_TARGET_MISMATCH and leave Review Result as N/A.
+Unstaged Diff Clean: YES / NO
+Staged Diff Clean: YES / NO
+Status Porcelain Clean: YES / NO
+Control Plane Excluded: YES / NO
+
+Protocol Status: READY_FOR_REVIEW | REVIEW_TARGET_MISMATCH
+
+If any verification item fails, substantive review stops and Review Result remains N/A.
 
 ## Independence
 
 Fresh Execution Context: YES / NO / NOT_SUPPORTED
 Implementation Private Reasoning Used: NO
 
-Artifacts Used:
-- TASK.md
-- PLAN-v001.md
-- IMPL-001.md
-- Base→Head diff
-- test evidence
+## Diff Scope
+
+Full Task Diff:
+Task Baseline SHA → Code Head SHA
+
+Current Round Diff:
+Previous Head SHA → Code Head SHA
 
 ## Review Result
 
@@ -51,7 +63,7 @@ None
 <!--
 ### REV-001
 Severity: BLOCKING
-Related: REQ-001, AC-001, PLAN-001
+Related: REQ-001, AC-001, PLAN-001 | N/A
 Location: <path/symbol>
 Problem: <...>
 Impact: <...>
@@ -59,13 +71,11 @@ Evidence: <...>
 Required Outcome: <...>
 -->
 
-## Non-blocking Suggestions
+## Additional Review Tests
 
-None
+### TEST-XXX
+<Use the next unused task-global TEST ID.>
 
-## Tests Performed
-
-### TEST-REVIEW-001
 Command: `<command>`
 Result: PASS / FAIL
 
