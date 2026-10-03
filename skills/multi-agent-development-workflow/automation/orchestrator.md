@@ -123,13 +123,65 @@ QUEUED
 → SUCCEEDED / FAILED / CANCELLED
 ```
 
-On orchestrator timeout, a cancellation marker is written. Before the orchestrator releases control, it attempts to quiesce any claimed child process recorded for that job. Running workers also observe cancellation and terminate the child process group. Expired claims are recovered; if a stale claim recorded an orphan child process, recovery attempts to terminate it before requeueing.
+On orchestrator timeout, a cancellation marker is written. Before the orchestrator releases control, it attempts to quiesce any claimed child process recorded for that job. Running workers also observe cancellation and terminate the child process group.
+
+Expired claims are requeued only when a recorded child PID can be confirmed quiesced. If the PID was never durably recorded, the claim is malformed, or the child cannot be confirmed stopped, the claim moves to `quarantined/` with an error record.
+
+A quarantine represents `UNKNOWN_ORPHAN_RISK`. New automated Task runs and queue workers fail closed until it is inspected/resolved; the runtime never blindly retries that job.
 
 Every job is project-scoped and carries both canonical project root and project fingerprint.
 
 ## Role enforcement
 
 Process/Queue fallback validates pre/post conditions in code, not only prompts. A role that mutates forbidden state causes orchestration to stop.
+
+The validator snapshots the whole durable project Control Plane (excluding `runtime/`). This protects `INDEX.md` and every other Task namespace, not just the current Task.
+
+The allowed write set is role-scoped:
+
+```text
+Lead
+  current Task Lead-owned data + INDEX
+
+Planning Impl
+  current Task / plans / exactly one new PLAN
+
+Implementation Impl
+  current Task / implementations / exactly one new IMPL
+  + permitted Code Plane implementation
+
+Review
+  current Task / reviews / exactly one new REVIEW
+```
+
+Other Task namespaces are immutable to the active role.
+
+## Executable lifecycle transitions
+
+After every Lead action, `state_machine.py` validates both transition legality and evidence.
+
+Examples:
+
+```text
+CREATED → ACCEPTED
+  reject
+
+PLAN_REVIEW → READY_FOR_IMPLEMENTATION
+  require Plan APPROVED in STATUS + Plan artifact
+
+REVIEWING → READY_FOR_FINAL_ACCEPTANCE
+  require current REVIEW PASS
+
+READY_FOR_FINAL_ACCEPTANCE → ACCEPTED
+  require ACCEPTANCE.md
+  require current Review PASS
+  require accepted Code Head == current implementation Code Head
+
+<any> → BLOCKED
+  require Resume State == prior state
+```
+
+Review/implementation snapshot SHAs used as authoritative targets must be full 40-character Git SHAs.
 
 ## Failure model
 

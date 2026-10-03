@@ -262,6 +262,47 @@ Executable fallback transports MUST validate role boundaries after every worker 
 
 A postcondition violation is a protocol failure. Stop orchestration rather than advancing STATUS.
 
+### Executable lifecycle state machine
+
+For Process/Queue orchestration, the Lifecycle Transition Table is a programmatic invariant, not prompt-only guidance.
+
+After each Lead action the runtime MUST validate:
+
+1. `before_state → after_state` is an allowed transition;
+2. transition-specific evidence exists;
+3. artifact references resolve to real files;
+4. Code Head references use the full 40-character SHA where required.
+
+Required evidence includes at least:
+
+- Plan Gate skip reason for the fast path;
+- PENDING Plan before entering PLAN_REVIEW;
+- APPROVED / REWORK recorded consistently in STATUS and Plan artifact;
+- approved Plan before implementation when Plan Gate is REQUIRED;
+- frozen implementation target and exact STATUS/IMPL/observed Code Head match before Review;
+- Review PASS before READY_FOR_FINAL_ACCEPTANCE;
+- Review FAIL or REVIEW_TARGET_MISMATCH before REWORK;
+- confirmed RW IDs before rework implementation;
+- ACCEPTANCE.md, PASS Review, and matching Accepted Code Head before ACCEPTED;
+- Resume State equal to the prior state when entering BLOCKED.
+
+Illegal jumps such as `CREATED → ACCEPTED` MUST fail with a protocol violation.
+
+### Whole Control Plane write boundary
+
+Role postconditions cover the whole project Control Plane, excluding `runtime/`.
+
+Allowed durable writes:
+
+- **Lead:** current Task Lead-owned projections/artifacts plus `INDEX.md`;
+- **Planning Impl:** exactly the new Plan artifact for the current Task;
+- **Implementation Impl:** exactly the new IMPL artifact for the current Task, plus permitted Code Plane implementation changes;
+- **Review:** exactly the new REVIEW artifact for the current Task.
+
+No role may modify another Task namespace.
+
+Task bootstrap may create only the new Task's `TASK.md` / `STATUS.md` and update/create `INDEX.md`.
+
 ### Automatic lifecycle driver
 
 The Orchestrator repeatedly reads:

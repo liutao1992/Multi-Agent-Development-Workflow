@@ -295,7 +295,10 @@ Process mode also enforces runtime safety:
 - clean Code Plane before every dispatch;
 - real per-worker timeout for Codex and Pi;
 - process-group termination on timeout/cancel;
+- executable lifecycle transition validation after every Lead action;
+- evidence gates for Plan approval, Review PASS/FAIL, Review Target, BLOCKED resume, and final ACCEPTED;
 - role postconditions after every worker;
+- whole-project Control Plane write-boundary validation (runtime metadata excluded);
 - immutable existing Plan / IMPL / REVIEW artifacts;
 - Review cannot change HEAD/index/worktree or STATUS;
 - Planning Impl cannot change Code Plane or STATUS;
@@ -414,9 +417,14 @@ QUEUED
 CLAIMED / RUNNING + lease
   ↓
 SUCCEEDED / FAILED / CANCELLED
+                    └─ or QUARANTINED when orphan safety is uncertain
 ```
 
-Expired claims are recovered. A timed-out orchestrator cancels the job and attempts to quiesce any claimed child process before returning; a running worker also observes cancellation and terminates its child runtime instead of continuing to make ghost changes.
+Expired claims are requeued only when the previous child process identity is known and confirmed unable to execute.
+
+If an expired/malformed claim has no trustworthy `child_pid`, or a child cannot be confirmed quiesced, the claim moves to `quarantined/` as `UNKNOWN_ORPHAN_RISK`. New automatic runs/workers fail closed until the quarantine is inspected.
+
+A timed-out orchestrator cancels the job and attempts to quiesce any claimed child process before returning; a running worker also observes cancellation and terminates its child runtime instead of continuing to make ghost changes.
 
 ---
 
@@ -609,7 +617,47 @@ because native SubAgents belong to the already-running Lead parent session. The 
 
 ---
 
-## 10. When automation stops
+## 10. Executable lifecycle enforcement
+
+The Markdown Transition Table is also enforced by Python.
+
+After every Lead action the runtime validates:
+
+```text
+before state
++
+after state
++
+required evidence
++
+allowed transition
+```
+
+Examples:
+
+```text
+CREATED → ACCEPTED
+= rejected
+
+PLAN_REVIEW → READY_FOR_IMPLEMENTATION
+= requires APPROVED in STATUS + Plan artifact
+
+IMPLEMENTING → READY_FOR_REVIEW
+= requires frozen IMPL target + exact full 40-char Code Head SHA
+
+REVIEWING → READY_FOR_FINAL_ACCEPTANCE
+= requires REVIEW Result PASS
+
+READY_FOR_FINAL_ACCEPTANCE → ACCEPTED
+= requires ACCEPTANCE.md + current PASS Review + matching accepted Code Head
+
+<any> → BLOCKED
+= requires Resume State = previous lifecycle state
+```
+
+This turns the Transition Table from prompt guidance into an executable protocol.
+
+## 11. When automation stops
 
 Automatic execution stops rather than guessing when:
 
@@ -643,7 +691,7 @@ resumes the workflow.
 
 ---
 
-## 11. Lifecycle overview
+## 12. Lifecycle overview
 
 ```text
 User requirement
@@ -697,7 +745,7 @@ REVIEW-NNN.md
 
 ---
 
-## 12. Documentation
+## 13. Documentation
 
 - [Skill protocol](./skills/multi-agent-development-workflow/SKILL.md)
 - [Native SubAgent orchestration](./skills/multi-agent-development-workflow/automation/subagent.md)

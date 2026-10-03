@@ -76,7 +76,17 @@ Lead action
 
 Subagents may parallelize read-only investigation internally only when that does not create conflicting writes or weaken Review independence.
 
-The Lead parent should also verify role postconditions after child completion: Review must not mutate Code Plane/STATUS, Planning Impl must not mutate Code Plane/STATUS, and implementation must end on a clean committed snapshot.
+The Lead parent should also apply the same executable protocol semantics after child completion:
+
+- verify the requested lifecycle transition against the Transition Table;
+- verify transition evidence before changing STATUS;
+- enforce whole-Control-Plane role write boundaries;
+- require exact full Code Head SHAs for frozen implementation/review targets;
+- Review must not mutate Code Plane/STATUS;
+- Planning Impl must not mutate Code Plane/STATUS;
+- implementation must end on a clean committed snapshot.
+
+The bundled Python fallback enforces these mechanically; native SubAgent mode must preserve the same invariants through the Lead parent.
 
 ## Coordination pseudocode
 
