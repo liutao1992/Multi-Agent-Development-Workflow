@@ -15,6 +15,7 @@ import orchestrator as orch
 from agent_team_lib import core
 from agent_team_lib import processes
 from agent_team_lib import queue_runtime
+from process_test_support import require_process_inspection
 
 
 def git(cwd: Path, *args: str) -> str:
@@ -219,6 +220,7 @@ class QueueTests(RepoTestCase):
             start_new_session=True,
         )
         try:
+            require_process_inspection(self, child.pid)
             core.write_json_atomic(paths["claimed"] / "job-child.json", {
                 "job_id": "job-child",
                 "child_pid": child.pid,
@@ -238,6 +240,7 @@ class QueueTests(RepoTestCase):
         finally:
             if child.poll() is None:
                 child.kill()
+            child.wait(timeout=3)
 
     def test_worker_project_mismatch_is_rejected_by_namespace(self) -> None:
         other = Path(self.temp.name) / "other"

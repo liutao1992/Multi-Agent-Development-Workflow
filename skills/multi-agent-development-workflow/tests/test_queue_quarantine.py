@@ -6,6 +6,7 @@ import subprocess
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS))
@@ -13,6 +14,7 @@ sys.path.insert(0, str(SCRIPTS))
 from agent_team_lib import core
 from agent_team_lib import processes
 from agent_team_lib import queue_runtime
+from process_test_support import require_process_inspection
 
 
 def git(cwd: Path, *args: str) -> str:
@@ -88,6 +90,7 @@ class QueueQuarantineTests(unittest.TestCase):
             start_new_session=True,
         )
         try:
+            require_process_inspection(self, child.pid)
             identity = processes.process_identity(child.pid)
             self.assertIsNotNone(identity)
             assert identity is not None
@@ -109,6 +112,43 @@ class QueueQuarantineTests(unittest.TestCase):
         finally:
             child.terminate()
             child.wait(timeout=3)
+
+    def test_failed_inspection_quarantines_live_child_without_killing_or_requeueing(self) -> None:
+        paths = queue_runtime.queue_paths(self.root, self.repo, "Impl")
+        shared_risk = queue_runtime.shared_orphan_risk_path(self.root, self.repo)
+        claim = paths["claimed"] / "inspection-denied.json"
+        core.write_json_atomic(claim, {
+            "job_id": "inspection-denied", "lease_until": time.time() - 1,
+            "child_pid": 12345,
+            "child_identity": {"pid": 12345, "pgid": 12345, "start_time": "old", "command": "worker"},
+        })
+        denied = subprocess.CompletedProcess(["ps"], 1, stdout="", stderr="Operation not permitted")
+        with mock.patch.object(queue_runtime, "process_alive", return_value=True), \
+             mock.patch.object(processes, "process_alive", return_value=True), \
+             mock.patch.object(processes.os, "getpgid", return_value=12345), \
+             mock.patch.object(processes.subprocess, "run", return_value=denied), \
+             mock.patch.object(queue_runtime, "shared_orphan_risk_path", return_value=shared_risk), \
+             mock.patch.object(queue_runtime, "terminate_pid_group") as terminate:
+            queue_runtime.recover_expired_claims(self.root, self.repo, "Impl")
+        terminate.assert_not_called()
+        self.assertFalse((paths["queued"] / claim.name).exists())
+        self.assertTrue((paths["quarantined"] / claim.name).exists())
+        self.assertTrue(queue_runtime.shared_orphan_risk_path(self.root, self.repo).exists())
+
+    def test_cancel_with_failed_inspection_quarantines_live_child(self) -> None:
+        paths = queue_runtime.queue_paths(self.root, self.repo, "Impl")
+        shared_risk = queue_runtime.shared_orphan_risk_path(self.root, self.repo)
+        claim = paths["claimed"] / "cancel-denied.json"
+        core.write_json_atomic(claim, {"job_id": "cancel-denied", "child_pid": 12345})
+        denied = subprocess.CompletedProcess(["ps"], 1, stdout="", stderr="Operation not permitted")
+        with mock.patch.object(queue_runtime, "process_alive", return_value=True), \
+             mock.patch.object(queue_runtime.subprocess, "run", return_value=denied), \
+             mock.patch.object(queue_runtime, "shared_orphan_risk_path", return_value=shared_risk), \
+             mock.patch.object(queue_runtime, "terminate_pid_group") as terminate:
+            with self.assertRaisesRegex(core.OrchestratorError, "identity cannot be proven"):
+                queue_runtime.cancel_and_quiesce_job(self.root, self.repo, "Impl", "cancel-denied", "timeout")
+        terminate.assert_not_called()
+        self.assertTrue((paths["quarantined"] / claim.name).exists())
 
 
 if __name__ == "__main__":

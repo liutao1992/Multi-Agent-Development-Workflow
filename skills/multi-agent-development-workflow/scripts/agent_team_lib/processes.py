@@ -36,21 +36,23 @@ def process_identity(pid: int) -> dict[str, object] | None:
     if os.name == "posix":
         try:
             identity["pgid"] = os.getpgid(pid)
-            start = subprocess.run(
+            start_result = subprocess.run(
                 ["ps", "-o", "lstart=", "-p", str(pid)],
                 text=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
                 check=False,
-            ).stdout.strip()
-            command = subprocess.run(
+            )
+            command_result = subprocess.run(
                 ["ps", "-o", "command=", "-p", str(pid)],
                 text=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
                 check=False,
-            ).stdout.strip()
-            if not start:
+            )
+            start = start_result.stdout.strip()
+            command = command_result.stdout.strip()
+            if start_result.returncode != 0 or command_result.returncode != 0 or not start or not command:
                 return None
             identity["start_time"] = start
             identity["command"] = command

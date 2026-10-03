@@ -32,11 +32,13 @@ def child_process_quiesced(pid: int) -> bool:
                 check=False,
             )
             state = result.stdout.strip()
-            if not state or state.startswith("Z"):
+            if result.returncode == 0 and state.startswith("Z"):
                 return True
         except OSError:
             pass
-    return False
+    # Empty/failed inspection is not proof of quiescence. Recheck for a process
+    # that exited between the initial liveness check and ps.
+    return not process_alive(pid)
 
 
 def queue_root(root: Path, project_root: Path) -> Path:

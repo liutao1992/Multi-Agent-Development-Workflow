@@ -133,6 +133,10 @@ Quarantine also writes an orphan-risk marker in the worktree's Git directory. Th
 
 A stale live PID is never treated as sufficient identity by itself. The claim records process identity metadata when the child starts. Recovery compares that identity before terminating a live process. PID reuse therefore causes quarantine rather than a kill.
 
+If a sandbox denies `ps`, failed or empty inspection is never evidence that a live child has stopped. Recovery/cancellation quarantines claims whose identity cannot be verified, and keeps the shared orphan-risk marker until inspected. Run orphan inspection and recovery in an environment that permits process inspection.
+
+The two real-process integration tests probe `ps` access independently and report SKIPPED in restricted environments. Permission-denial behavior is covered by deterministic unit tests. CI sets `AGENT_TEAM_REQUIRE_PROCESS_INSPECTION=1` so missing process-inspection access fails the suite instead of skipping those integration tests.
+
 Every job is project-scoped and carries both canonical project root and project fingerprint.
 
 ## Role enforcement

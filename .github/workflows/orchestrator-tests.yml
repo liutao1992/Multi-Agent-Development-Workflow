@@ -25,6 +25,8 @@ jobs:
             skills/multi-agent-development-workflow/scripts/orchestrator.py \
             skills/multi-agent-development-workflow/scripts/agent_team_lib/*.py
       - name: Unit tests
+        env:
+          AGENT_TEAM_REQUIRE_PROCESS_INSPECTION: "1"
         run: |
           python -W error::ResourceWarning -m unittest discover \
             -s skills/multi-agent-development-workflow/tests \
