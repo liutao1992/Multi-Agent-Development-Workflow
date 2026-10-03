@@ -1,135 +1,113 @@
 # Multi-Agent Development Workflow
 
-A runtime-independent, artifact-driven development protocol for coordinating **Lead**, **Impl**, and **Review** roles across Codex, Pi, Claude Code, Cursor, OpenCode, or other coding agents.
+A runtime-independent, artifact-driven development protocol for coordinating the three roles:
 
-The protocol separates:
+- **Lead** — task definition, lifecycle control, plan approval, rework decisions, final acceptance
+- **Impl** — investigation, planning, implementation, testing, immutable implementation evidence
+- **Review** — fresh-context independent verification of an exact Code Plane snapshot
 
-- **What should be built?** → Lead
-- **How should it be built?** → Impl
-- **Was it built correctly?** → Review
+Only **Lead** can declare a task `ACCEPTED`.
 
-Only Lead can declare a task **ACCEPTED**.
+## Installable Skill
 
-Warp is the preferred interactive terminal environment, but terminal and agent runtime are adapters rather than protocol authorities.
-
-## Quick use in Warp
-
-Bind each pane once per session:
+The repository root is the package repository. The actual installable Skill lives at:
 
 ```text
-Left:       Use multi-agent-development-workflow. Role: Lead.
-Right top:  Use multi-agent-development-workflow. Role: Impl.
-Right bottom: Use multi-agent-development-workflow. Role: Review.
+skills/multi-agent-development-workflow/
+├── SKILL.md
+├── roles/
+├── workflows/
+├── templates/
+├── adapters/
+└── runtimes/
 ```
 
-After that, normal interaction can stay short:
+This layout lets installers treat `skills/multi-agent-development-workflow/` as a complete Skill directory instead of trying to install a root-level `SKILL.md` file.
+
+## Repository structure
+
+```text
+Multi-Agent-Development-Workflow/
+├── README.md
+└── skills/
+    └── multi-agent-development-workflow/
+        ├── SKILL.md
+        ├── roles/
+        │   ├── lead.md
+        │   ├── impl.md
+        │   └── review.md
+        ├── workflows/
+        │   ├── standard.md
+        │   ├── complex.md
+        │   └── bugfix.md
+        ├── templates/
+        ├── adapters/
+        │   └── warp.md
+        └── runtimes/
+            ├── codex.md
+            ├── pi.md
+            └── generic.md
+```
+
+## Manual Codex install
+
+If your installer does not support selecting the Skill subdirectory automatically, clone the repository and copy/link the Skill directory:
+
+```bash
+git clone https://github.com/liutao1992/Multi-Agent-Development-Workflow.git
+mkdir -p ~/.codex/skills
+cp -R Multi-Agent-Development-Workflow/skills/multi-agent-development-workflow \
+  ~/.codex/skills/multi-agent-development-workflow
+```
+
+The installed result should be:
+
+```text
+~/.codex/skills/
+└── multi-agent-development-workflow/
+    ├── SKILL.md
+    ├── roles/
+    ├── workflows/
+    ├── templates/
+    ├── adapters/
+    └── runtimes/
+```
+
+## Warp quick use
+
+Bind each pane once:
+
+```text
+Lead pane:
+Use multi-agent-development-workflow. Role: Lead.
+
+Impl pane:
+Use multi-agent-development-workflow. Role: Impl.
+
+Review pane:
+Use multi-agent-development-workflow. Role: Review.
+```
+
+Then normal use can stay short:
 
 ```text
 Lead:
-新建任务：增加聊天记录持久化
+新建任务：<requirement>
 
 Impl:
-继续 TASK-20261003-001-chat-history-persistence
+继续 <TASK-ID>
 
 Lead:
-继续 TASK-20261003-001-chat-history-persistence
+继续 <TASK-ID>
 
 Impl:
-继续 TASK-20261003-001-chat-history-persistence
+继续 <TASK-ID>
 
 Review:
-Review TASK-20261003-001-chat-history-persistence
+Review <TASK-ID>
 
 Lead:
-继续 TASK-20261003-001-chat-history-persistence
+继续 <TASK-ID>
 ```
 
-When a pane already has an unambiguous Task bound, even `继续`, `Review`, or `验收` is enough. The Agent must recover lifecycle state and current artifacts from the Control Plane instead of asking the user to repeat them.
-
-## Core lifecycle
-
-```text
-User
- ↓
-Lead → TASK.md + STATUS.md
- ↓
-Impl → PLAN-v001.md
- ↓
-Lead Plan Gate
- ├─ REWORK → PLAN-v002.md
- └─ APPROVED
-       ↓
-Impl → Code Plane commit → IMPL-001.md
- ↓
-Independent Review → exact Code Head SHA → REVIEW-001.md
- ├─ FAIL → RW-001 → IMPL-002.md → REVIEW-002.md
- └─ PASS
-       ↓
-Lead → ACCEPTANCE.md
- ↓
-ACCEPTED
-```
-
-## Control Plane vs Code Plane
-
-The protocol explicitly separates workflow metadata from reviewed code:
-
-```text
-Control Plane
-.agent-team/
-TASK / STATUS / PLAN / IMPL / REVIEW / ACCEPTANCE
-
-Code Plane
-production source / tests / migrations / resources / configuration
-```
-
-**Control Plane artifacts MUST NOT be tracked in the reviewed Code Plane Git history.**
-
-Recommended local setup:
-
-- shared single worktree: keep `.agent-team/` inside the project directory but exclude it with `.git/info/exclude`;
-- multiple worktrees / concurrent agents: use one shared control directory outside all code worktrees.
-
-This avoids the self-referential problem where an IMPL artifact records a Git SHA and committing that artifact changes the SHA.
-
-## Task workspace
-
-```text
-.agent-team/
-├── INDEX.md
-└── tasks/
-    └── TASK-YYYYMMDD-NNN-short-name/
-        ├── TASK.md
-        ├── STATUS.md
-        ├── plans/
-        │   ├── PLAN-v001.md
-        │   └── PLAN-v002.md
-        ├── implementations/
-        │   ├── IMPL-001.md
-        │   └── IMPL-002.md
-        ├── reviews/
-        │   ├── REVIEW-001.md
-        │   └── REVIEW-002.md
-        └── ACCEPTANCE.md
-```
-
-## Review snapshots
-
-Every task freezes a **Task Baseline SHA** at creation.
-
-Each implementation round records:
-
-```text
-Task Baseline SHA
-Previous Head SHA
-Code Head SHA
-```
-
-Review uses both:
-
-- Task Baseline SHA → Code Head SHA: full task impact;
-- Previous Head SHA → Code Head SHA: current implementation/rework round.
-
-The reviewer also verifies the Code Plane working tree is clean before substantive review.
-
-See [SKILL.md](./SKILL.md) for the full executable protocol.
+See [the Skill definition](./skills/multi-agent-development-workflow/SKILL.md) for the full protocol.
