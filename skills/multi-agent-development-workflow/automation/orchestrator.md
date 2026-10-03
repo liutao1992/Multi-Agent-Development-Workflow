@@ -129,6 +129,8 @@ Expired claims are requeued only when a recorded child PID can be confirmed quie
 
 A quarantine represents `UNKNOWN_ORPHAN_RISK` or `UNKNOWN_PROCESS_IDENTITY`. New automated Task runs and queue workers fail closed until it is inspected/resolved; the runtime never blindly retries that job.
 
+Quarantine also writes an orphan-risk marker in the worktree's Git directory. This blocks runs using alternate Control Roots until the claim and process are inspected, quiesced, and both markers are cleared.
+
 A stale live PID is never treated as sufficient identity by itself. The claim records process identity metadata when the child starts. Recovery compares that identity before terminating a live process. PID reuse therefore causes quarantine rather than a kill.
 
 Every job is project-scoped and carries both canonical project root and project fingerprint.
@@ -220,9 +222,13 @@ The same reviewed HEAD and Task Contract are checked again during final acceptan
 
 Plan approval is field-scoped while pending: Lead may mutate only the current Plan's `## Approval` block during PLAN_REVIEW. After APPROVED or REWORK is recorded, the whole Plan version is immutable.
 
+If the Task Contract changes during `PLAN_REVIEW`, Lead enters `PLAN_REWORK` and leaves the old pending Plan unchanged. Its revision/hash remain historical evidence. Impl then creates the next Plan version against the new contract; this path does not require a REWORK approval on the invalidated Plan.
+
 ## Failure model
 
 The Orchestrator is deliberately fail-closed.
+
+Before dispatch, it writes a `runtime/tasks/<task-id>/pending-validation.json` marker. The marker is removed only after the worker result passes all protocol checks. A failed or interrupted step leaves it in place, and later `run`/`resume` attempts stop before dispatch. Inspect the worker and its artifacts, quiesce any child process, and reconcile the Task before manually clearing the marker. An `ACCEPTED` state is also checked against current implementation, Review, acceptance artifact, and Git HEAD on each run.
 
 It stops when:
 
@@ -243,6 +249,8 @@ Two locks are used:
 2. **Task lock** — prevents duplicate orchestration of the same Task.
 
 The Code Plane lock is deliberately **fail-closed**. If its owner process is gone, it is not automatically stolen because an orphan worker/child process may still be mutating the working tree. Inspect and quiesce leftovers before removing a stale Code Plane lock.
+
+The lock lives in the worktree's Git directory, so alternate Control Roots for the same worktree contend on the same file.
 
 Even disjoint file edits cannot safely share a working tree because Git HEAD and index are shared.
 

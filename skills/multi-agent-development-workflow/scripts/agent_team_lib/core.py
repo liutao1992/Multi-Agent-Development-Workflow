@@ -676,7 +676,8 @@ class FileLock:
 
 
 def project_lock_path(root: Path, project_root: Path) -> Path:
-    return project_runtime_root(root, project_root) / "code-plane.lock"
+    git_dir = sh("git", "rev-parse", "--absolute-git-dir", cwd=project_root).stdout.strip()
+    return Path(git_dir).resolve() / "agent-team-code-plane.lock"
 
 
 def task_lock_path(root: Path, project_root: Path, task_id: str) -> Path:

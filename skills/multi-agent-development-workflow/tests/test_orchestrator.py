@@ -6,6 +6,7 @@ import subprocess
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS))
@@ -116,6 +117,17 @@ class RoleSelectionTests(unittest.TestCase):
 
 
 class LockAndNamespaceTests(RepoTestCase):
+    def test_project_lock_is_shared_across_control_roots(self) -> None:
+        other_root = Path(self.temp.name) / "other-control"
+        first = core.project_lock_path(self.root, self.repo)
+        second = core.project_lock_path(other_root, self.repo)
+        self.assertEqual(first, second)
+        self.assertIn(".git", str(first))
+        with core.FileLock(first, "code plane", recover_stale=False):
+            with self.assertRaises(core.OrchestratorError):
+                with core.FileLock(second, "code plane", recover_stale=False):
+                    pass
+
     def test_project_lock_blocks_second_owner(self) -> None:
         path = core.project_lock_path(self.root, self.repo)
         with core.FileLock(path, "code plane"):
@@ -155,6 +167,19 @@ class LockAndNamespaceTests(RepoTestCase):
 
 
 class QueueTests(RepoTestCase):
+    def test_keyboard_interrupt_cancels_queued_job(self) -> None:
+        with mock.patch.object(queue_runtime, "worker_available", return_value=True), \
+             mock.patch.object(queue_runtime.time, "sleep", side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                queue_runtime.queue_dispatch(
+                    "codex", "Impl", "work", self.repo, self.root, "TASK-1", 10,
+                )
+        queued = queue_runtime.queue_paths(self.root, self.repo, "Impl")["queued"]
+        self.assertEqual(list(queued.glob("*.json")), [])
+        cancelled = list((queue_runtime.queue_root(self.root, self.repo) / "cancelled").glob("*.json"))
+        self.assertEqual(len(cancelled), 1)
+        self.assertIsNone(queue_runtime.claim_next_job(self.root, self.repo, "Impl", "worker"))
+
     def test_project_scoped_queue_paths_for_shared_external_root(self) -> None:
         external = Path(self.temp.name) / "shared-control"
         core.ensure_control_root(self.repo, external)
@@ -237,6 +262,19 @@ class CleanCodePlaneTests(RepoTestCase):
 
 
 class TimeoutTests(RepoTestCase):
+    def test_pi_reads_settled_event_from_same_write(self) -> None:
+        real_popen = subprocess.Popen
+        script = (
+            "import sys,time; sys.stdin.readline(); "
+            "sys.stdout.write('{\"type\":\"agent_started\"}\\n{\"type\":\"agent_settled\"}\\n'); "
+            "sys.stdout.flush(); time.sleep(3)"
+        )
+        def fake_pi(command, **kwargs):
+            return real_popen([sys.executable, "-u", "-c", script], **kwargs)
+
+        with mock.patch.object(processes.subprocess, "Popen", side_effect=fake_pi):
+            processes.run_pi_rpc("work", self.repo, Path(self.temp.name) / "pi.log", "Impl", 2)
+
     def test_stream_process_timeout(self) -> None:
         log = Path(self.temp.name) / "timeout.log"
         started = time.monotonic()

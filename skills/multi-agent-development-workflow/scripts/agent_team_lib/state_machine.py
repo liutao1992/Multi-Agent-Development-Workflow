@@ -237,6 +237,14 @@ def _validate_acceptance(task: Path, status: str, observed_head: str) -> None:
         )
 
 
+def validate_terminal_state(task: Path, status: str, observed_head: str) -> None:
+    validate_task_contract_integrity(task, status)
+    if current_state(status) == "ACCEPTED":
+        _validate_implementation_target(task, status, observed_head)
+        _validate_review_pass_or_fail(task, status, observed_head, "PASS")
+        _validate_acceptance(task, status, observed_head)
+
+
 def validate_transition(task: Path, before_status: str, after_status: str, observed_head: str) -> None:
     validate_task_contract_integrity(task, after_status)
     before = current_state(before_status)
@@ -284,7 +292,32 @@ def validate_transition(task: Path, before_status: str, after_status: str, obser
                 "Impl cannot self-approve a Plan; Plan artifact Approval Status must be PENDING."
             )
 
-    if before == "PLAN_REVIEW" and after in {"READY_FOR_IMPLEMENTATION", "PLAN_REWORK"}:
+    contract_changed = (
+        section_field(before_status, "Task Contract", "Revision"),
+        section_field(before_status, "Task Contract", "Hash"),
+    ) != (
+        section_field(after_status, "Task Contract", "Revision"),
+        section_field(after_status, "Task Contract", "Hash"),
+    )
+    if before == "PLAN_REVIEW" and after == "PLAN_REWORK" and contract_changed:
+        if section_field(before_status, "Current Plan", "Approval") != "PENDING":
+            raise ProtocolViolation("A contract amendment in PLAN_REVIEW requires a pending old Plan.")
+        old_plan = section_field(before_status, "Current Plan", "Artifact")
+        old_text = _artifact_text(task, "plans", old_plan)
+        if (
+            _line_field(old_text, "Approval Status") != "PENDING"
+            or _line_field(old_text, "Task Contract Revision")
+            != section_field(before_status, "Task Contract", "Revision")
+            or _line_field(old_text, "Task Contract Hash").lower()
+            != section_field(before_status, "Task Contract", "Hash").lower()
+        ):
+            raise ProtocolViolation("The pending old Plan must match the previous Task Contract.")
+        if section_field(after_status, "Current Plan", "Artifact") != old_plan:
+            raise ProtocolViolation("The invalidated Plan reference must be retained for history.")
+        if section_field(after_status, "Current Plan", "Approval") != "PENDING":
+            raise ProtocolViolation("The invalidated Plan must remain pending and unmodified.")
+
+    elif before == "PLAN_REVIEW" and after in {"READY_FOR_IMPLEMENTATION", "PLAN_REWORK"}:
         expected = "APPROVED" if after == "READY_FOR_IMPLEMENTATION" else "REWORK"
         status_approval = section_field(after_status, "Current Plan", "Approval")
         file_approval = _plan_approval(task, after_status)

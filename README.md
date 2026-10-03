@@ -47,6 +47,8 @@ one working tree
 
 The standalone Process/Queue runtime enforces this with a Code Plane lock. The lock is fail-closed: a stale lock is not automatically stolen because an orphan worker may still be changing the Code Plane. For true parallel Tasks, create a separate Git worktree per Task. Native SubAgent mode must follow the same rule even though its scheduling happens inside the parent Agent.
 
+The automated lock is stored in the worktree's Git directory and is shared across Control Root settings. Interrupted or rejected worker steps leave a `pending-validation.json` marker in the Task runtime directory. Inspect and reconcile the Task before clearing that marker and retrying.
+
 ---
 
 ## 2. Install the Skill

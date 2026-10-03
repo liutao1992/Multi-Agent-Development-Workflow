@@ -130,6 +130,13 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual(git(self.repo, "status", "--porcelain"), "")
         self.assertEqual(len(list((self.task / "implementations").glob("IMPL-*.md"))), 2)
         self.assertEqual(len(list((self.task / "reviews").glob("REVIEW-*.md"))), 2)
+        self.assertFalse(orch.validation_marker(self.root, self.repo, "TASK-1").exists())
+        with mock.patch.object(orch, "dispatch") as dispatch:
+            self.assertEqual(
+                orch.run_task_locked(self.repo, self.root, "TASK-1", "codex", "process", 1, 60),
+                0,
+            )
+            dispatch.assert_not_called()
 
     def test_rework_without_valid_review_evidence_is_rejected(self) -> None:
         self.write_status("REVIEWING")
@@ -143,6 +150,37 @@ class LifecycleTests(unittest.TestCase):
             with mock.patch.object(orch, "select_role", return_value="Lead"):
                 with self.assertRaisesRegex(core.ProtocolViolation, "Required reviews artifact reference is missing"):
                     orch.run_task_locked(self.repo, self.root, "TASK-1", "codex", "process", 1, 60)
+
+    def test_invalid_acceptance_cannot_become_success_on_retry(self) -> None:
+        self.write_status("READY_FOR_FINAL_ACCEPTANCE")
+
+        def invalid_lead(*args, **kwargs):
+            self.write_status("ACCEPTED")
+
+        with mock.patch.object(orch, "dispatch", side_effect=invalid_lead):
+            with self.assertRaises(core.ProtocolViolation):
+                orch.run_task_locked(self.repo, self.root, "TASK-1", "codex", "process", 1, 60)
+
+        marker = orch.validation_marker(self.root, self.repo, "TASK-1")
+        self.assertTrue(marker.exists())
+        with mock.patch.object(orch, "dispatch") as dispatch:
+            with self.assertRaisesRegex(core.ProtocolViolation, "previous worker step was not validated"):
+                orch.run_task_locked(self.repo, self.root, "TASK-1", "codex", "process", 1, 60)
+            dispatch.assert_not_called()
+
+        marker.unlink()
+        with self.assertRaises(core.ProtocolViolation):
+            orch.run_task_locked(self.repo, self.root, "TASK-1", "codex", "process", 1, 60)
+
+    def test_unfinished_worker_step_blocks_retry(self) -> None:
+        with mock.patch.object(orch, "dispatch", side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                orch.run_task_locked(self.repo, self.root, "TASK-1", "codex", "process", 1, 60)
+        self.assertTrue(orch.validation_marker(self.root, self.repo, "TASK-1").exists())
+        with mock.patch.object(orch, "dispatch") as dispatch:
+            with self.assertRaises(core.ProtocolViolation):
+                orch.run_task_locked(self.repo, self.root, "TASK-1", "codex", "process", 1, 60)
+            dispatch.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -324,6 +324,8 @@ When Lead changes any Task Contract section:
 
 A Task Contract amendment invalidates old planning, implementation review, and acceptance evidence.
 
+During `PLAN_REVIEW`, an amendment moves to `PLAN_REWORK` while the pending old Plan remains unchanged and referenced for history. The next Impl Plan version must bind the new contract; the invalidated Plan does not receive a REWORK approval decision.
+
 `Rework Requirements` contains Review remediation instructions and is excluded from the requirement hash. Lead may update only that TASK section during `REVIEWING -> REWORK`, with valid FAIL or MISMATCH evidence. Contract revision/hash and all other TASK content remain unchanged. Product requirement changes still require a contract amendment and `PLAN_REWORK`.
 
 ### Plan content immutability

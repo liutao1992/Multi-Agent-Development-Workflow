@@ -55,6 +55,9 @@ class QueueQuarantineTests(unittest.TestCase):
         queue_runtime.recover_expired_claims(self.root, self.repo, "Impl")
         self.assertFalse(claim.exists())
         self.assertTrue((paths["quarantined"] / "job-no-pid.json").exists())
+        other_root = Path(self.temp.name) / "other-control"
+        with self.assertRaisesRegex(core.OrchestratorError, "UNKNOWN_ORPHAN_RISK"):
+            queue_runtime.require_no_quarantined_jobs(other_root, self.repo)
 
     def test_malformed_claim_is_quarantined(self) -> None:
         paths = queue_runtime.queue_paths(self.root, self.repo, "Review")

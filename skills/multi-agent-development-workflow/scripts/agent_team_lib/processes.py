@@ -4,7 +4,6 @@ import json
 import os
 from pathlib import Path
 import queue as pyqueue
-import selectors
 import shutil
 import signal
 import subprocess
@@ -161,7 +160,7 @@ def stream_process(
                     pass
                 if proc.poll() is not None and output_closed:
                     return proc.returncode
-        except Exception:
+        except BaseException:
             terminate_process_group(proc)
             raise
         finally:
@@ -196,11 +195,20 @@ def run_pi_rpc(
     proc.stdin.write(json.dumps({"id": "agent-team-prompt", "type": "prompt", "message": prompt}) + "\n")
     proc.stdin.flush()
 
-    selector = selectors.DefaultSelector()
-    selector.register(proc.stdout, selectors.EVENT_READ, "stdout")
-    selector.register(proc.stderr, selectors.EVENT_READ, "stderr")
+    events: pyqueue.Queue[tuple[str, str | None]] = pyqueue.Queue()
+
+    def read_stream(stream, name: str) -> None:
+        try:
+            for line in stream:
+                events.put((name, line))
+        finally:
+            events.put((name, None))
+
+    for stream, name in ((proc.stdout, "stdout"), (proc.stderr, "stderr")):
+        threading.Thread(target=read_stream, args=(stream, name), daemon=True).start()
     deadline = time.monotonic() + timeout
     settled = False
+    closed: set[str] = set()
     try:
         with log_path.open("a", encoding="utf-8") as log:
             while not settled:
@@ -210,27 +218,32 @@ def run_pi_rpc(
                     raise OrchestratorError(f"{role} worker was cancelled.")
                 if time.monotonic() >= deadline:
                     raise OrchestratorError(f"Pi {role} worker exceeded timeout of {timeout} seconds.")
-                for key, _ in selector.select(timeout=0.5):
-                    line = key.fileobj.readline()
-                    if not line:
-                        continue
-                    log.write(("STDERR " if key.data == "stderr" else "") + line)
+                try:
+                    name, line = events.get(timeout=0.5)
+                except pyqueue.Empty:
+                    name, line = "", None
+                if name and line is None:
+                    closed.add(name)
+                elif line is not None:
+                    log.write(("STDERR " if name == "stderr" else "") + line)
                     log.flush()
-                    if key.data == "stderr":
+                    if name == "stderr":
                         sys.stderr.write(f"[{role}:pi] {line}")
-                        continue
-                    try:
-                        record = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    if record.get("type") == "extension_ui_request":
-                        raise OrchestratorError("Pi requested interactive extension UI during unattended orchestration.")
-                    if record.get("type") == "agent_settled":
-                        settled = True
-                        break
-                if proc.poll() is not None and not settled:
+                    else:
+                        try:
+                            record = json.loads(line)
+                        except json.JSONDecodeError:
+                            record = {}
+                        if record.get("type") == "extension_ui_request":
+                            raise OrchestratorError("Pi requested interactive extension UI during unattended orchestration.")
+                        if record.get("type") == "agent_settled":
+                            settled = True
+                if proc.poll() is not None and closed == {"stdout", "stderr"} and events.empty() and not settled:
                     raise OrchestratorError(
                         f"Pi {role} worker exited before agent_settled (code {proc.returncode})."
                     )
     finally:
         terminate_process_group(proc)
+        proc.stdin.close()
+        proc.stdout.close()
+        proc.stderr.close()

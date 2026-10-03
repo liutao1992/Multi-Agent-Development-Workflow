@@ -712,5 +712,51 @@ Reason: Late requirement change.
             ),
         )
 
+    def test_contract_amendment_during_plan_review_invalidates_pending_plan(self) -> None:
+        path = self.task_a / "TASK.md"
+        original, old_hash = make_task_text()
+        path.write_text(original, encoding="utf-8")
+        plan = self.task_a / "plans" / "PLAN-v001.md"
+        plan.write_text(
+            f"Task Contract Revision: 1\nTask Contract Hash: {old_hash}\n"
+            "## Approval\nApproval Status: PENDING\n",
+            encoding="utf-8",
+        )
+        original_plan = plan.read_text(encoding="utf-8")
+        before = core.task_contract_snapshot(self.task_a)
+        before_status = status("PLAN_REVIEW", old_hash, plan_artifact=plan.name, plan_approval="PENDING")
+        changed, new_hash = make_task_text(
+            revision=2,
+            requirement="Must support A and C.",
+            change_log=f"Revision: 2\nPrevious Hash: {old_hash}\nNew Hash: PLACEHOLDER\n",
+        )
+        path.write_text(changed.replace("New Hash: PLACEHOLDER", f"New Hash: {new_hash}"), encoding="utf-8")
+        after_status = status(
+            "PLAN_REWORK", new_hash, contract_revision=2,
+            plan_artifact=plan.name, plan_approval="PENDING",
+        )
+        core.validate_task_contract_mutation(
+            "Lead", before, core.task_contract_snapshot(self.task_a), before_status, after_status,
+        )
+        state_machine.validate_transition(
+            self.task_a, before_status, after_status, git(self.repo, "rev-parse", "HEAD"),
+        )
+        self.assertEqual(plan.read_text(encoding="utf-8"), original_plan)
+        self.assertEqual(core.select_role(self.task_a, after_status), "Impl")
+
+        next_plan = self.task_a / "plans" / "PLAN-v002.md"
+        next_plan.write_text(
+            f"Task Contract Revision: 2\nTask Contract Hash: {new_hash}\n"
+            "## Approval\nApproval Status: PENDING\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(core.select_role(self.task_a, after_status), "Lead")
+        state_machine.validate_transition(
+            self.task_a, after_status,
+            status("PLAN_REVIEW", new_hash, contract_revision=2,
+                   plan_artifact=next_plan.name, plan_approval="PENDING"),
+            git(self.repo, "rev-parse", "HEAD"),
+        )
+
 if __name__ == "__main__":
     unittest.main()

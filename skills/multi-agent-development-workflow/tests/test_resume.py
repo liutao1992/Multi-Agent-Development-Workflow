@@ -222,6 +222,7 @@ class ResumeTests(unittest.TestCase):
     def test_resume_without_cli_decision_requires_persisted_decision(self) -> None:
         for value in ("N/A", "", "Use existing approval."):
             with self.subTest(value=value):
+                orch.validation_marker(self.root, self.repo, "TASK-1").unlink(missing_ok=True)
                 (self.task / "STATUS.md").write_text(blocked_status(self.contract_hash))
                 def fake_dispatch(*args, **kwargs):
                     (self.task / "STATUS.md").write_text(

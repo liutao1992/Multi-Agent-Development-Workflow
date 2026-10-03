@@ -7,7 +7,8 @@ import time
 import uuid
 
 from .core import (
-    FileLock, OrchestratorError, process_alive, project_fingerprint, project_runtime_root,
+    FileLock, OrchestratorError, process_alive, project_fingerprint, project_lock_path,
+    project_runtime_root,
     read_json, task_runtime_dir, write_json_atomic,
 )
 from .processes import (
@@ -110,6 +111,9 @@ def quarantine_claim(
         "reason": reason,
         "quarantined_at": time.time(),
     })
+    write_json_atomic(shared_orphan_risk_path(root, project_root), {
+        "claim": str(target), "reason": reason, "quarantined_at": time.time(),
+    })
     return target
 
 
@@ -123,8 +127,15 @@ def quarantined_jobs(root: Path, project_root: Path) -> list[Path]:
     )
 
 
+def shared_orphan_risk_path(root: Path, project_root: Path) -> Path:
+    return project_lock_path(root, project_root).with_name("agent-team-orphan-risk.json")
+
+
 def require_no_quarantined_jobs(root: Path, project_root: Path) -> None:
     jobs = quarantined_jobs(root, project_root)
+    shared = shared_orphan_risk_path(root, project_root)
+    if shared.exists():
+        jobs.append(shared)
     if jobs:
         raise OrchestratorError(
             "Queue contains quarantined claims with UNKNOWN_ORPHAN_RISK. "
@@ -357,7 +368,7 @@ def queue_dispatch(
                 )
             time.sleep(0.5)
         raise OrchestratorError(f"Timed out waiting for {role} queue job {job_id}.")
-    except Exception as exc:
+    except BaseException as exc:
         cancel_and_quiesce_job(
             root, project_root, role, job_id, str(exc)
         )

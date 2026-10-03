@@ -24,15 +24,27 @@ from agent_team_lib.core import (
     validate_bootstrap_control_boundary, validate_plan_approval_boundary,
     validate_plan_content_boundary, validate_project_control_boundary,
     validate_role_postconditions, validate_task_contract_integrity,
-    validate_task_contract_mutation,
+    validate_task_contract_mutation, write_json_atomic,
 )
 from agent_team_lib.processes import choose_runtime, run_codex, run_pi_rpc
 from agent_team_lib.queue_runtime import (
-    queue_dispatch, quarantined_jobs, require_no_quarantined_jobs, worker_loop,
+    queue_dispatch, quarantined_jobs, require_no_quarantined_jobs,
+    shared_orphan_risk_path, worker_loop,
 )
-from agent_team_lib.state_machine import validate_transition
+from agent_team_lib.state_machine import validate_terminal_state, validate_transition
 
 ROLE_COMMAND = {"Lead": "Continue", "Impl": "Continue", "Review": "Review"}
+
+
+def validation_marker(root: Path, project_root: Path, task_id: str) -> Path:
+    return task_runtime_dir(root, project_root, task_id) / "pending-validation.json"
+
+
+def require_no_pending_validation(marker: Path) -> None:
+    if marker.exists():
+        raise ProtocolViolation(
+            f"A previous worker step was not validated. Inspect its artifacts before clearing {marker}."
+        )
 
 
 def log_event(root: Path, project_root: Path, task_id: str, payload: dict) -> None:
@@ -153,10 +165,15 @@ def run_task_locked(
         raise OrchestratorError(f"Task not found: {task}")
 
     with FileLock(task_lock_path(root, project_root, task_id), f"Task {task_id}"):
+        marker = validation_marker(root, project_root, task_id)
+        require_no_pending_validation(marker)
         for step in range(1, max_steps + 1):
             status = read_status(task)
             state = current_state(status)
             if state in TERMINAL_STATES:
+                if state == "ACCEPTED":
+                    require_clean_code_plane(project_root)
+                validate_terminal_state(task, status, git_snapshot(project_root)["head"])
                 print(f"Task {task_id}: {state}")
                 return 0 if state in {"ACCEPTED", "CANCELLED"} else 2
 
@@ -180,6 +197,10 @@ def run_task_locked(
                 root, project_root, task_id,
                 {"event": "step", "step": step, "state": state, "role": role},
             )
+            write_json_atomic(marker, {
+                "task_id": task_id, "step": step, "state": state, "role": role,
+                "before_digest": before_digest, "before_head": before_git["head"],
+            })
             dispatch(
                 runtime, transport, role,
                 build_worker_prompt(role, task_id, project_root, root),
@@ -218,6 +239,7 @@ def run_task_locked(
                 raise OrchestratorError(
                     f"No protocol progress after {role} worker in state {state}."
                 )
+            marker.unlink()
 
         raise OrchestratorError(f"Maximum orchestration steps exceeded ({max_steps}).")
 
@@ -260,6 +282,8 @@ def resume_task(
         require_clean_code_plane(project_root)
 
         with FileLock(task_lock_path(root, project_root, task_id), f"Task {task_id}"):
+            marker = validation_marker(root, project_root, task_id)
+            require_no_pending_validation(marker)
             before_status = read_status(task)
             validate_task_contract_integrity(task, before_status)
             if current_state(before_status) != "BLOCKED":
@@ -275,6 +299,10 @@ def resume_task(
             before_plan_approval = plan_approval_snapshot(task)
             before_task_contract = task_contract_snapshot(task)
 
+            write_json_atomic(marker, {
+                "task_id": task_id, "state": "BLOCKED", "role": "Lead",
+                "before_head": before_git["head"],
+            })
             dispatch(
                 runtime,
                 transport,
@@ -324,6 +352,7 @@ def resume_task(
                 raise ProtocolViolation(
                     "STATUS Blocked Resolution Decision must exactly match the resume CLI decision."
                 )
+            marker.unlink()
 
         if current_state(read_status(task)) == "CANCELLED":
             print(f"Task {task_id}: CANCELLED")
@@ -402,6 +431,8 @@ def doctor(project_root: Path, root: Path, requested_runtime: str) -> int:
     print(f"Quarantined Queue Jobs: {len(quarantine)}")
     for item in quarantine:
         print(f"  - {item}")
+    shared_risk = shared_orphan_risk_path(root, project_root)
+    print(f"Shared Orphan Risk: {shared_risk if shared_risk.exists() else 'NO'}")
 
     for runtime in ("codex", "pi"):
         print(f"Runtime {runtime}: {shutil.which(runtime) or 'NOT FOUND'}")
