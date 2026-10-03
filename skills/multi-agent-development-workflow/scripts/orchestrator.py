@@ -23,7 +23,8 @@ from agent_team_lib.core import (
     task_contract_snapshot, task_digest, task_lock_path, task_root, task_runtime_dir, tasks_dir,
     validate_bootstrap_control_boundary, validate_plan_approval_boundary,
     validate_plan_content_boundary, validate_project_control_boundary,
-    validate_role_postconditions, validate_task_contract_mutation,
+    validate_role_postconditions, validate_task_contract_integrity,
+    validate_task_contract_mutation,
 )
 from agent_team_lib.processes import choose_runtime, run_codex, run_pi_rpc
 from agent_team_lib.queue_runtime import (
