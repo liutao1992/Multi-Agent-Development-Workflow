@@ -161,14 +161,18 @@ Every role reads `STATUS.md` first and follows the artifact references recorded 
 
 The \`feature/agent-orchestrator\` branch adds an executable Orchestrator while leaving \`main\` unchanged.
 
-Two modes are supported:
+Automatic execution now has a preferred native mode plus two standalone fallback modes:
 
 \`\`\`text
-direct
-  Lead orchestrator starts fresh Impl / Review workers itself
+native-subagent   ← preferred
+  Lead is the Parent/Root Agent.
+  Reuse Impl per Task; spawn a fresh Review for each round.
+
+process
+  Standalone fallback: launches Codex/Pi worker processes.
 
 queue
-  Lead pane dispatches jobs to dedicated Impl / Review Warp pane workers
+  Warp fallback: Lead dispatches jobs to dedicated Impl / Review pane workers.
 \`\`\`
 
 For the three-pane Warp layout:
@@ -199,3 +203,25 @@ skills/multi-agent-development-workflow/scripts/agent-team \
 The Orchestrator runs until ACCEPTED, CANCELLED, BLOCKED, a required human decision, a runtime failure, or a no-progress guard fires.
 
 See [Automatic Orchestration](./skills/multi-agent-development-workflow/automation/orchestrator.md).
+
+
+### Native SubAgent mode
+
+When your current coding runtime exposes native multi-agent collaboration, do **not** start the standalone \`agent-team\` orchestrator first.
+
+Give the requirement to Lead and request automatic execution. Lead should:
+
+\`\`\`text
+spawn/reuse Impl
+→ Plan
+→ Lead approval
+→ follow up same Impl
+→ implementation
+→ spawn fresh Review
+→ Lead decision
+→ rework loop or acceptance
+\`\`\`
+
+The standalone CLI remains available when native SubAgents are unavailable.
+
+See [Native SubAgent Orchestration](./skills/multi-agent-development-workflow/automation/subagent.md).

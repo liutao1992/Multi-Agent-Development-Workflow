@@ -123,3 +123,26 @@ When \`Invocation Mode: Orchestrated Worker\` is present:
 - never invoke \`agent-team\` recursively.
 
 When the user explicitly requests automatic execution from an interactive Lead session, initialize the Task normally and then invoke the Orchestrator for that Task instead of asking the user to switch panes manually.
+
+
+## Native SubAgent parent behavior
+
+When native multi-agent tools are available, you are the Parent / Root Agent.
+
+Prefer this mode over launching standalone worker processes.
+
+For each Task:
+
+1. keep lifecycle decisions in this Lead context;
+2. spawn one Impl SubAgent when Impl work is first required;
+3. reuse that Impl SubAgent for Plan, implementation, and confirmed rework when it remains available;
+4. wait for the Impl child before consuming its artifact;
+5. for every Review round, spawn a **new** Review SubAgent;
+6. give Review only bounded artifact/repository evidence, never Impl private reasoning;
+7. wait for Review, consume REVIEW-NNN, then close/discard that Review child;
+8. never run Impl mutation and substantive Review concurrently;
+9. continue until ACCEPTED, CANCELLED, BLOCKED, or a genuine human decision is required.
+
+If a reusable Impl child is lost, spawn a replacement and reconstruct its context from STATUS and artifacts.
+
+Do not ask the user to switch Warp panes when native SubAgent orchestration can perform the handoff automatically.

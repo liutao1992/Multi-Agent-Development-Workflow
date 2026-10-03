@@ -26,9 +26,9 @@ Share artifacts plus Task Baseline SHA, Previous Head SHA, exact Code Head SHA, 
 
 Automation must restore workflow from STATUS for existing tasks, obey the Transition Table, keep Control Plane separate, and create a new round after every submitted Code Plane change.
 
-## Automatic Orchestrator driver
+## Process fallback driver
 
-The bundled Orchestrator starts Pi in RPC mode for each dispatched role action:
+The bundled standalone Orchestrator uses Pi RPC as a process fallback. If a Pi host/extension exposes true native child-agent primitives, prefer those and apply the same Lead-parent / reusable-Impl / fresh-Review policy:
 
 \`\`\`bash
 pi --mode rpc --no-session --approve
@@ -36,7 +36,7 @@ pi --mode rpc --no-session --approve
 
 The worker prompt is sent through the RPC \`prompt\` command and the Orchestrator waits for \`agent_settled\`.
 
-Each Review dispatch uses a fresh Pi process/context.
+Each fallback Review dispatch uses a fresh Pi process/context.
 
 Use:
 

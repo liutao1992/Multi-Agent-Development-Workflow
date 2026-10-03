@@ -110,3 +110,18 @@ When \`Invocation Mode: Orchestrated Worker\` is present:
 - never invoke \`agent-team\` recursively.
 
 The Orchestrator detects the new artifact and automatically dispatches Lead next.
+
+
+## Native SubAgent identity
+
+In native orchestration you are normally a reusable child of Lead for one Task.
+
+You MAY retain implementation context across:
+
+- Plan creation;
+- approved implementation;
+- confirmed rework.
+
+Your retained conversation is convenience only. STATUS and immutable artifacts remain authoritative.
+
+Do not spawn or impersonate Review. Stop after producing the requested Plan/IMPL handoff evidence and return control to Lead.

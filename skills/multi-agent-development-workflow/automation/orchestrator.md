@@ -2,7 +2,7 @@
 
 ## Goal
 
-Remove routine human handoffs while preserving the existing protocol:
+Remove routine human handoffs while preserving the existing protocol. **Native SubAgent orchestration is preferred; the standalone script is a fallback when the parent runtime cannot expose subagent primitives:**
 
 \`\`\`text
 User
@@ -17,6 +17,8 @@ ACCEPTED / BLOCKED
 \`\`\`
 
 The Orchestrator is an execution mechanism, not a fourth authority.
+
+In native mode, Lead itself is the parent Orchestrator. In standalone mode, `scripts/orchestrator.py` is only a transport fallback.
 
 ## Why this is separate from Warp UI
 
@@ -59,10 +61,10 @@ REVIEWING + REVIEW-001 exists but STATUS has not consumed it
 
 This preserves the original Lead-only transition invariant.
 
-## Direct mode
+## Process fallback mode
 
 \`\`\`bash
-agent-team --runtime codex --transport direct run TASK-...
+agent-team --runtime codex --transport process run TASK-...
 \`\`\`
 
 Best for CI, unattended local execution, and initial validation.
@@ -143,3 +145,12 @@ Implemented drivers:
 - Pi: RPC mode
 
 The runtime-independent protocol remains valid for other coding agents; they need a driver that satisfies the same worker contract.
+
+
+## Preferred native mode
+
+See [Native SubAgent Orchestration](./subagent.md).
+
+The standalone script cannot reach into an already-running parent session and call that session's native subagent collaboration tools. Do not label a separate \`codex exec\` or Pi RPC process as a SubAgent.
+
+Use native mode from the Lead parent session when the runtime exposes subagents; use this script only as fallback.

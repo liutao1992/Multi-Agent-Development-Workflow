@@ -33,6 +33,20 @@ Artifact: {review}
 """
 
 
+class TransportTests(unittest.TestCase):
+    def test_auto_and_direct_alias_resolve_to_process(self) -> None:
+        self.assertEqual(orch.normalize_transport("auto"), "process")
+        self.assertEqual(orch.normalize_transport("process"), "process")
+        self.assertEqual(orch.normalize_transport("direct"), "process")
+
+    def test_queue_is_preserved(self) -> None:
+        self.assertEqual(orch.normalize_transport("queue"), "queue")
+
+    def test_subagent_fails_closed_in_standalone_cli(self) -> None:
+        with self.assertRaises(orch.OrchestratorError):
+            orch.normalize_transport("subagent")
+
+
 class RoleSelectionTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()

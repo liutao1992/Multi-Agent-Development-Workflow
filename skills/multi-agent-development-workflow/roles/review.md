@@ -101,3 +101,14 @@ When \`Invocation Mode: Orchestrated Worker\` is present:
 - never invoke \`agent-team\` recursively.
 
 The Orchestrator detects the new Review artifact and automatically dispatches Lead next.
+
+
+## Native SubAgent freshness
+
+In native orchestration you MUST be a fresh child for the current Review round.
+
+Do not assume context from an earlier Review child.
+Do not request Impl private conversation history.
+Do not continue into implementation fixes.
+
+After creating REVIEW-NNN, return the result to Lead and end this Review context.

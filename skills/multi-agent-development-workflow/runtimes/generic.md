@@ -38,3 +38,22 @@ repeat until terminal
 \`\`\`
 
 A generic runtime adapter must not bypass Lead-only lifecycle transitions or independent Review.
+
+
+## Preferred native SubAgent hierarchy
+
+If the runtime exposes true parent/child agent collaboration, prefer:
+
+\`\`\`text
+Lead parent
+├── reusable Impl child per Task
+└── fresh Review child per Review round
+\`\`\`
+
+Use runtime-native spawn/follow-up/wait/close primitives. A separate OS process is a process worker, not a SubAgent.
+
+Fallback order:
+
+\`\`\`text
+native-subagent → process → queue → manual
+\`\`\`

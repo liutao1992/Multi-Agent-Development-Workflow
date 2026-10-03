@@ -121,7 +121,7 @@ For a new task:
 
 ## Automatic Orchestration
 
-This Skill can run in **manual handoff mode** or **automatic orchestration mode**.
+This Skill can run in **manual handoff mode** or **automatic orchestration mode**. Native SubAgent orchestration is the preferred automatic mode when supported by the parent runtime.
 
 Automatic orchestration does not change lifecycle authority:
 
@@ -137,6 +137,105 @@ scripts/agent-team
 \`\`\`
 
 It delegates to \`scripts/orchestrator.py\`.
+
+### Preferred transport: native SubAgents
+
+When the current parent runtime exposes native multi-agent/subagent primitives, **Lead MUST prefer native SubAgent orchestration** over launching separate worker processes.
+
+In native mode:
+
+\`\`\`text
+User
+ ↓
+Lead = Parent / Root Agent
+ ├─ Impl SubAgent       ← reusable within the same Task
+ └─ Review SubAgent     ← fresh for every Review round
+\`\`\`
+
+Lead remains the lifecycle authority and directly drives the state machine.
+
+#### Impl lifecycle
+
+For one Task, Lead should normally create one Impl SubAgent and reuse it:
+
+\`\`\`text
+spawn Impl
+  ↓
+PLAN-v001
+  ↓
+Lead Plan Gate
+  ↓
+follow up same Impl
+  ↓
+implementation + tests + IMPL-001
+  ↓
+Review FAIL
+  ↓
+follow up same Impl with confirmed RW IDs
+  ↓
+IMPL-002
+\`\`\`
+
+Reusing Impl preserves useful codebase context.
+
+If the parent session is lost, a replacement Impl MAY be spawned. It must reconstruct state from STATUS and immutable artifacts rather than conversation history.
+
+#### Review lifecycle
+
+Every Review round MUST use a newly spawned Review SubAgent:
+
+\`\`\`text
+IMPL-001 → spawn fresh Review-1 → REVIEW-001
+IMPL-002 → spawn fresh Review-2 → REVIEW-002
+\`\`\`
+
+Do not reuse a prior Review SubAgent for a new round.
+
+Do not fork or pass Impl private conversation/reasoning into Review.
+
+Review receives only bounded evidence:
+
+- TASK.md;
+- approved Plan or Plan Gate SKIPPED marker;
+- exact IMPL-NNN;
+- Task Baseline SHA;
+- Previous Head SHA;
+- Code Head SHA;
+- relevant Git diffs and repository/test evidence;
+- prior REVIEW only when re-review context requires it.
+
+#### Parent / child coordination
+
+Use the runtime's native collaboration primitives when available:
+
+\`\`\`text
+spawn Impl
+wait for Impl
+Lead evaluates artifact
+follow up Impl
+wait for Impl
+Lead freezes Review target
+spawn fresh Review
+wait for Review
+Lead evaluates PASS / FAIL
+\`\`\`
+
+Do not run Impl and Review concurrently against the same mutable Code Plane.
+
+SubAgents do not gain lifecycle authority. Impl/Review still MUST NOT transition STATUS.
+
+#### Transport priority
+
+Automatic execution chooses transports in this order:
+
+\`\`\`text
+1. native-subagent  ← preferred when current parent runtime exposes it
+2. process          ← standalone codex exec / Pi RPC fallback
+3. queue            ← Warp visible worker fallback
+4. manual           ← only if automation is unavailable
+\`\`\`
+
+The standalone \`scripts/agent-team\` CLI cannot attach to the native SubAgent tools of an already-running parent conversation. Therefore it implements only the fallback execution transports. Native SubAgent orchestration happens **inside the Lead parent session**.
 
 ### Automatic lifecycle driver
 
@@ -215,15 +314,15 @@ Validate the environment:
 agent-team --runtime codex doctor
 \`\`\`
 
-### Direct transport
+### Process fallback transport
 
 Default transport:
 
 \`\`\`bash
-agent-team --runtime codex --transport direct run <TASK-ID>
+agent-team --runtime codex --transport process run <TASK-ID>
 \`\`\`
 
-The Orchestrator starts fresh headless role workers itself.
+The standalone Orchestrator starts headless role workers itself. Use this only when native SubAgent orchestration is unavailable.
 
 ### Warp three-pane queue transport
 

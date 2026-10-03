@@ -563,12 +563,12 @@ def dispatch(
 
     if transport == "queue" and role in {"Impl", "Review"}:
         queue_dispatch(runtime, role, prompt, project_root, root, task_id, timeout)
-    elif runtime == "codex":
+    elif transport == "process" and runtime == "codex":
         run_codex(prompt, project_root, log_path, role)
-    elif runtime == "pi":
+    elif transport == "process" and runtime == "pi":
         run_pi_rpc(prompt, project_root, log_path, role, timeout)
     else:
-        raise OrchestratorError(f"Unsupported runtime: {runtime}")
+        raise OrchestratorError(f"Unsupported standalone transport/runtime: {transport}/{runtime}")
 
     log_event(
         root,
@@ -712,6 +712,24 @@ def doctor(project_root: Path, root: Path, runtime: str) -> int:
     return 0
 
 
+def normalize_transport(requested: str) -> str:
+    """Resolve standalone CLI transport.
+
+    Native SubAgent orchestration belongs to the already-running parent agent
+    session and cannot be attached to from this standalone process.
+    """
+    if requested in {"auto", "process", "direct"}:
+        return "process"
+    if requested == "queue":
+        return "queue"
+    if requested == "subagent":
+        raise OrchestratorError(
+            "Native SubAgent transport must be run inside the Lead parent agent session. "
+            "The standalone agent-team CLI supports process or queue fallback transports."
+        )
+    raise OrchestratorError(f"Unknown transport: {requested}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         prog="agent-team",
@@ -721,9 +739,13 @@ def main() -> int:
     parser.add_argument("--runtime", choices=["auto", "codex", "pi"], default=os.environ.get("AGENT_TEAM_RUNTIME", "auto"))
     parser.add_argument(
         "--transport",
-        choices=["direct", "queue"],
-        default=os.environ.get("AGENT_TEAM_TRANSPORT", "direct"),
-        help="direct launches workers from the orchestrator; queue delegates Impl/Review to Warp pane workers.",
+        choices=["auto", "subagent", "process", "direct", "queue"],
+        default=os.environ.get("AGENT_TEAM_TRANSPORT", "auto"),
+        help=(
+            "Standalone transport. auto/process launch worker processes; queue delegates "
+            "Impl/Review to Warp pane workers. subagent is reserved for native parent-session "
+            "orchestration and will fail closed in this standalone CLI."
+        ),
     )
     parser.add_argument("--max-steps", type=int, default=50)
     parser.add_argument("--timeout", type=int, default=3600, help="Per-worker timeout in seconds.")
@@ -750,6 +772,7 @@ def main() -> int:
     root = control_root(project_root)
     ensure_project_control_root(project_root, root)
     runtime = choose_runtime(args.runtime)
+    transport = normalize_transport(args.transport)
 
     if args.command == "doctor":
         return doctor(project_root, root, runtime)
@@ -760,14 +783,14 @@ def main() -> int:
         print(current_state(status))
         return 0
     if args.command == "run":
-        return run_task(project_root, root, args.task_id, runtime, args.transport, args.max_steps, args.timeout)
+        return run_task(project_root, root, args.task_id, runtime, transport, args.max_steps, args.timeout)
     if args.command == "start":
         return create_task_and_run(
             project_root,
             root,
             args.requirement,
             runtime,
-            args.transport,
+            transport,
             args.max_steps,
             args.timeout,
         )
