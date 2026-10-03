@@ -43,7 +43,7 @@ Share artifacts, not private reasoning.
 5. verify checked-out/current HEAD equals declared Head SHA;
 6. use declared Base SHA → Head SHA diff.
 
-On mismatch, stop and report `REVIEW_TARGET_MISMATCH`.
+On mismatch, stop before substantive review, record protocol status `REVIEW_TARGET_MISMATCH`, and do not issue PASS or FAIL.
 
 ## Review scope
 
@@ -65,7 +65,7 @@ Never overwrite previous Review rounds.
 
 ## Result
 
-PASS or FAIL. A target mismatch stops review as a protocol error. Never ACCEPTED.
+PASS or FAIL only. A target mismatch stops review before a Review Result exists. Never ACCEPTED.
 
 ## Re-review
 

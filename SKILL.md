@@ -204,7 +204,7 @@ Rules:
 5. Any post-submission code change creates a new implementation round and new Head SHA.
 6. Review verifies checked-out HEAD equals declared Head SHA before substantive review.
 7. Review compares Base SHA → Head SHA.
-8. On mismatch, stop Review and report `REVIEW_TARGET_MISMATCH`.
+8. On mismatch, stop before substantive Review and record protocol status `REVIEW_TARGET_MISMATCH`; no Review Result is issued.
 
 A branch name is descriptive only because it may move.
 
@@ -230,7 +230,7 @@ Principle: **share artifacts, not private reasoning**.
 
 ## Review and rework
 
-Review result is PASS or FAIL. `REVIEW_TARGET_MISMATCH` is a protocol failure that stops substantive review.
+Review Result is only PASS or FAIL. `REVIEW_TARGET_MISMATCH` is a pre-review protocol failure, not a Review Result.
 
 When Review fails:
 

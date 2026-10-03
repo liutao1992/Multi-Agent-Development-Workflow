@@ -12,8 +12,9 @@ Declared Base SHA: <sha>
 Declared Head SHA: <sha>
 Observed Head SHA: <sha>
 Target Match: YES / NO
+Protocol Status: READY_FOR_REVIEW / REVIEW_TARGET_MISMATCH
 
-If NO, substantive review stops with REVIEW_TARGET_MISMATCH.
+If Target Match is NO, substantive review stops. Set Protocol Status to REVIEW_TARGET_MISMATCH and leave Review Result as N/A.
 
 ## Independence
 
@@ -27,9 +28,9 @@ Artifacts Used:
 - Base→Head diff
 - test evidence
 
-## Result
+## Review Result
 
-PASS / FAIL / REVIEW_TARGET_MISMATCH
+PASS / FAIL / N/A
 
 ## Requirement Verification
 
