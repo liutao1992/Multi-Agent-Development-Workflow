@@ -291,6 +291,40 @@ def validate_bootstrap_control_boundary(
         )
 
 
+def plan_content_without_approval(text: str) -> str:
+    """Return Plan content excluding the Lead-owned ## Approval section."""
+    return re.sub(
+        r"(?ms)^## Approval\s*\n.*?(?=^## |\Z)",
+        "",
+        text,
+        count=1,
+    )
+
+
+def plan_content_snapshot(task: Path) -> dict[str, str]:
+    plans = task / "plans"
+    if not plans.exists():
+        return {}
+    result: dict[str, str] = {}
+    for path in sorted(plans.glob("PLAN-v*.md")):
+        normalized = plan_content_without_approval(path.read_text(encoding="utf-8"))
+        result[path.name] = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+    return result
+
+
+def validate_plan_content_boundary(
+    role: str,
+    before: dict[str, str],
+    after: dict[str, str],
+) -> None:
+    common = before.keys() & after.keys()
+    changed = sorted(name for name in common if before[name] != after[name])
+    if changed:
+        raise ProtocolViolation(
+            f"{role} modified immutable Plan content outside the Approval block: {changed}"
+        )
+
+
 def task_digest(task: Path) -> str:
     digest = hashlib.sha256()
     for name, value in sorted(control_snapshot(task).items()):

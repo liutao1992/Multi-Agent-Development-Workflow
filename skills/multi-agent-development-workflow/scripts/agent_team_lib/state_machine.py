@@ -67,6 +67,56 @@ def _review_result(task: Path, status: str) -> str:
     return result.split()[0] if result else ""
 
 
+def _review_field(text: str, field: str) -> str:
+    return _line_field(text, field)
+
+
+def _validate_review_evidence(task: Path, status: str, observed_head: str) -> None:
+    review_name = section_field(status, "Current Review", "Artifact")
+    review = _artifact(task, "reviews", review_name)
+    text = review.read_text(encoding="utf-8")
+
+    current_impl = section_field(status, "Current Implementation", "Artifact")
+    reviewed_impl = _review_field(text, "Reviewed Implementation")
+    if reviewed_impl != Path(current_impl).stem:
+        raise ProtocolViolation(
+            f"Review evidence targets {reviewed_impl}, expected {Path(current_impl).stem}."
+        )
+
+    status_sha = _require_full_sha(
+        section_field(status, "Current Implementation", "Code Head SHA"),
+        "STATUS Current Implementation Code Head SHA",
+    )
+    declared = _require_full_sha(
+        _review_field(text, "Declared Code Head SHA"),
+        "Review Declared Code Head SHA",
+    )
+    observed_review = _require_full_sha(
+        _review_field(text, "Observed Code Head SHA"),
+        "Review Observed Code Head SHA",
+    )
+    observed_now = _require_full_sha(observed_head, "Current observed Code Head SHA")
+    if not (status_sha == declared == observed_review == observed_now):
+        raise ProtocolViolation(
+            "Review evidence Code Head must equal STATUS and current observed HEAD."
+        )
+
+    if _review_field(text, "Protocol Status") != "READY_FOR_REVIEW":
+        raise ProtocolViolation("PASS Review requires Protocol Status READY_FOR_REVIEW.")
+
+    for field in (
+        "Unstaged Diff Clean",
+        "Staged Diff Clean",
+        "Status Porcelain Clean",
+        "Control Plane Excluded",
+    ):
+        if _review_field(text, field) != "YES":
+            raise ProtocolViolation(f"PASS Review requires {field}: YES.")
+
+    if _review_result(task, status) != "PASS":
+        raise ProtocolViolation("Review artifact must declare PASS.")
+
+
 def _validate_implementation_target(task: Path, status: str, observed_head: str) -> None:
     artifact = section_field(status, "Current Implementation", "Artifact")
     impl = _artifact(task, "implementations", artifact)
@@ -85,7 +135,7 @@ def _validate_implementation_target(task: Path, status: str, observed_head: str)
         raise ProtocolViolation("STATUS / IMPL / observed Code Head SHA must match exactly.")
 
 
-def _validate_acceptance(task: Path, status: str) -> None:
+def _validate_acceptance(task: Path, status: str, observed_head: str) -> None:
     artifact = section_field(status, "Final Acceptance", "Artifact")
     if artifact in {"", "N/A", "None"}:
         raise ProtocolViolation("ACCEPTED requires Final Acceptance Artifact.")
@@ -117,8 +167,11 @@ def _validate_acceptance(task: Path, status: str) -> None:
         _line_field(text, "Accepted Code Head SHA"),
         "Acceptance Accepted Code Head SHA",
     )
-    if code_head != accepted_status_sha or code_head != accepted_file_sha:
-        raise ProtocolViolation("Accepted Code Head SHA must match the current implementation.")
+    observed = _require_full_sha(observed_head, "Observed acceptance Code Head SHA")
+    if not (code_head == accepted_status_sha == accepted_file_sha == observed):
+        raise ProtocolViolation(
+            "Accepted Code Head SHA must match current implementation and current Git HEAD."
+        )
 
 
 def validate_transition(task: Path, before_status: str, after_status: str, observed_head: str) -> None:
@@ -160,8 +213,12 @@ def validate_transition(task: Path, before_status: str, after_status: str, obser
     if before in {"PLANNING", "PLAN_REWORK"} and after == "PLAN_REVIEW":
         artifact = section_field(after_status, "Current Plan", "Artifact")
         _artifact(task, "plans", artifact)
-        if section_field(after_status, "Current Plan", "Approval") not in {"PENDING", "NOT_STARTED"}:
-            raise ProtocolViolation("Plan entering PLAN_REVIEW must be pending approval.")
+        if section_field(after_status, "Current Plan", "Approval") != "PENDING":
+            raise ProtocolViolation("Plan entering PLAN_REVIEW must have STATUS Approval PENDING.")
+        if _plan_approval(task, after_status) != "PENDING":
+            raise ProtocolViolation(
+                "Impl cannot self-approve a Plan; Plan artifact Approval Status must be PENDING."
+            )
 
     if before == "PLAN_REVIEW" and after in {"READY_FOR_IMPLEMENTATION", "PLAN_REWORK"}:
         expected = "APPROVED" if after == "READY_FOR_IMPLEMENTATION" else "REWORK"
@@ -189,8 +246,8 @@ def validate_transition(task: Path, before_status: str, after_status: str, obser
     if before == "REVIEWING" and after == "READY_FOR_FINAL_ACCEPTANCE":
         if section_field(after_status, "Current Review", "Result") != "PASS":
             raise ProtocolViolation("READY_FOR_FINAL_ACCEPTANCE requires STATUS Review Result PASS.")
-        if _review_result(task, after_status) != "PASS":
-            raise ProtocolViolation("READY_FOR_FINAL_ACCEPTANCE requires REVIEW artifact PASS.")
+        _validate_implementation_target(task, after_status, observed_head)
+        _validate_review_evidence(task, after_status, observed_head)
 
     if before == "REVIEWING" and after == "REWORK":
         result = section_field(after_status, "Current Review", "Result")
@@ -208,4 +265,6 @@ def validate_transition(task: Path, before_status: str, after_status: str, obser
             raise ProtocolViolation("REWORK -> IMPLEMENTING requires confirmed Active RW IDs.")
 
     if before == "READY_FOR_FINAL_ACCEPTANCE" and after == "ACCEPTED":
-        _validate_acceptance(task, after_status)
+        _validate_implementation_target(task, after_status, observed_head)
+        _validate_review_evidence(task, after_status, observed_head)
+        _validate_acceptance(task, after_status, observed_head)

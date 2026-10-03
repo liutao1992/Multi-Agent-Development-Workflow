@@ -17,11 +17,11 @@ from agent_team_lib.core import (
     FileLock, OrchestratorError, ProtocolViolation, TERMINAL_STATES,
     control_root, control_snapshot, current_state, ensure_control_root,
     find_project_root, git_snapshot, inspect_control_root_safety,
-    project_control_snapshot, project_fingerprint, project_lock_path,
+    plan_content_snapshot, project_control_snapshot, project_fingerprint, project_lock_path,
     project_runtime_root, read_status, require_clean_code_plane, select_role,
     task_digest, task_lock_path, task_root, task_runtime_dir, tasks_dir,
-    validate_bootstrap_control_boundary, validate_project_control_boundary,
-    validate_role_postconditions,
+    validate_bootstrap_control_boundary, validate_plan_content_boundary,
+    validate_project_control_boundary, validate_role_postconditions,
 )
 from agent_team_lib.processes import choose_runtime, run_codex, run_pi_rpc
 from agent_team_lib.queue_runtime import (
@@ -136,6 +136,7 @@ def run_task_locked(
             before_git = git_snapshot(project_root)
             before_control = control_snapshot(task)
             before_project_control = project_control_snapshot(root, project_root)
+            before_plan_content = plan_content_snapshot(task)
             before_status = status
 
             log_event(
@@ -151,8 +152,10 @@ def run_task_locked(
             after_git = git_snapshot(project_root)
             after_control = control_snapshot(task)
             after_project_control = project_control_snapshot(root, project_root)
+            after_plan_content = plan_content_snapshot(task)
             after_status = read_status(task)
 
+            validate_plan_content_boundary(role, before_plan_content, after_plan_content)
             validate_project_control_boundary(
                 role, task, before_project_control, after_project_control,
             )
