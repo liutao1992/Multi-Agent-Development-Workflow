@@ -17,6 +17,57 @@ Warp is the preferred human-visible control surface. It does not define lifecycl
 
 Do not enable synchronized input.
 
+## One-time pane binding
+
+When opening a new Warp tab/session, bind each pane once:
+
+```text
+Lead pane:
+Use multi-agent-development-workflow. Role: Lead.
+
+Implementation pane:
+Use multi-agent-development-workflow. Role: Implementation.
+
+Review pane:
+Use multi-agent-development-workflow. Role: Review.
+```
+
+After binding, do not paste the full protocol at every handoff.
+
+## Daily short commands
+
+Typical usage:
+
+```text
+Lead:
+新建任务：<requirement>
+
+Implementation:
+继续 <TASK-ID>
+
+Lead:
+继续 <TASK-ID>
+
+Implementation:
+继续 <TASK-ID>
+
+Review:
+Review <TASK-ID>
+
+Lead:
+继续 <TASK-ID>
+```
+
+If the session already has one unambiguous Task bound, the Task ID may be omitted:
+
+```text
+继续
+Review
+验收
+```
+
+Each pane must recover authoritative state from STATUS.md and the task artifacts. Short commands never weaken role boundaries or lifecycle gates.
+
 ## Control Plane location
 
 ### Shared single working tree

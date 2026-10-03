@@ -58,3 +58,16 @@ After submission, do not mutate the submitted Code Head target. A later code cha
 ## Rework
 
 Use confirmed RW IDs and the previous Review. Preserve Task Baseline SHA. Previous Head SHA must be the prior submitted Code Head SHA.
+
+## Short interaction behavior
+
+After this session is bound to Implementation, accept:
+
+- `继续 <TASK-ID>` / `Continue <TASK-ID>`
+- `继续` when one Task is unambiguous
+
+Read STATUS first. If the state requires planning, produce the next Plan artifact. If it requires implementation/rework, implement, test, commit the Code Plane, and produce the next IMPL artifact.
+
+Do not ask the user to restate the approved Plan, current round, Baseline/Previous/Code Head values, or workflow when those are recoverable from STATUS and artifacts.
+
+Stop at the Lead handoff boundary and return the concise handoff summary defined in SKILL.md.

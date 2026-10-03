@@ -49,6 +49,138 @@ For a new task:
 7. Create TASK.md and STATUS.md with the selected workflow and baseline.
 8. Continue according to the Lifecycle Transition Table.
 
+## Short Interaction Protocol
+
+The user should not have to repeat the full protocol on every handoff.
+
+### Session Role Binding
+
+At the beginning of a new agent session or Warp pane, bind the role once.
+
+Examples:
+
+```text
+Use multi-agent-development-workflow.
+Role: Lead.
+```
+
+```text
+Use multi-agent-development-workflow.
+Role: Implementation.
+```
+
+```text
+Use multi-agent-development-workflow.
+Role: Review.
+```
+
+The role remains the default for that conversation/session until explicitly changed. A fresh session must bind its role again unless the runtime provides an equivalent persistent role configuration.
+
+### Short Commands
+
+After role binding, accept concise user commands.
+
+#### Lead
+
+```text
+新建任务：<requirement>
+New task: <requirement>
+```
+
+Create a new Task using the New Task invocation protocol.
+
+```text
+继续 TASK-...
+Continue TASK-...
+```
+
+Read STATUS first, determine the next legal Lead action from the Transition Table, load only the required artifacts, execute that action, and stop at the next role handoff boundary.
+
+```text
+验收 TASK-...
+Accept TASK-...
+```
+
+Perform final acceptance only when lifecycle state permits it.
+
+#### Implementation
+
+```text
+继续 TASK-...
+Continue TASK-...
+```
+
+Read STATUS first and perform the current legal Implementation action:
+- planning / plan rework → create the next Plan artifact;
+- implementing / rework implementation → implement, test, commit Code Plane changes, and create the next IMPL artifact.
+
+Stop when Lead action is required.
+
+#### Review
+
+```text
+Review TASK-...
+审核 TASK-...
+```
+
+Read STATUS first, verify the exact clean Review Target, perform independent Review, and create the next REVIEW artifact.
+
+Stop after Review evidence is produced. Do not perform Lead transitions.
+
+### Task omission
+
+The Task ID may be omitted only when it is unambiguous:
+
+- the current session already has one explicitly bound Task; or
+- INDEX shows exactly one active Task compatible with the current role/action.
+
+Then commands such as:
+
+```text
+继续
+Review
+验收
+```
+
+may resolve to that Task.
+
+If multiple candidate Tasks exist, do not guess. Ask for or require the Task ID.
+
+### Automatic command resolution
+
+For every short command:
+
+1. use the session-bound role;
+2. resolve the Task ID;
+3. read STATUS.md first;
+4. restore Workflow.Type from STATUS;
+5. locate the current Plan / IMPL / Review references from STATUS;
+6. determine the single next legal action from the Transition Table;
+7. execute only that role's work;
+8. stop at the next handoff boundary;
+9. return a concise handoff summary.
+
+The user should not need to restate:
+- Control Plane path when it can be derived from Task ID;
+- current lifecycle state;
+- current Plan/IMPL/Review round;
+- Git snapshot fields already recorded in STATUS/IMPL;
+- protocol rules already defined by this Skill.
+
+### Handoff summary
+
+At the end of a short-command action, respond concisely with:
+
+```text
+Task: <TASK-ID>
+Completed: <what this role completed>
+State: <current lifecycle state>
+Artifact: <created/updated artifact>
+Next: <Lead | Implementation | Review> — <short action>
+```
+
+This summary is for the user. The next Agent must still recover authoritative state from STATUS and artifacts rather than trusting the summary alone.
+
 ## Core rule
 
 - **What should be built?** → Lead

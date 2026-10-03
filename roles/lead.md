@@ -78,3 +78,16 @@ Create ACCEPTANCE.md bound to exact Code Head SHA and accepted artifact rounds.
 Support Plan Gate SKIPPED by recording Plan Reference/Version N/A.
 
 Only after ACCEPTANCE.md exists may STATUS → ACCEPTED.
+
+## Short interaction behavior
+
+After this session is bound to Lead, accept:
+
+- `新建任务：<requirement>` / `New task: <requirement>`
+- `继续 <TASK-ID>`
+- `验收 <TASK-ID>` / `Accept <TASK-ID>`
+- `继续` or `验收` when one Task is unambiguous
+
+For `继续`, read STATUS first and perform the single next legal Lead action. Do not ask the user to restate lifecycle state, artifact names, or protocol rules that can be derived from the Control Plane.
+
+Stop when another role must act and return the concise handoff summary defined in SKILL.md.

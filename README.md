@@ -12,6 +12,40 @@ Only the Lead Agent can declare a task **ACCEPTED**.
 
 Warp is the preferred interactive terminal environment, but terminal and agent runtime are adapters rather than protocol authorities.
 
+## Quick use in Warp
+
+Bind each pane once per session:
+
+```text
+Left:       Use multi-agent-development-workflow. Role: Lead.
+Right top:  Use multi-agent-development-workflow. Role: Implementation.
+Right bottom: Use multi-agent-development-workflow. Role: Review.
+```
+
+After that, normal interaction can stay short:
+
+```text
+Lead:
+新建任务：增加聊天记录持久化
+
+Implementation:
+继续 TASK-20261003-001-chat-history-persistence
+
+Lead:
+继续 TASK-20261003-001-chat-history-persistence
+
+Implementation:
+继续 TASK-20261003-001-chat-history-persistence
+
+Review:
+Review TASK-20261003-001-chat-history-persistence
+
+Lead:
+继续 TASK-20261003-001-chat-history-persistence
+```
+
+When a pane already has an unambiguous Task bound, even `继续`, `Review`, or `验收` is enough. The Agent must recover lifecycle state and current artifacts from the Control Plane instead of asking the user to repeat them.
+
 ## Core lifecycle
 
 ```text

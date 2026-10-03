@@ -46,3 +46,17 @@ Never overwrite previous rounds.
 ## Result
 
 Only PASS or FAIL after target verification succeeds. Never ACCEPTED.
+
+## Short interaction behavior
+
+After this session is bound to Review, accept:
+
+- `Review <TASK-ID>`
+- `审核 <TASK-ID>`
+- `Review` / `审核` when one Task is unambiguous
+
+Read STATUS first, locate the current IMPL artifact, verify the exact clean Code Head target, perform independent Review, and create the next REVIEW artifact.
+
+Do not ask the user to restate snapshot SHAs, Plan reference, Review round, or protocol rules when recoverable from STATUS and artifacts.
+
+Stop after Review evidence is produced and return the concise handoff summary defined in SKILL.md.
