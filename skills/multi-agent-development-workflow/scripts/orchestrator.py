@@ -19,7 +19,7 @@ from agent_team_lib.core import (
     find_project_root, git_snapshot, inspect_control_root_safety,
     plan_approval_snapshot, plan_content_snapshot, plan_full_snapshot,
     project_control_snapshot, project_fingerprint, project_lock_path,
-    project_runtime_root, read_status, require_clean_code_plane, select_role,
+    project_runtime_root, read_status, require_clean_code_plane, section_field, select_role,
     task_contract_snapshot, task_digest, task_lock_path, task_root, task_runtime_dir, tasks_dir,
     validate_bootstrap_control_boundary, validate_plan_approval_boundary,
     validate_plan_content_boundary, validate_project_control_boundary,
@@ -213,13 +213,6 @@ def run_task_locked(
             )
             if role == "Lead":
                 validate_transition(task, before_status, after_status, after_git["head"])
-            resolution = section_field(after_status, "Blocked Resolution", "Decision")
-            if resolution in {"", "N/A"}:
-                raise ProtocolViolation("resume must persist the human decision in STATUS Blocked Resolution.")
-            if decision and resolution != decision.strip():
-                raise ProtocolViolation(
-                    "STATUS Blocked Resolution Decision must exactly match the resume CLI decision."
-                )
 
             if task_digest(task) == before_digest:
                 raise OrchestratorError(
@@ -324,6 +317,13 @@ def resume_task(
                 after_control,
             )
             validate_transition(task, before_status, after_status, after_git["head"])
+            resolution = section_field(after_status, "Blocked Resolution", "Decision")
+            if resolution in {"", "N/A"}:
+                raise ProtocolViolation("resume must persist the human decision in STATUS Blocked Resolution.")
+            if decision and resolution != decision.strip():
+                raise ProtocolViolation(
+                    "STATUS Blocked Resolution Decision must exactly match the resume CLI decision."
+                )
 
         if current_state(read_status(task)) == "CANCELLED":
             print(f"Task {task_id}: CANCELLED")

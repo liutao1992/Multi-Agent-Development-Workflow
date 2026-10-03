@@ -195,12 +195,50 @@ class ResumeTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-        with mock.patch.object(orch, "dispatch", side_effect=fake_dispatch):
-            with self.assertRaises(core.ProtocolViolation):
+        with mock.patch.object(orch, "dispatch", side_effect=fake_dispatch), \
+             mock.patch.object(orch, "run_task_locked", return_value=23) as run_next:
+            with self.assertRaisesRegex(core.ProtocolViolation, "persist the human decision"):
                 orch.resume_task(
                     self.repo, self.root, "TASK-1", decision,
                     "codex", "process", 50, 60,
                 )
+
+        run_next.assert_not_called()
+
+    def test_resume_rejects_wrong_decision_before_continuing(self) -> None:
+        def fake_dispatch(*args, **kwargs):
+            (self.task / "STATUS.md").write_text(
+                blocked_status(self.contract_hash, state="PLANNING", resume="N/A",
+                               decision="Different decision."), encoding="utf-8",
+            )
+
+        with mock.patch.object(orch, "dispatch", side_effect=fake_dispatch), \
+             mock.patch.object(orch, "run_task_locked", return_value=23) as run_next:
+            with self.assertRaisesRegex(core.ProtocolViolation, "exactly match"):
+                orch.resume_task(self.repo, self.root, "TASK-1", "Continue planning.",
+                                 "codex", "process", 50, 60)
+        run_next.assert_not_called()
+
+    def test_resume_without_cli_decision_requires_persisted_decision(self) -> None:
+        for value in ("N/A", "", "Use existing approval."):
+            with self.subTest(value=value):
+                (self.task / "STATUS.md").write_text(blocked_status(self.contract_hash))
+                def fake_dispatch(*args, **kwargs):
+                    (self.task / "STATUS.md").write_text(
+                        blocked_status(self.contract_hash, state="PLANNING", resume="N/A",
+                                       decision=value), encoding="utf-8",
+                    )
+                with mock.patch.object(orch, "dispatch", side_effect=fake_dispatch), \
+                     mock.patch.object(orch, "run_task_locked", return_value=23) as run_next:
+                    if value in {"N/A", ""}:
+                        with self.assertRaisesRegex(core.ProtocolViolation, "persist the human decision"):
+                            orch.resume_task(self.repo, self.root, "TASK-1", None,
+                                             "codex", "process", 50, 60)
+                        run_next.assert_not_called()
+                    else:
+                        self.assertEqual(orch.resume_task(self.repo, self.root, "TASK-1", None,
+                                                         "codex", "process", 50, 60), 23)
+                        run_next.assert_called_once()
 
     def test_resume_requires_blocked_state(self) -> None:
         (self.task / "STATUS.md").write_text(

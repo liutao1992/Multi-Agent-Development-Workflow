@@ -152,7 +152,7 @@ def section(status: str, name: str) -> str:
 
 
 def section_field(status: str, section_name: str, field: str) -> str:
-    match = re.search(rf"(?m)^{re.escape(field)}:\s*(.*?)\s*$", section(status, section_name))
+    match = re.search(rf"(?m)^{re.escape(field)}:[^\S\r\n]*(.*?)[^\S\r\n]*\r?$", section(status, section_name))
     return match.group(1).strip() if match else "N/A"
 
 
@@ -298,12 +298,11 @@ TASK_CONTRACT_SECTIONS = (
     "Constraints",
     "Dependencies",
     "Out of Scope",
-    "Rework Requirements",
 )
 
 
 def line_field(text: str, field: str) -> str:
-    match = re.search(rf"(?m)^{re.escape(field)}:\s*(.*?)\s*$", text)
+    match = re.search(rf"(?m)^{re.escape(field)}:[^\S\r\n]*(.*?)[^\S\r\n]*\r?$", text)
     return match.group(1).strip() if match else ""
 
 
@@ -336,6 +335,10 @@ def task_contract_snapshot(task: Path) -> dict[str, object]:
         "declared_hash": declared_hash,
         "computed_hash": computed,
         "change_log": section(text, "Requirement Change Log").strip(),
+        "non_rework_hash": hashlib.sha256(re.sub(
+            r"(?ms)^## Rework Requirements[^\S\n]*\n.*?(?=^## |\Z)",
+            "", text, count=1,
+        ).encode("utf-8")).hexdigest(),
         "file_hash": hashlib.sha256(text.encode("utf-8")).hexdigest(),
     }
 
@@ -374,6 +377,13 @@ def validate_task_contract_mutation(
     before_contract = str(before["computed_hash"])
     after_contract = str(after["computed_hash"])
     if before_contract == after_contract:
+        if (
+            before["non_rework_hash"] == after["non_rework_hash"]
+            and current_state(before_status) == "REVIEWING"
+            and current_state(after_status) == "REWORK"
+        ):
+            # The transition validator separately requires matching FAIL/MISMATCH evidence.
+            return
         raise ProtocolViolation(
             "Lead modified TASK.md without changing the requirement contract; use STATUS/other Lead-owned artifacts instead."
         )

@@ -620,6 +620,43 @@ Reason: User changed requirement.
             )
 
 
+    def test_review_rework_only_changes_remediation_section(self) -> None:
+        path = self.task_a / "TASK.md"
+        original, digest = make_task_text()
+        path.write_text(original, encoding="utf-8")
+        before = core.task_contract_snapshot(self.task_a)
+        updated = original.replace("## Rework Requirements\n\nNone",
+                                   "## Rework Requirements\n\n### RW-001\nFix REV-001.")
+        path.write_text(updated, encoding="utf-8")
+        after = core.task_contract_snapshot(self.task_a)
+        self.assertEqual(after["computed_hash"], digest)
+        core.validate_task_contract_integrity(self.task_a, status("REWORK", digest))
+        core.validate_task_contract_mutation(
+            "Lead", before, after, status("REVIEWING", digest), status("REWORK", digest)
+        )
+        for role, old_state, new_state in (
+            ("Impl", "REVIEWING", "REWORK"), ("Review", "REVIEWING", "REWORK"),
+            ("Lead", "IMPLEMENTING", "REWORK"), ("Lead", "REVIEWING", "ACCEPTED"),
+        ):
+            with self.subTest(role=role, old_state=old_state, new_state=new_state):
+                with self.assertRaises(core.ProtocolViolation):
+                    core.validate_task_contract_mutation(
+                        role, before, after, status(old_state, digest), status(new_state, digest)
+                    )
+        for extra in (
+            updated.replace("Background.", "Edited background."),
+            updated.replace("Task Contract Revision: 1", "Task Contract Revision: 2"),
+            updated.replace(f"Task Contract Hash: {digest}", "Task Contract Hash: " + "0" * 64),
+            updated.replace("## Requirement Change Log\n\nNone", "## Requirement Change Log\n\nEdited log"),
+        ):
+            with self.subTest(extra=extra):
+                path.write_text(extra, encoding="utf-8")
+                with self.assertRaises(core.ProtocolViolation):
+                    core.validate_task_contract_mutation(
+                        "Lead", before, core.task_contract_snapshot(self.task_a),
+                        status("REVIEWING", digest), status("REWORK", digest),
+                    )
+
     def test_contract_amendment_with_existing_plan_must_enter_plan_rework(self) -> None:
         before_task, old_hash = make_task_text()
         (self.task_a / "TASK.md").write_text(before_task, encoding="utf-8")

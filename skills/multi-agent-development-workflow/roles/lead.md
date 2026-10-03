@@ -50,6 +50,8 @@ Project-local `<project-root>/.agent-team/` is the default. Verify it is ignored
 
 ## Requirement contract ownership
 
+`Rework Requirements` contains Review remediation instructions and is excluded from the requirement hash. Lead may update only that TASK section during `REVIEWING -> REWORK`, with valid FAIL or MISMATCH evidence. Contract revision/hash and all other TASK content remain unchanged. Product requirement changes still require a contract amendment and `PLAN_REWORK`.
+
 You own requirement changes, but TASK.md is not freely mutable history.
 
 For every Task Contract change:

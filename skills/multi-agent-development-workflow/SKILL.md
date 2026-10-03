@@ -301,8 +301,7 @@ The Task Contract consists of:
 - Acceptance Criteria;
 - Constraints;
 - Dependencies;
-- Out of Scope;
-- Rework Requirements.
+- Out of Scope.
 
 TASK MUST record:
 
@@ -324,6 +323,8 @@ When Lead changes any Task Contract section:
 5. do not reuse evidence bound to the old Task Contract.
 
 A Task Contract amendment invalidates old planning, implementation review, and acceptance evidence.
+
+`Rework Requirements` contains Review remediation instructions and is excluded from the requirement hash. Lead may update only that TASK section during `REVIEWING -> REWORK`, with valid FAIL or MISMATCH evidence. Contract revision/hash and all other TASK content remain unchanged. Product requirement changes still require a contract amendment and `PLAN_REWORK`.
 
 ### Plan content immutability
 

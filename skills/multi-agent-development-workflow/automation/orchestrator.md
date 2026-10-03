@@ -180,6 +180,8 @@ A Lead requirement amendment must increment the revision, record previous/new ha
 
 This prevents an already-reviewed Code Head from being accepted against silently rewritten requirements.
 
+`Rework Requirements` contains Review remediation instructions and is excluded from the requirement hash. Lead may update only that TASK section during `REVIEWING -> REWORK`, with valid FAIL or MISMATCH evidence. Contract revision/hash and all other TASK content remain unchanged. Product requirement changes still require a contract amendment and `PLAN_REWORK`.
+
 ## Executable lifecycle transitions
 
 After every Lead action, `state_machine.py` validates both transition legality and evidence.

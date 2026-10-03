@@ -643,7 +643,6 @@ Acceptance Criteria
 Constraints
 Dependencies
 Out of Scope
-Rework Requirements
 ```
 
 TASK records:
@@ -673,6 +672,10 @@ PLAN_REWORK
 ```
 
 A changed Task Contract therefore cannot silently reuse an old Plan, Review or Acceptance path.
+
+`Rework Requirements` contains Review remediation instructions and is excluded from the requirement hash. Lead may update only that TASK section during `REVIEWING -> REWORK`, with valid FAIL or MISMATCH evidence. Contract revision/hash and all other TASK content remain unchanged. Product requirement changes still require a contract amendment and `PLAN_REWORK`.
+
+Tasks created with the earlier hash definition (which included Rework Requirements) require regenerated contract bindings and evidence; existing immutable artifacts must not be edited to substitute the new hash.
 
 ### Plan ownership is mechanically enforced
 
