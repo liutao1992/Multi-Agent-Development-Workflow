@@ -158,6 +158,28 @@ Review
 
 Other Task namespaces are immutable to the active role.
 
+## Requirement snapshot binding
+
+The runtime treats TASK requirements as a versioned contract, not mutable background text.
+
+```text
+TASK Contract Revision + SHA-256
+       ↓
+PLAN
+       ↓
+IMPL
+       ↓
+REVIEW
+       ↓
+ACCEPTANCE
+```
+
+All active evidence must bind the same revision/hash.
+
+A Lead requirement amendment must increment the revision, record previous/new hashes in the Requirement Change Log, and—once any Plan/IMPL/Review exists—return the workflow to `PLAN_REWORK`.
+
+This prevents an already-reviewed Code Head from being accepted against silently rewritten requirements.
+
 ## Executable lifecycle transitions
 
 After every Lead action, `state_machine.py` validates both transition legality and evidence.
@@ -186,9 +208,15 @@ READY_FOR_FINAL_ACCEPTANCE → ACCEPTED
 
 Review/implementation snapshot SHAs used as authoritative targets must be full 40-character Git SHAs.
 
-PASS Review evidence is machine-checked against the current implementation and repository: Reviewed Implementation, Declared/Observed Code Head, protocol status, and clean-check fields must agree. The same reviewed HEAD is checked again during final acceptance to prevent a Review→Acceptance TOCTOU gap.
+Review evidence is machine-checked for PASS, FAIL and REVIEW_TARGET_MISMATCH.
 
-Plan approval is also field-scoped: Lead may mutate only the Plan's `## Approval` block; the remaining Plan content is hashed and immutable.
+- PASS: exact current IMPL/head, READY_FOR_REVIEW protocol, clean checks, matching Task Contract.
+- FAIL: same target checks, STATUS/artifact both FAIL, and at least one blocking REV issue.
+- MISMATCH: Result N/A, protocol mismatch in STATUS/artifact, submitted Declared Head and current Observed Head verified.
+
+The same reviewed HEAD and Task Contract are checked again during final acceptance to prevent Code and Requirement TOCTOU gaps.
+
+Plan approval is field-scoped while pending: Lead may mutate only the current Plan's `## Approval` block during PLAN_REVIEW. After APPROVED or REWORK is recorded, the whole Plan version is immutable.
 
 ## Failure model
 
@@ -228,7 +256,7 @@ After a human resolves the dependency:
 agent-team --runtime codex resume TASK-... "human decision"
 ```
 
-The resume command runs exactly one Lead recovery transition, verifies `BLOCKED → Resume State`, and then re-enters normal automatic execution.
+The resume command runs exactly one Lead recovery transition, persists the human decision in STATUS → Blocked Resolution, verifies `BLOCKED → Resume State`, and then re-enters normal automatic execution.
 
 ## Review isolation
 

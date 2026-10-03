@@ -46,9 +46,22 @@ Do not `git add -f .agent-team`.
 
 The default Control Plane is `<project-root>/.agent-team/`; it must be ignored/untracked. Do not relocate it to a temporary directory on your own.
 
+## Task Contract binding
+
+Before creating any Plan or IMPL artifact:
+
+1. verify TASK.md Task Contract Revision/Hash matches STATUS;
+2. copy the same Revision/Hash into the new artifact;
+3. never use an approved Plan bound to an older Task Contract;
+4. if the Task Contract changed, stop until Lead routes the task through PLAN_REWORK and a new Plan is approved.
+
 ## Planning
 
-When Plan Gate is REQUIRED, create the next immutable PLAN-vNNN, using new task-global PLAN/TEST IDs as needed, then stop for Lead approval.
+When Plan Gate is REQUIRED, create the next immutable PLAN-vNNN, using new task-global PLAN/TEST IDs as needed.
+
+The new Plan must bind the current Task Contract and must set its Approval Status to PENDING. Impl never writes APPROVED or REWORK.
+
+Then stop for Lead approval.
 
 When Plan Gate is SKIPPED, do not create a fake Plan.
 

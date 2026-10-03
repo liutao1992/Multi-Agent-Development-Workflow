@@ -280,14 +280,50 @@ Required evidence includes at least:
 - APPROVED / REWORK recorded consistently in STATUS and Plan artifact;
 - approved Plan before implementation when Plan Gate is REQUIRED;
 - frozen implementation target and exact STATUS/IMPL/observed Code Head match before Review;
-- Review PASS before READY_FOR_FINAL_ACCEPTANCE, with machine-verifiable Review target evidence;
+- Review PASS before READY_FOR_FINAL_ACCEPTANCE, with machine-verifiable Review target evidence and matching Task Contract;
 - the current observed Git HEAD still equal to the reviewed implementation head at READY_FOR_FINAL_ACCEPTANCE and ACCEPTED;
-- Review FAIL or REVIEW_TARGET_MISMATCH before REWORK;
+- Review FAIL before REWORK only when STATUS and REVIEW both declare FAIL, the Review targets the current IMPL/Code Head, and at least one blocking REV issue exists;
+- REVIEW_TARGET_MISMATCH only when STATUS and REVIEW both declare protocol mismatch with Result N/A and declared/observed heads match submitted/current Git state;
 - confirmed RW IDs before rework implementation;
 - ACCEPTANCE.md, PASS Review, matching Accepted Code Head, and current observed Git HEAD before ACCEPTED;
 - Resume State equal to the prior state when entering BLOCKED.
 
 Illegal jumps such as `CREATED → ACCEPTED` MUST fail with a protocol violation.
+
+### Task Contract revision and hash
+
+`TASK.md` is the Requirement Source of Truth, but executable evidence MUST bind a specific immutable requirement snapshot.
+
+The Task Contract consists of:
+
+- Objective;
+- Requirements;
+- Acceptance Criteria;
+- Constraints;
+- Dependencies;
+- Out of Scope;
+- Rework Requirements.
+
+TASK MUST record:
+
+```text
+Task Contract Revision: <integer >= 1>
+Task Contract Hash: <64-char SHA-256>
+```
+
+STATUS MUST record the same revision/hash.
+
+Every active Plan, IMPL, REVIEW and ACCEPTANCE artifact MUST carry the same Task Contract Revision/Hash.
+
+When Lead changes any Task Contract section:
+
+1. increment Revision exactly once;
+2. recompute and record the new Hash;
+3. append Requirement Change Log evidence with Revision, Previous Hash and New Hash;
+4. if a prior Plan / IMPL / REVIEW exists, transition to `PLAN_REWORK`;
+5. do not reuse evidence bound to the old Task Contract.
+
+A Task Contract amendment invalidates old planning, implementation review, and acceptance evidence.
 
 ### Plan content immutability
 
@@ -299,6 +335,15 @@ For existing `PLAN-vNNN.md` artifacts:
 Executable fallback runtimes MUST hash/compare Plan content with the Approval block excluded.
 
 Lead approval MUST NOT change Scope, Implementation Steps, Testing Plan, Risks, Open Questions, or other Plan content.
+
+Only the current Plan in `PLAN_REVIEW` may change its Approval block, and only from:
+
+```text
+PENDING → APPROVED
+PENDING → REWORK
+```
+
+After the decision, the whole Plan version is immutable, including the Approval block.
 
 Before `PLANNING / PLAN_REWORK → PLAN_REVIEW`, both STATUS and the Plan artifact MUST record `PENDING`. This prevents Impl from self-approving its own Plan.
 
@@ -408,10 +453,11 @@ The resume worker MUST:
 
 1. read BLOCKED STATUS and recorded Resume State;
 2. consume the human resolution;
-3. modify no Code Plane content;
-4. transition exactly `BLOCKED → <Resume State>`, or CANCELLED when explicitly requested;
-5. pass the normal Lead write-boundary and transition validators;
-6. then continue the automatic lifecycle.
+3. persist the human decision in STATUS → `Blocked Resolution` with resolution metadata;
+4. modify no Code Plane content;
+5. transition exactly `BLOCKED → <Resume State>`, or CANCELLED when explicitly requested;
+6. pass the normal Lead write-boundary, Task Contract and transition validators;
+7. then continue the automatic lifecycle.
 
 This makes BLOCKED recovery explicit and auditable.
 

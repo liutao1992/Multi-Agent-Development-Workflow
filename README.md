@@ -630,6 +630,50 @@ because native SubAgents belong to the already-running Lead parent session. The 
 
 ---
 
+### Requirement Contract is snapshot-bound
+
+`TASK.md` is the requirement source of truth, and its executable contract is versioned.
+
+The contract hash covers:
+
+```text
+Objective
+Requirements
+Acceptance Criteria
+Constraints
+Dependencies
+Out of Scope
+Rework Requirements
+```
+
+TASK records:
+
+```text
+Task Contract Revision: N
+Task Contract Hash: <SHA-256>
+```
+
+The active PLAN, IMPL, REVIEW, STATUS and ACCEPTANCE evidence must bind the same revision/hash.
+
+When Lead changes contract content:
+
+```text
+Revision N
+   ↓ amendment
+Revision N+1
+   ↓
+Requirement Change Log records:
+- Revision
+- Previous Hash
+- New Hash
+   ↓
+existing Plan / IMPL / REVIEW evidence becomes stale
+   ↓
+PLAN_REWORK
+```
+
+A changed Task Contract therefore cannot silently reuse an old Plan, Review or Acceptance path.
+
 ### Plan ownership is mechanically enforced
 
 Plan content and Plan approval have different owners:
@@ -643,6 +687,16 @@ Lead
 ```
 
 The runtime hashes each Plan after removing the `## Approval` block. Existing Plan content hashes must not change.
+
+Approval is a one-time decision. Only the current PENDING Plan may change during `PLAN_REVIEW`:
+
+```text
+PENDING → APPROVED
+or
+PENDING → REWORK
+```
+
+After that decision, the entire Plan version—including the Approval block—is frozen. Older approval history cannot be rewritten.
 
 When a Plan enters `PLAN_REVIEW`, both STATUS and the Plan file must say:
 
@@ -694,7 +748,9 @@ READY_FOR_FINAL_ACCEPTANCE → ACCEPTED
 
 This turns the Transition Table from prompt guidance into an executable protocol.
 
-A PASS Review is also machine-validated. Its evidence must bind:
+Review evidence is machine-validated for all three exits.
+
+For PASS or FAIL, the Review must bind:
 
 ```text
 Reviewed Implementation
@@ -717,7 +773,18 @@ Status Porcelain Clean = YES
 Control Plane Excluded = YES
 ```
 
-Final Acceptance repeats the snapshot check to close the Review→Acceptance TOCTOU window.
+For FAIL, STATUS and REVIEW must both say `FAIL`, the same implementation/head checks apply, and at least one blocking `REV-NNN` issue must exist.
+
+For target mismatch:
+
+```text
+Protocol Status = REVIEW_TARGET_MISMATCH
+Review Result = N/A
+Declared Code Head = submitted STATUS Code Head
+Observed Code Head = current Git HEAD
+```
+
+Final Acceptance repeats both the reviewed Code Head check and Task Contract check to close Code and Requirement TOCTOU gaps.
 
 ## 11. When automation stops
 
@@ -745,11 +812,14 @@ At that point Lead should ask the user.
 
 After the decision:
 
-```text
-继续 TASK-...
+- Native SubAgent / interactive Lead: provide the decision to Lead and continue;
+- standalone Process/Queue mode: use the explicit `resume` command.
+
+```bash
+"$AGENT_TEAM" --runtime codex resume TASK-... "human decision"
 ```
 
-resumes the workflow.
+The decision must be persisted in STATUS → Blocked Resolution before the workflow resumes.
 
 ---
 

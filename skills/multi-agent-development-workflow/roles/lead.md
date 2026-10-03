@@ -48,9 +48,32 @@ Treat workflow artifacts as Control Plane metadata. They must not be committed i
 
 Project-local `<project-root>/.agent-team/` is the default. Verify it is ignored and untracked. External storage is opt-in only.
 
+## Requirement contract ownership
+
+You own requirement changes, but TASK.md is not freely mutable history.
+
+For every Task Contract change:
+
+1. change only when a real requirement/acceptance/constraint decision requires it;
+2. increment Task Contract Revision exactly once;
+3. recompute Task Contract Hash;
+4. append Requirement Change Log with Revision, Previous Hash, New Hash, and reason;
+5. update STATUS Task Contract revision/hash;
+6. if prior Plan / IMPL / REVIEW evidence exists, transition to PLAN_REWORK;
+7. never accept old Review/Acceptance evidence against a new Task Contract.
+
 ## Plan Gate
 
-Impl owns Plan content. You own the Approval block.
+Impl owns Plan content. You own the Approval block only while the current Plan is PENDING in PLAN_REVIEW.
+
+Allowed decision:
+
+```text
+PENDING → APPROVED
+PENDING → REWORK
+```
+
+After the decision, that Plan version is completely frozen, including Approval history.
 
 Fast path is allowed only if every trivial-task criterion in SKILL.md is satisfied. On fast path, set Plan Gate SKIPPED and never invent a Plan artifact.
 
@@ -61,6 +84,8 @@ You are responsible for all STATUS transitions. Impl and Review only create evid
 Use the formal Transition Table in SKILL.md.
 
 When BLOCKED, record Resume State.
+
+When a human resolves the blocker, persist the exact decision in STATUS → Blocked Resolution before resuming.
 
 ## Review handoff
 

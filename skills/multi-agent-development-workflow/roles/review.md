@@ -31,6 +31,18 @@ reviews/<prior REVIEW-NNN.md>       # only when re-review context is needed
 
 Use the exact references recorded in STATUS and IMPL. Do not review an arbitrary "latest" artifact.
 
+## Task Contract binding
+
+Review the exact requirement snapshot as well as the exact Code snapshot.
+
+Before substantive Review:
+
+1. verify TASK.md and STATUS Task Contract Revision/Hash match;
+2. verify the current Plan/IMPL evidence is bound to that same contract when applicable;
+3. copy the same Revision/Hash into REVIEW-NNN.
+
+Do not review an implementation against a newer or older Task Contract.
+
 ## Independence
 
 Prefer a fresh execution context.
@@ -73,6 +85,12 @@ Never overwrite previous rounds.
 ## Result
 
 Only PASS or FAIL after target verification succeeds. Never ACCEPTED.
+
+Evidence rules:
+
+- PASS: exact current IMPL/head, protocol READY_FOR_REVIEW, clean checks YES.
+- FAIL: same target/protocol/clean verification plus at least one blocking REV issue.
+- REVIEW_TARGET_MISMATCH: Result N/A, not PASS/FAIL, and record Declared vs Observed Code Head evidence.
 
 ## Short interaction behavior
 
