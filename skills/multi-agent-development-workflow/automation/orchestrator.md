@@ -18,6 +18,11 @@ ACCEPTED / BLOCKED
 
 The Orchestrator is an execution mechanism, not a fourth authority.
 
+For a straightforward pass, Lead now moves directly from IMPLEMENTING to
+REVIEWING and from REVIEWING to ACCEPTED. Each direct transition has the same
+evidence checks as its two-step route; the intermediate states remain legal
+when a separate decision is required.
+
 In native mode, Lead itself is the parent Orchestrator. In standalone mode, `scripts/orchestrator.py` is only a transport fallback.
 
 ## Why this is separate from Warp UI
@@ -68,6 +73,12 @@ agent-team --runtime codex --transport process run TASK-...
 \`\`\`
 
 Best for CI, unattended local execution, and initial validation.
+
+After a run, inspect `agent-team --project <repo> metrics <TASK-ID>` for total
+worker calls, duration, validation failures, and per-role totals. Codex token
+counts come from the CLI's `tokens used` footer when present. Pi currently
+reports duration and calls without a normalized token total. Each invocation
+also records an ID and its measurements in `dispatch.jsonl`.
 
 ## Warp queue mode
 
@@ -280,7 +291,7 @@ Every Review dispatch starts a fresh runtime process/context. Review receives ar
 
 Implemented drivers:
 
-- Codex: \`codex exec --full-auto\`
+- Codex: \`codex exec --approve-for-me\`
 - Pi: RPC mode
 
 The runtime-independent protocol remains valid for other coding agents; they need a driver that satisfies the same worker contract.

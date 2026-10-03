@@ -16,9 +16,9 @@ ALLOWED_TRANSITIONS: dict[str, set[str]] = {
     "PLAN_REVIEW": {"READY_FOR_IMPLEMENTATION", "PLAN_REWORK", "BLOCKED", "CANCELLED"},
     "PLAN_REWORK": {"PLAN_REVIEW", "BLOCKED", "CANCELLED"},
     "READY_FOR_IMPLEMENTATION": {"IMPLEMENTING", "PLAN_REWORK", "BLOCKED", "CANCELLED"},
-    "IMPLEMENTING": {"READY_FOR_REVIEW", "PLAN_REWORK", "BLOCKED", "CANCELLED"},
+    "IMPLEMENTING": {"READY_FOR_REVIEW", "REVIEWING", "PLAN_REWORK", "BLOCKED", "CANCELLED"},
     "READY_FOR_REVIEW": {"REVIEWING", "PLAN_REWORK", "BLOCKED", "CANCELLED"},
-    "REVIEWING": {"REWORK", "PLAN_REWORK", "READY_FOR_FINAL_ACCEPTANCE", "READY_FOR_REVIEW", "BLOCKED", "CANCELLED"},
+    "REVIEWING": {"REWORK", "PLAN_REWORK", "READY_FOR_FINAL_ACCEPTANCE", "ACCEPTED", "READY_FOR_REVIEW", "BLOCKED", "CANCELLED"},
     "REWORK": {"IMPLEMENTING", "PLAN_REWORK", "BLOCKED", "CANCELLED"},
     "READY_FOR_FINAL_ACCEPTANCE": {"ACCEPTED", "REWORK", "PLAN_REWORK", "BLOCKED", "CANCELLED"},
     "BLOCKED": {"CANCELLED"},
@@ -103,10 +103,11 @@ def _review_common(
     _validate_contract_evidence(task, status, text, "Review")
 
     current_impl = section_field(status, "Current Implementation", "Artifact")
+    _artifact(task, "implementations", current_impl)
     reviewed_impl = _review_field(text, "Reviewed Implementation")
-    if reviewed_impl != Path(current_impl).stem:
+    if reviewed_impl not in {Path(current_impl).stem, current_impl}:
         raise ProtocolViolation(
-            f"Review evidence targets {reviewed_impl}, expected {Path(current_impl).stem}."
+            f"Review evidence targets {reviewed_impl}, expected {Path(current_impl).stem} or {current_impl}."
         )
 
     status_sha = _require_full_sha(
@@ -336,10 +337,7 @@ def validate_transition(task: Path, before_status: str, after_status: str, obser
         elif gate != "SKIPPED":
             raise ProtocolViolation(f"Unknown Plan Gate value: {gate}")
 
-    if before == "IMPLEMENTING" and after == "READY_FOR_REVIEW":
-        _validate_implementation_target(task, after_status, observed_head)
-
-    if before == "READY_FOR_REVIEW" and after == "REVIEWING":
+    if before in {"IMPLEMENTING", "READY_FOR_REVIEW"} and after in {"READY_FOR_REVIEW", "REVIEWING"}:
         _validate_implementation_target(task, after_status, observed_head)
 
     if before == "REVIEWING" and after == "READY_FOR_FINAL_ACCEPTANCE":
@@ -371,7 +369,7 @@ def validate_transition(task: Path, before_status: str, after_status: str, obser
                     "REWORK implementation requires an APPROVED Plan bound to the current Task Contract."
                 )
 
-    if before == "READY_FOR_FINAL_ACCEPTANCE" and after == "ACCEPTED":
+    if before in {"REVIEWING", "READY_FOR_FINAL_ACCEPTANCE"} and after == "ACCEPTED":
         _validate_implementation_target(task, after_status, observed_head)
         _validate_review_pass_or_fail(task, after_status, observed_head, "PASS")
         _validate_acceptance(task, after_status, observed_head)

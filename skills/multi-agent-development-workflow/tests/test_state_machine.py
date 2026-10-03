@@ -317,6 +317,46 @@ Protocol Status: {protocol}
         after = self.reviewed_status("READY_FOR_FINAL_ACCEPTANCE")
         state_machine.validate_transition(self.task, before, after, self.head)
 
+    def test_review_pass_gate_accepts_exact_implementation_filename(self) -> None:
+        self.write_impl()
+        self.write_review(reviewed_impl="IMPL-001.md")
+        before = self.reviewed_status("REVIEWING", result="NOT_STARTED")
+        after = self.reviewed_status("READY_FOR_FINAL_ACCEPTANCE")
+        state_machine.validate_transition(self.task, before, after, self.head)
+
+    def test_direct_review_handoff_requires_frozen_matching_impl(self) -> None:
+        self.write_impl()
+        before = self.st("IMPLEMENTING")
+        after = self.st("REVIEWING", impl_artifact="IMPL-001.md", code_head=self.head, frozen="true")
+        state_machine.validate_transition(self.task, before, after, self.head)
+        with self.assertRaisesRegex(core.ProtocolViolation, "Review Target must be frozen"):
+            state_machine.validate_transition(
+                self.task, before,
+                self.st("REVIEWING", impl_artifact="IMPL-001.md", code_head=self.head),
+                self.head,
+            )
+
+    def test_direct_acceptance_requires_pass_review_and_matching_acceptance(self) -> None:
+        self.write_impl()
+        self.write_review()
+        (self.task / "ACCEPTANCE.md").write_text(
+            f"Task Contract Revision: 1\nTask Contract Hash: {self.contract_hash}\n"
+            f"Final Result: ACCEPTED\nAccepted Review: REVIEW-001.md\nAccepted Code Head SHA: {self.head}\n",
+            encoding="utf-8",
+        )
+        before = self.reviewed_status("REVIEWING", result="NOT_STARTED")
+        after = self.st(
+            "ACCEPTED", impl_artifact="IMPL-001.md", code_head=self.head,
+            frozen="true", review_artifact="REVIEW-001.md",
+            review_protocol="READY_FOR_REVIEW", review_result="PASS",
+            acceptance_artifact="ACCEPTANCE.md", accepted_sha=self.head,
+        )
+        state_machine.validate_transition(self.task, before, after, self.head)
+        with self.assertRaisesRegex(core.ProtocolViolation, "requires Final Acceptance Artifact"):
+            state_machine.validate_transition(
+                self.task, before, after.replace("Artifact: ACCEPTANCE.md", "Artifact: N/A"), self.head
+            )
+
     def test_review_fail_requires_artifact_fail_and_blocking_issue(self) -> None:
         self.write_impl()
         self.write_review(result="FAIL", blocking=True)

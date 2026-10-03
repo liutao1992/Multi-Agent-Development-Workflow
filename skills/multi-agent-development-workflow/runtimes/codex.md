@@ -45,7 +45,7 @@ The exact collaboration primitive names depend on the Codex host/version. Use th
 The bundled standalone Orchestrator is the fallback when the current Lead session cannot use native SubAgents. It uses non-interactive Codex worker processes:
 
 \`\`\`bash
-codex exec --full-auto "<worker prompt>"
+codex exec --approve-for-me "<worker prompt>"
 \`\`\`
 
 This is a process fallback, not a native SubAgent. Each Review dispatch is fresh to preserve Review independence.

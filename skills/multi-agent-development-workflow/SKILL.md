@@ -41,6 +41,10 @@ task artifacts required by current state
 
 Do not perform role-specific task work before loading the matching role file.
 
+For `Invocation Mode: Orchestrated Worker`, the bounded startup path is this
+entry map, the matching role file, `automation/worker-brief.md`, and STATUS.
+Open further sections of this Skill only for the current state's requirements.
+
 ### Where each role finds the current task material
 
 Given:
@@ -61,6 +65,11 @@ TASK_ROOT/ACCEPTANCE.md            ← final closure
 ```
 
 Lead chooses the exact Plan / IMPL / Review artifact from references recorded in `STATUS.md`; do not guess the latest file by filename alone.
+
+In `STATUS.md`, each `Artifact:` field under Current Plan, Current Implementation,
+Current Review, or Final Acceptance contains only the filename, such as
+`IMPL-001.md`. The artifact directory is determined by the section; do not put
+`implementations/`, `plans/`, or `reviews/` in the field value.
 
 **Impl reads:**
 
@@ -414,6 +423,11 @@ An orchestrated worker MUST:
 5. never start another Orchestrator recursively;
 6. preserve role boundaries.
 
+Lead may use the direct `IMPLEMENTING → REVIEWING` and `REVIEWING → ACCEPTED`
+transitions to combine adjacent decisions in one invocation. The executable
+validator checks all evidence required by both original gates. The original
+intermediate states remain valid when a separate decision is needed.
+
 Impl and Review MUST NOT rewrite lifecycle state in STATUS. Their newly created immutable artifact is the signal that Lead should run next.
 
 ### Commands
@@ -441,6 +455,13 @@ Validate the environment:
 \`\`\`bash
 agent-team --runtime codex doctor
 \`\`\`
+
+Inspect invocation counts, elapsed time, validation failures, and available
+Codex token totals for one Task:
+
+```bash
+agent-team metrics TASK-YYYYMMDD-NNN-short-name
+```
 
 ### BLOCKED resume entry
 
@@ -856,11 +877,13 @@ Lead is the lifecycle transition authority. Impl and Review create evidence/arti
 | READY_FOR_IMPLEMENTATION | Lead | hand off approved/fast-path task | IMPLEMENTING |
 | IMPLEMENTING | Impl | create committed IMPL-NNN evidence | IMPLEMENTING |
 | IMPLEMENTING | Lead | validate snapshot/evidence | READY_FOR_REVIEW |
+| IMPLEMENTING | Lead | validate and freeze implementation target; start independent Review immediately | REVIEWING |
 | IMPLEMENTING | Lead | accept material-deviation signal | PLAN_REWORK |
 | READY_FOR_REVIEW | Lead | start independent Review | REVIEWING |
 | REVIEWING | Review | create REVIEW-NNN evidence | REVIEWING |
 | REVIEWING | Lead | validate Review FAIL | REWORK |
 | REVIEWING | Lead | validate Review PASS | READY_FOR_FINAL_ACCEPTANCE |
+| REVIEWING | Lead | validate Review PASS and final acceptance; create ACCEPTANCE.md | ACCEPTED |
 | REVIEWING | Lead | reviewer environment mismatch only; reset Review environment | READY_FOR_REVIEW |
 | REVIEWING | Lead | frozen Code Target was mutated / invalidated | REWORK |
 | REWORK | Lead | hand confirmed RW items to Impl | IMPLEMENTING |

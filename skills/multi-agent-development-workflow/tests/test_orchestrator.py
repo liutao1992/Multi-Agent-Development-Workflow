@@ -265,6 +265,13 @@ class CleanCodePlaneTests(RepoTestCase):
 
 
 class TimeoutTests(RepoTestCase):
+    def test_codex_usage_reads_only_current_invocation(self) -> None:
+        log = Path(self.temp.name) / "codex.log"
+        log.write_text("tokens used\n1,234\n", encoding="utf-8")
+        offset = log.stat().st_size
+        log.write_text(log.read_text(encoding="utf-8") + "tokens used\n567\n", encoding="utf-8")
+        self.assertEqual(processes.reported_codex_tokens(log, offset), 567)
+
     def test_pi_reads_settled_event_from_same_write(self) -> None:
         real_popen = subprocess.Popen
         script = (
@@ -312,6 +319,31 @@ class DoctorTests(RepoTestCase):
         self.assertFalse(external.exists())
         orch.doctor(self.repo, external, "auto")
         self.assertFalse(external.exists())
+
+    def test_dispatch_records_duration_and_codex_usage(self) -> None:
+        core.task_root(self.root, self.repo, "TASK-1").mkdir(parents=True)
+        def fake_codex(prompt, project, log_path, role, timeout):
+            with log_path.open("a", encoding="utf-8") as log:
+                log.write("tokens used\n1,234\n")
+
+        with mock.patch.object(orch, "run_codex", side_effect=fake_codex):
+            orch.dispatch("codex", "process", "Lead", "work", self.repo, self.root, "TASK-1", 60)
+        metrics = orch.task_metrics(self.root, self.repo, "TASK-1")
+        self.assertEqual(metrics["calls"], 1)
+        self.assertEqual(metrics["completed"], 1)
+        self.assertEqual(metrics["tokens_used"], 1234)
+        self.assertEqual(metrics["calls_with_token_usage"], 1)
+        self.assertGreaterEqual(metrics["duration_ms"], 0)
+
+    def test_prompt_supplies_pending_artifact_basename(self) -> None:
+        task = core.task_root(self.root, self.repo, "TASK-1")
+        orch.ensure_task_artifact_dirs(task)
+        (task / "STATUS.md").write_text(status("IMPLEMENTING"), encoding="utf-8")
+        (task / "implementations" / "IMPL-001.md").write_text("evidence\n", encoding="utf-8")
+        prompt = orch.build_worker_prompt("Lead", "TASK-1", self.repo, self.root)
+        self.assertIn("Candidate pending evidence: implementations/IMPL-001.md", prompt)
+        self.assertIn("STATUS Artifact value: IMPL-001.md", prompt)
+        self.assertTrue((task / "reviews").is_dir())
 
 
 class InvariantTests(RepoTestCase):

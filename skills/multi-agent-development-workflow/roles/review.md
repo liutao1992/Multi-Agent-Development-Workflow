@@ -31,6 +31,10 @@ reviews/<prior REVIEW-NNN.md>       # only when re-review context is needed
 
 Use the exact references recorded in STATUS and IMPL. Do not review an arbitrary "latest" artifact.
 
+In the Review report, `Reviewed Implementation` may be the round ID
+(`IMPL-001`) or the exact `STATUS → Current Implementation → Artifact` filename
+(`IMPL-001.md`). Do not use a directory path or a different round.
+
 ## Task Contract binding
 
 Review the exact requirement snapshot as well as the exact Code snapshot.

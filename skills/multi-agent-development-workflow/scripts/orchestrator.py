@@ -8,6 +8,8 @@ import os
 from pathlib import Path
 import shutil
 import sys
+import time
+import uuid
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
@@ -16,7 +18,7 @@ if str(SCRIPT_DIR) not in sys.path:
 from agent_team_lib.core import (
     FileLock, OrchestratorError, ProtocolViolation, TERMINAL_STATES,
     control_root, control_snapshot, current_state, ensure_control_root,
-    find_project_root, git_snapshot, inspect_control_root_safety,
+    find_project_root, git_snapshot, inspect_control_root_safety, latest_artifact,
     plan_approval_snapshot, plan_content_snapshot, plan_full_snapshot,
     project_control_snapshot, project_fingerprint, project_lock_path,
     project_runtime_root, read_status, require_clean_code_plane, section_field, select_role,
@@ -26,7 +28,7 @@ from agent_team_lib.core import (
     validate_role_postconditions, validate_task_contract_integrity,
     validate_task_contract_mutation, write_json_atomic,
 )
-from agent_team_lib.processes import choose_runtime, run_codex, run_pi_rpc
+from agent_team_lib.processes import choose_runtime, reported_codex_tokens, run_codex, run_pi_rpc
 from agent_team_lib.queue_runtime import (
     queue_dispatch, quarantined_jobs, require_no_quarantined_jobs,
     shared_orphan_risk_path, worker_loop,
@@ -55,8 +57,82 @@ def log_event(root: Path, project_root: Path, task_id: str, payload: dict) -> No
         fh.write(json.dumps(payload, ensure_ascii=False) + "\n")
 
 
+def task_metrics(root: Path, project_root: Path, task_id: str) -> dict:
+    if not task_root(root, project_root, task_id).is_dir():
+        raise OrchestratorError(f"Task not found: {task_id}")
+    path = project_runtime_root(root, project_root) / "tasks" / task_id / "dispatch.jsonl"
+    summary: dict = {
+        "task_id": task_id, "calls": 0, "completed": 0, "failed": 0,
+        "validation_failures": 0, "duration_ms": 0, "tokens_used": 0,
+        "calls_with_token_usage": 0, "by_role": {},
+    }
+    if not path.is_file():
+        return summary
+    for line in path.read_text(encoding="utf-8").splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        kind = event.get("event")
+        if kind == "validation_failed":
+            summary["validation_failures"] += 1
+            continue
+        if kind not in {"worker_complete", "worker_failed", "bootstrap_complete"}:
+            continue
+        role = event.get("role", "Lead")
+        role_summary = summary["by_role"].setdefault(role, {
+            "calls": 0, "completed": 0, "failed": 0,
+            "duration_ms": 0, "tokens_used": 0, "calls_with_token_usage": 0,
+        })
+        summary["calls"] += 1
+        role_summary["calls"] += 1
+        outcome = "failed" if kind == "worker_failed" else "completed"
+        summary[outcome] += 1
+        role_summary[outcome] += 1
+        duration = event.get("duration_ms", 0)
+        if isinstance(duration, int) and duration >= 0:
+            summary["duration_ms"] += duration
+            role_summary["duration_ms"] += duration
+        tokens = event.get("tokens_used")
+        if isinstance(tokens, int) and tokens >= 0:
+            summary["tokens_used"] += tokens
+            summary["calls_with_token_usage"] += 1
+            role_summary["tokens_used"] += tokens
+            role_summary["calls_with_token_usage"] += 1
+    return summary
+
+
+def ensure_task_artifact_dirs(task: Path) -> None:
+    task.mkdir(parents=True, exist_ok=True)
+    for directory in ("plans", "implementations", "reviews"):
+        (task / directory).mkdir(exist_ok=True)
+
+
 def build_worker_prompt(role: str, task_id: str, project_root: Path, root: Path) -> str:
     task = task_root(root, project_root, task_id)
+    skill = SCRIPT_DIR.parent
+    status = read_status(task)
+    state = current_state(status)
+    candidate = None
+    if role == "Lead":
+        pending = {
+            "PLANNING": ("plans", "PLAN-v*.md"),
+            "PLAN_REWORK": ("plans", "PLAN-v*.md"),
+            "IMPLEMENTING": ("implementations", "IMPL-*.md"),
+            "REVIEWING": ("reviews", "REVIEW-*.md"),
+        }.get(state)
+        if pending:
+            name = latest_artifact(task / pending[0], pending[1])
+            if name:
+                candidate = f"Candidate pending evidence: {pending[0]}/{name}; STATUS Artifact value: {name}. Validate it before recording it."
+    elif role == "Review":
+        name = section_field(status, "Current Implementation", "Artifact")
+        candidate = f"Review exactly STATUS Current Implementation Artifact: {name}."
+    role_hint = (
+        "Lead: prefer IMPLEMENTING → REVIEWING when the frozen target is valid, and\n"
+        "REVIEWING → ACCEPTED after a PASS Review when final acceptance can be decided."
+        if role == "Lead" else ""
+    )
     return f"""Use multi-agent-development-workflow.
 Role: {role}.
 Invocation Mode: Orchestrated Worker.
@@ -67,7 +143,16 @@ Task: {task_id}
 Action: {ROLE_COMMAND[role]}
 
 Execute exactly ONE legal role action and stop at the next handoff boundary.
-Read {task / 'STATUS.md'} first and follow exact artifact references.
+Read the entry map near the start of {skill / 'SKILL.md'}, then
+{skill / 'roles' / f'{role.lower()}.md'} and {skill / 'automation' / 'worker-brief.md'}.
+Use the brief's state-specific evidence list; open other SKILL sections only as needed.
+Read {task / 'STATUS.md'} first among Task artifacts and follow exact references.
+In STATUS Current Plan, Current Implementation, Current Review, and Final Acceptance,
+write Artifact as a filename only (for example, IMPL-001.md), never a directory path.
+In a Review report, Reviewed Implementation may be IMPL-001 or IMPL-001.md
+when STATUS Current Implementation Artifact is IMPL-001.md.
+{candidate or ''}
+{role_hint}
 Impl/Review must not transition STATUS. Lead is the only lifecycle authority.
 Do not invoke the orchestrator recursively. Stop rather than inventing a human/product decision.
 """
@@ -136,24 +221,32 @@ def dispatch(
     project_root: Path, root: Path, task_id: str, timeout: int,
 ) -> None:
     log_path = task_runtime_dir(root, project_root, task_id) / f"{role.lower()}.log"
+    log_offset = log_path.stat().st_size if log_path.exists() else 0
+    invocation_id = uuid.uuid4().hex
+    started = time.monotonic()
     log_event(
         root, project_root, task_id,
-        {"event": "dispatch", "runtime": runtime, "transport": transport, "role": role},
+        {"event": "dispatch", "invocation_id": invocation_id,
+         "runtime": runtime, "transport": transport, "role": role},
     )
-
-    if transport == "queue" and role in {"Impl", "Review"}:
-        queue_dispatch(runtime, role, prompt, project_root, root, task_id, timeout)
-    elif runtime == "codex":
-        run_codex(prompt, project_root, log_path, role, timeout)
-    elif runtime == "pi":
-        run_pi_rpc(prompt, project_root, log_path, role, timeout)
-    else:
-        raise OrchestratorError(f"Unsupported runtime: {runtime}")
-
-    log_event(
-        root, project_root, task_id,
-        {"event": "worker_complete", "runtime": runtime, "transport": transport, "role": role},
-    )
+    outcome = "worker_failed"
+    try:
+        if transport == "queue" and role in {"Impl", "Review"}:
+            queue_dispatch(runtime, role, prompt, project_root, root, task_id, timeout)
+        elif runtime == "codex":
+            run_codex(prompt, project_root, log_path, role, timeout)
+        elif runtime == "pi":
+            run_pi_rpc(prompt, project_root, log_path, role, timeout)
+        else:
+            raise OrchestratorError(f"Unsupported runtime: {runtime}")
+        outcome = "worker_complete"
+    finally:
+        log_event(root, project_root, task_id, {
+            "event": outcome, "invocation_id": invocation_id,
+            "runtime": runtime, "transport": transport, "role": role,
+            "duration_ms": round((time.monotonic() - started) * 1000),
+            "tokens_used": reported_codex_tokens(log_path, log_offset) if runtime == "codex" else None,
+        })
 
 
 def run_task_locked(
@@ -216,29 +309,40 @@ def run_task_locked(
             after_task_contract = task_contract_snapshot(task)
             after_status = read_status(task)
 
-            validate_task_contract_mutation(
-                role, before_task_contract, after_task_contract, before_status, after_status,
-            )
-            validate_plan_content_boundary(role, before_plan_content, after_plan_content)
-            validate_plan_approval_boundary(
-                role, state, before_status, after_status,
-                before_plan_full, after_plan_full,
-                before_plan_approval, after_plan_approval,
-            )
-            validate_project_control_boundary(
-                role, task, before_project_control, after_project_control,
-            )
-            validate_role_postconditions(
-                role, state, task,
-                before_git, after_git, before_control, after_control,
-            )
-            if role == "Lead":
-                validate_transition(task, before_status, after_status, after_git["head"])
-
-            if task_digest(task) == before_digest:
-                raise OrchestratorError(
-                    f"No protocol progress after {role} worker in state {state}."
+            try:
+                validate_task_contract_mutation(
+                    role, before_task_contract, after_task_contract, before_status, after_status,
                 )
+                validate_plan_content_boundary(role, before_plan_content, after_plan_content)
+                validate_plan_approval_boundary(
+                    role, state, before_status, after_status,
+                    before_plan_full, after_plan_full,
+                    before_plan_approval, after_plan_approval,
+                )
+                validate_project_control_boundary(
+                    role, task, before_project_control, after_project_control,
+                )
+                validate_role_postconditions(
+                    role, state, task,
+                    before_git, after_git, before_control, after_control,
+                )
+                if role == "Lead":
+                    validate_transition(task, before_status, after_status, after_git["head"])
+
+                if task_digest(task) == before_digest:
+                    raise OrchestratorError(
+                        f"No protocol progress after {role} worker in state {state}."
+                    )
+            except OrchestratorError as exc:
+                log_event(root, project_root, task_id, {
+                    "event": "validation_failed", "step": step, "state": state,
+                    "role": role, "error": str(exc),
+                })
+                raise
+            log_event(root, project_root, task_id, {
+                "event": "validation_passed", "step": step, "state": state,
+                "next_state": current_state(after_status), "role": role,
+            })
             marker.unlink()
 
         raise OrchestratorError(f"Maximum orchestration steps exceeded ({max_steps}).")
@@ -381,6 +485,8 @@ def create_task_and_run(
         before_git = git_snapshot(project_root)
 
         prompt = build_new_task_prompt(requirement, project_root, root)
+        bootstrap_started = time.monotonic()
+        bootstrap_offset = bootstrap_log.stat().st_size if bootstrap_log.exists() else 0
         if runtime == "codex":
             run_codex(prompt, project_root, bootstrap_log, "Lead", timeout)
         elif runtime == "pi":
@@ -405,6 +511,15 @@ def create_task_and_run(
         validate_bootstrap_control_boundary(
             created[0], before_project_control, after_project_control,
         )
+
+        ensure_task_artifact_dirs(task_root(root, project_root, created[0]))
+
+        log_event(root, project_root, created[0], {
+            "event": "bootstrap_complete", "role": "Lead", "runtime": runtime,
+            "transport": transport,
+            "duration_ms": round((time.monotonic() - bootstrap_started) * 1000),
+            "tokens_used": reported_codex_tokens(bootstrap_log, bootstrap_offset) if runtime == "codex" else None,
+        })
 
         print(f"[orchestrator] created {created[0]}")
         return run_task_locked(
@@ -480,6 +595,9 @@ def main() -> int:
     status_p = sub.add_parser("status")
     status_p.add_argument("task_id")
 
+    metrics_p = sub.add_parser("metrics")
+    metrics_p.add_argument("task_id")
+
     resume_p = sub.add_parser("resume")
     resume_p.add_argument("task_id")
     resume_p.add_argument(
@@ -499,6 +617,10 @@ def main() -> int:
 
     if args.command == "status":
         print(current_state(read_status(task_root(root, project_root, args.task_id))))
+        return 0
+
+    if args.command == "metrics":
+        print(json.dumps(task_metrics(root, project_root, args.task_id), ensure_ascii=False, indent=2))
         return 0
 
     if args.command == "doctor":

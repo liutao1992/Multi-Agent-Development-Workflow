@@ -20,6 +20,10 @@ For task `<TASK-ID>`, the canonical task root is:
 
 Always read `STATUS.md` first. Use its references to locate the current Plan, IMPL, Review, and Acceptance artifacts. Requirements come from `TASK.md`.
 
+Record `Artifact:` values in STATUS as filenames only: `PLAN-v001.md`,
+`IMPL-001.md`, `REVIEW-001.md`, or `ACCEPTANCE.md`. Do not include their
+directory paths in these fields.
+
 ## Bootstrap
 
 For an existing task:
@@ -101,7 +105,12 @@ Before READY_FOR_REVIEW validate:
 - Control Plane Excluded = YES;
 - Frozen = true.
 
-Then transition to READY_FOR_REVIEW.
+Then enter READY_FOR_REVIEW, or use the direct handoff below.
+
+In Orchestrated Worker mode, when the frozen implementation target is valid and
+independent Review can start immediately, transition directly from IMPLEMENTING
+to REVIEWING in one action. This direct transition must satisfy both Review
+handoff checks; the old two-transition route remains valid for existing tasks.
 
 ## Review evaluation
 
@@ -116,7 +125,9 @@ On Review FAIL:
 
 On Review PASS:
 - validate evidence;
-- STATUS → READY_FOR_FINAL_ACCEPTANCE.
+- if final acceptance can be decided now, create ACCEPTANCE.md and transition
+  directly from REVIEWING to ACCEPTED; otherwise transition to
+  READY_FOR_FINAL_ACCEPTANCE for a separate acceptance decision.
 
 ## Final acceptance
 
@@ -143,7 +154,8 @@ Stop when another role must act and return the concise handoff summary defined i
 
 When \`Invocation Mode: Orchestrated Worker\` is present:
 
-- perform exactly one legal Lead transition/action;
+- perform exactly one legal Lead transition/action; prefer the validated direct
+  IMPLEMENTING → REVIEWING and REVIEWING → ACCEPTED routes when applicable;
 - update STATUS only as allowed by the lifecycle table;
 - consume newly produced Plan / IMPL / REVIEW evidence when the current state permits it;
 - stop at the next Impl or Review handoff boundary;

@@ -27,6 +27,7 @@ class LifecycleTests(unittest.TestCase):
         (self.task / "TASK.md").write_text(text, encoding="utf-8")
         self.fields: dict[str, str] = {}
         self.calls: list[tuple[str, str]] = []
+        self.direct_handoffs = False
         self.write_status("CREATED")
 
     def write_status(self, state: str, **fields: str) -> None:
@@ -78,7 +79,11 @@ class LifecycleTests(unittest.TestCase):
                 self.write_status("IMPLEMENTING")
             elif state == "IMPLEMENTING":
                 number = 2 if self.fields.get("rw_ids") == "RW-001" else 1
-                self.write_status("READY_FOR_REVIEW", impl_artifact=f"IMPL-{number:03d}.md", code_head=self.head, frozen="true")
+                self.write_status(
+                    "REVIEWING" if self.direct_handoffs else "READY_FOR_REVIEW",
+                    impl_artifact=f"IMPL-{number:03d}.md", code_head=self.head,
+                    frozen="true",
+                )
             elif state == "READY_FOR_REVIEW":
                 self.write_status("REVIEWING")
             elif state == "REVIEWING" and self.fields["impl_artifact"] == "IMPL-001.md":
@@ -86,7 +91,17 @@ class LifecycleTests(unittest.TestCase):
                 task.write_text(task.read_text().replace("## Rework Requirements\n\nNone", "## Rework Requirements\n\n### RW-001\nRelated Review: REV-001\nFix A."), encoding="utf-8")
                 self.write_status("REWORK", review_artifact="REVIEW-001.md", review_protocol="READY_FOR_REVIEW", review_result="FAIL", rw_ids="RW-001")
             elif state == "REVIEWING":
-                self.write_status("READY_FOR_FINAL_ACCEPTANCE", review_artifact="REVIEW-002.md", review_protocol="READY_FOR_REVIEW", review_result="PASS")
+                if self.direct_handoffs:
+                    (self.task / "ACCEPTANCE.md").write_text(
+                        self.evidence() + f"Final Result: ACCEPTED\nAccepted Review: REVIEW-002.md\nAccepted Code Head SHA: {self.head}\n",
+                        encoding="utf-8",
+                    )
+                self.write_status(
+                    "ACCEPTED" if self.direct_handoffs else "READY_FOR_FINAL_ACCEPTANCE",
+                    review_artifact="REVIEW-002.md", review_protocol="READY_FOR_REVIEW",
+                    review_result="PASS",
+                    **({"acceptance_artifact": "ACCEPTANCE.md", "accepted_sha": self.head} if self.direct_handoffs else {}),
+                )
             elif state == "READY_FOR_FINAL_ACCEPTANCE":
                 (self.task / "ACCEPTANCE.md").write_text(self.evidence() + f"Final Result: ACCEPTED\nAccepted Review: REVIEW-002.md\nAccepted Code Head SHA: {self.head}\n", encoding="utf-8")
                 self.write_status("ACCEPTED", acceptance_artifact="ACCEPTANCE.md", accepted_sha=self.head)
@@ -137,6 +152,19 @@ class LifecycleTests(unittest.TestCase):
                 0,
             )
             dispatch.assert_not_called()
+
+    def test_direct_handoffs_reduce_lead_calls_without_skipping_review(self) -> None:
+        self.direct_handoffs = True
+        with mock.patch.object(orch, "dispatch", side_effect=self.dispatch):
+            self.assertEqual(
+                orch.run_task(self.repo, self.root, "TASK-1", "codex", "process", 20, 60),
+                0,
+            )
+        self.assertEqual(core.current_state(core.read_status(self.task)), "ACCEPTED")
+        self.assertEqual(sum(role == "Review" for role, _ in self.calls), 2)
+        self.assertNotIn(("Lead", "READY_FOR_REVIEW"), self.calls)
+        self.assertNotIn(("Lead", "READY_FOR_FINAL_ACCEPTANCE"), self.calls)
+        self.assertEqual(orch.task_metrics(self.root, self.repo, "TASK-1")["validation_failures"], 0)
 
     def test_rework_without_valid_review_evidence_is_rejected(self) -> None:
         self.write_status("REVIEWING")

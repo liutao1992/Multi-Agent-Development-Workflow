@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import queue as pyqueue
+import re
 import shutil
 import signal
 import subprocess
@@ -15,6 +16,18 @@ from typing import Callable
 from .core import OrchestratorError, process_alive
 
 PROCESS_GRACE_SECONDS = 5
+CODEX_TOKENS = re.compile(r"(?m)^tokens used\s*\n\s*([\d,]+)\s*$")
+
+
+def reported_codex_tokens(log_path: Path, offset: int = 0) -> int | None:
+    """Read the last Codex CLI usage total from one appended invocation."""
+    if not log_path.is_file():
+        return None
+    with log_path.open("rb") as log:
+        log.seek(offset)
+        output = log.read().decode("utf-8", errors="replace")
+    matches = CODEX_TOKENS.findall(output)
+    return int(matches[-1].replace(",", "")) if matches else None
 
 
 def choose_runtime(requested: str) -> str:
@@ -171,7 +184,7 @@ def stream_process(
 
 def run_codex(prompt: str, cwd: Path, log_path: Path, role: str, timeout: int, **kwargs) -> None:
     code = stream_process(
-        ["codex", "exec", "--full-auto", prompt],
+        ["codex", "exec", "--approve-for-me", prompt],
         cwd, log_path, role, timeout, **kwargs,
     )
     if code != 0:
