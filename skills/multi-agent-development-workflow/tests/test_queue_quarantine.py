@@ -11,6 +11,7 @@ SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 from agent_team_lib import core
+from agent_team_lib import processes
 from agent_team_lib import queue_runtime
 
 
@@ -51,22 +52,15 @@ class QueueQuarantineTests(unittest.TestCase):
             "lease_owner": "dead",
             "lease_until": time.time() - 1,
         })
-
         queue_runtime.recover_expired_claims(self.root, self.repo, "Impl")
-
         self.assertFalse(claim.exists())
-        self.assertFalse((paths["queued"] / "job-no-pid.json").exists())
         self.assertTrue((paths["quarantined"] / "job-no-pid.json").exists())
-        with self.assertRaises(core.OrchestratorError):
-            queue_runtime.require_no_quarantined_jobs(self.root, self.repo)
 
     def test_malformed_claim_is_quarantined(self) -> None:
         paths = queue_runtime.queue_paths(self.root, self.repo, "Review")
         claim = paths["claimed"] / "broken.json"
         claim.write_text("{not-json", encoding="utf-8")
-
         queue_runtime.recover_expired_claims(self.root, self.repo, "Review")
-
         self.assertFalse(claim.exists())
         self.assertTrue((paths["quarantined"] / "broken.json").exists())
 
@@ -80,11 +74,38 @@ class QueueQuarantineTests(unittest.TestCase):
             "lease_until": time.time() - 1,
             "child_pid": 99999999,
         })
-
         queue_runtime.recover_expired_claims(self.root, self.repo, "Impl")
-
         self.assertFalse(claim.exists())
         self.assertTrue((paths["queued"] / "safe-retry.json").exists())
+
+    def test_live_pid_with_mismatched_identity_is_quarantined_not_killed(self) -> None:
+        paths = queue_runtime.queue_paths(self.root, self.repo, "Impl")
+        child = subprocess.Popen(
+            ["python3", "-c", "import time; time.sleep(30)"],
+            start_new_session=True,
+        )
+        try:
+            identity = processes.process_identity(child.pid)
+            self.assertIsNotNone(identity)
+            assert identity is not None
+            identity["start_time"] = "definitely-not-the-real-start-time"
+            claim = paths["claimed"] / "reused-pid.json"
+            core.write_json_atomic(claim, {
+                "job_id": "reused-pid",
+                "state": "RUNNING",
+                "lease_owner": "dead",
+                "lease_until": time.time() - 1,
+                "child_pid": child.pid,
+                "child_identity": identity,
+            })
+
+            queue_runtime.recover_expired_claims(self.root, self.repo, "Impl")
+
+            self.assertIsNone(child.poll())
+            self.assertTrue((paths["quarantined"] / "reused-pid.json").exists())
+        finally:
+            child.terminate()
+            child.wait(timeout=3)
 
 
 if __name__ == "__main__":

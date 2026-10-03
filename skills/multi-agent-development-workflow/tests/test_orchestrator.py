@@ -82,6 +82,7 @@ class TransportTests(unittest.TestCase):
         self.assertFalse(orch.command_requires_runtime("status"))
         self.assertFalse(orch.command_requires_runtime("doctor"))
         self.assertTrue(orch.command_requires_runtime("run"))
+        self.assertTrue(orch.command_requires_runtime("resume"))
         self.assertFalse(orch.command_mutates_control_plane("status"))
         self.assertTrue(orch.command_mutates_control_plane("worker"))
 
@@ -196,6 +197,7 @@ class QueueTests(RepoTestCase):
             core.write_json_atomic(paths["claimed"] / "job-child.json", {
                 "job_id": "job-child",
                 "child_pid": child.pid,
+                "child_identity": processes.process_identity(child.pid),
                 "lease_until": time.time() + 20,
             })
             queue_runtime.cancel_and_quiesce_job(
