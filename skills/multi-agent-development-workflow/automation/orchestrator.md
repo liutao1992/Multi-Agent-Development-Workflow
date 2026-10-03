@@ -127,7 +127,9 @@ On orchestrator timeout, a cancellation marker is written. Before the orchestrat
 
 Expired claims are requeued only when a recorded child PID can be confirmed quiesced. If the PID was never durably recorded, the claim is malformed, or the child cannot be confirmed stopped, the claim moves to `quarantined/` with an error record.
 
-A quarantine represents `UNKNOWN_ORPHAN_RISK`. New automated Task runs and queue workers fail closed until it is inspected/resolved; the runtime never blindly retries that job.
+A quarantine represents `UNKNOWN_ORPHAN_RISK` or `UNKNOWN_PROCESS_IDENTITY`. New automated Task runs and queue workers fail closed until it is inspected/resolved; the runtime never blindly retries that job.
+
+A stale live PID is never treated as sufficient identity by itself. The claim records process identity metadata when the child starts. Recovery compares that identity before terminating a live process. PID reuse therefore causes quarantine rather than a kill.
 
 Every job is project-scoped and carries both canonical project root and project fingerprint.
 
@@ -176,12 +178,17 @@ READY_FOR_FINAL_ACCEPTANCE → ACCEPTED
   require ACCEPTANCE.md
   require current Review PASS
   require accepted Code Head == current implementation Code Head
+  require current Git HEAD == reviewed/accepted Code Head
 
 <any> → BLOCKED
   require Resume State == prior state
 ```
 
 Review/implementation snapshot SHAs used as authoritative targets must be full 40-character Git SHAs.
+
+PASS Review evidence is machine-checked against the current implementation and repository: Reviewed Implementation, Declared/Observed Code Head, protocol status, and clean-check fields must agree. The same reviewed HEAD is checked again during final acceptance to prevent a Review→Acceptance TOCTOU gap.
+
+Plan approval is also field-scoped: Lead may mutate only the Plan's `## Approval` block; the remaining Plan content is hashed and immutable.
 
 ## Failure model
 
@@ -210,6 +217,18 @@ The Code Plane lock is deliberately **fail-closed**. If its owner process is gon
 Even disjoint file edits cannot safely share a working tree because Git HEAD and index are shared.
 
 Parallel Tasks require separate Git worktrees. Worktree-native parallel orchestration is the intended future concurrency model.
+
+## BLOCKED recovery
+
+Ordinary `run` treats BLOCKED as a stop condition.
+
+After a human resolves the dependency:
+
+```bash
+agent-team --runtime codex resume TASK-... "human decision"
+```
+
+The resume command runs exactly one Lead recovery transition, verifies `BLOCKED → Resume State`, and then re-enters normal automatic execution.
 
 ## Review isolation
 

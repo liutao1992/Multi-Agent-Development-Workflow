@@ -422,6 +422,8 @@ SUCCEEDED / FAILED / CANCELLED
 
 Expired claims are requeued only when the previous child process identity is known and confirmed unable to execute.
 
+For a live stale PID, the runtime also verifies recorded process identity (PID + process group/start-time/command where available) before terminating anything. A live PID that cannot be proven to be the original child is never killed; the claim is quarantined as `UNKNOWN_PROCESS_IDENTITY`.
+
 If an expired/malformed claim has no trustworthy `child_pid`, or a child cannot be confirmed quiesced, the claim moves to `quarantined/` as `UNKNOWN_ORPHAN_RISK`. New automatic runs/workers fail closed until the quarantine is inspected.
 
 A timed-out orchestrator cancels the job and attempts to quiesce any claimed child process before returning; a running worker also observes cancellation and terminates its child runtime instead of continuing to make ghost changes.
@@ -595,6 +597,17 @@ Current Task state:
 
 `status` is read-only: it does not resolve a runtime, create directories, or modify `.git/info/exclude`.
 
+Resume a BLOCKED Task after a human decision:
+
+```bash
+"$AGENT_TEAM" \
+  --runtime codex \
+  resume TASK-20261003-001-ios-system-dictionary-meaning \
+  "Use a backward-compatible migration"
+```
+
+`run` intentionally stops at `BLOCKED`. Only `resume` asks Lead to consume the human resolution, transition exactly to the recorded Resume State, validate that transition, and then continue automation.
+
 Automatic process fallback:
 
 ```bash
@@ -616,6 +629,28 @@ The standalone CLI intentionally rejects:
 because native SubAgents belong to the already-running Lead parent session. The CLI must not pretend that a child OS process is a native SubAgent.
 
 ---
+
+### Plan ownership is mechanically enforced
+
+Plan content and Plan approval have different owners:
+
+```text
+Impl
+  owns every section except ## Approval
+
+Lead
+  may change only ## Approval
+```
+
+The runtime hashes each Plan after removing the `## Approval` block. Existing Plan content hashes must not change.
+
+When a Plan enters `PLAN_REVIEW`, both STATUS and the Plan file must say:
+
+```text
+PENDING
+```
+
+so Impl cannot self-approve a Plan.
 
 ## 10. Executable lifecycle enforcement
 
@@ -649,13 +684,40 @@ REVIEWING → READY_FOR_FINAL_ACCEPTANCE
 = requires REVIEW Result PASS
 
 READY_FOR_FINAL_ACCEPTANCE → ACCEPTED
-= requires ACCEPTANCE.md + current PASS Review + matching accepted Code Head
+= requires ACCEPTANCE.md + current PASS Review
++ matching accepted Code Head
++ current real Git HEAD still equals the reviewed Code Head
 
 <any> → BLOCKED
 = requires Resume State = previous lifecycle state
 ```
 
 This turns the Transition Table from prompt guidance into an executable protocol.
+
+A PASS Review is also machine-validated. Its evidence must bind:
+
+```text
+Reviewed Implementation
+=
+STATUS Current Implementation
+
+Declared Code Head
+=
+Observed Review Head
+=
+STATUS Code Head
+=
+current Git HEAD
+
+Protocol Status = READY_FOR_REVIEW
+
+Unstaged Diff Clean = YES
+Staged Diff Clean = YES
+Status Porcelain Clean = YES
+Control Plane Excluded = YES
+```
+
+Final Acceptance repeats the snapshot check to close the Review→Acceptance TOCTOU window.
 
 ## 11. When automation stops
 

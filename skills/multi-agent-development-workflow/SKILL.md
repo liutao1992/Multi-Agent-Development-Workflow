@@ -280,13 +280,27 @@ Required evidence includes at least:
 - APPROVED / REWORK recorded consistently in STATUS and Plan artifact;
 - approved Plan before implementation when Plan Gate is REQUIRED;
 - frozen implementation target and exact STATUS/IMPL/observed Code Head match before Review;
-- Review PASS before READY_FOR_FINAL_ACCEPTANCE;
+- Review PASS before READY_FOR_FINAL_ACCEPTANCE, with machine-verifiable Review target evidence;
+- the current observed Git HEAD still equal to the reviewed implementation head at READY_FOR_FINAL_ACCEPTANCE and ACCEPTED;
 - Review FAIL or REVIEW_TARGET_MISMATCH before REWORK;
 - confirmed RW IDs before rework implementation;
-- ACCEPTANCE.md, PASS Review, and matching Accepted Code Head before ACCEPTED;
+- ACCEPTANCE.md, PASS Review, matching Accepted Code Head, and current observed Git HEAD before ACCEPTED;
 - Resume State equal to the prior state when entering BLOCKED.
 
 Illegal jumps such as `CREATED → ACCEPTED` MUST fail with a protocol violation.
+
+### Plan content immutability
+
+For existing `PLAN-vNNN.md` artifacts:
+
+- Impl owns Plan content;
+- Lead owns only the `## Approval` block.
+
+Executable fallback runtimes MUST hash/compare Plan content with the Approval block excluded.
+
+Lead approval MUST NOT change Scope, Implementation Steps, Testing Plan, Risks, Open Questions, or other Plan content.
+
+Before `PLANNING / PLAN_REWORK → PLAN_REVIEW`, both STATUS and the Plan artifact MUST record `PENDING`. This prevents Impl from self-approving its own Plan.
 
 ### Whole Control Plane write boundary
 
@@ -379,6 +393,27 @@ Validate the environment:
 \`\`\`bash
 agent-team --runtime codex doctor
 \`\`\`
+
+### BLOCKED resume entry
+
+`BLOCKED` intentionally stops ordinary standalone `run`.
+
+Resume requires an explicit Lead entry:
+
+```bash
+agent-team --runtime codex resume <TASK-ID> "<human decision>"
+```
+
+The resume worker MUST:
+
+1. read BLOCKED STATUS and recorded Resume State;
+2. consume the human resolution;
+3. modify no Code Plane content;
+4. transition exactly `BLOCKED → <Resume State>`, or CANCELLED when explicitly requested;
+5. pass the normal Lead write-boundary and transition validators;
+6. then continue the automatic lifecycle.
+
+This makes BLOCKED recovery explicit and auditable.
 
 ### Process fallback transport
 
