@@ -30,7 +30,47 @@ def init_repo(path: Path) -> None:
     git(path, "commit", "-qm", "init")
 
 
-def blocked_status(state: str = "BLOCKED", resume: str = "PLANNING") -> str:
+def make_task() -> tuple[str, str]:
+    draft = """# Task
+Task Contract Revision: 1
+Task Contract Hash: PLACEHOLDER
+
+## Objective
+Deliver.
+
+## Requirements
+### REQ-001
+A.
+
+## Acceptance Criteria
+### AC-001
+A works.
+
+## Constraints
+- None
+
+## Dependencies
+- None
+
+## Out of Scope
+- None
+
+## Requirement Change Log
+None
+
+## Rework Requirements
+None
+"""
+    digest = core.task_contract_hash(draft)
+    return draft.replace("PLACEHOLDER", digest), digest
+
+
+def blocked_status(
+    contract_hash: str,
+    state: str = "BLOCKED",
+    resume: str = "PLANNING",
+    decision: str = "N/A",
+) -> str:
     return f"""# Task Status
 
 ## Current State
@@ -40,6 +80,17 @@ def blocked_status(state: str = "BLOCKED", resume: str = "PLANNING") -> str:
 ## Resume State
 
 {resume}
+
+## Blocked Resolution
+
+Decision: {decision}
+Resolved By: Human via resume
+Resolved At: 2026-10-03
+
+## Task Contract
+
+Revision: 1
+Hash: {contract_hash}
 
 ## Workflow
 
@@ -91,42 +142,71 @@ class ResumeTests(unittest.TestCase):
         self.task = core.task_root(self.root, self.repo, "TASK-1")
         for sub in ("plans", "implementations", "reviews"):
             (self.task / sub).mkdir(parents=True, exist_ok=True)
-        (self.task / "TASK.md").write_text("req\n", encoding="utf-8")
-        (self.task / "STATUS.md").write_text(blocked_status(), encoding="utf-8")
+        task_text, self.contract_hash = make_task()
+        (self.task / "TASK.md").write_text(task_text, encoding="utf-8")
+        (self.task / "STATUS.md").write_text(
+            blocked_status(self.contract_hash), encoding="utf-8"
+        )
 
     def tearDown(self) -> None:
         self.temp.cleanup()
 
-    def test_resume_dispatches_lead_and_continues(self) -> None:
+    def test_resume_dispatches_lead_persists_decision_and_continues(self) -> None:
+        decision = "Dependency resolved; continue planning."
+
         def fake_dispatch(*args, **kwargs):
             (self.task / "STATUS.md").write_text(
-                blocked_status(state="PLANNING", resume="N/A"),
+                blocked_status(
+                    self.contract_hash,
+                    state="PLANNING",
+                    resume="N/A",
+                    decision=decision,
+                ),
                 encoding="utf-8",
             )
 
         with mock.patch.object(orch, "dispatch", side_effect=fake_dispatch), \
              mock.patch.object(orch, "run_task_locked", return_value=23) as run_next:
             result = orch.resume_task(
-                self.repo,
-                self.root,
-                "TASK-1",
-                "Dependency resolved; continue planning.",
-                "codex",
-                "process",
-                50,
-                60,
+                self.repo, self.root, "TASK-1", decision,
+                "codex", "process", 50, 60,
             )
 
         self.assertEqual(result, 23)
         run_next.assert_called_once()
+        after = core.read_status(self.task)
+        self.assertEqual(core.current_state(after), "PLANNING")
         self.assertEqual(
-            core.current_state(core.read_status(self.task)),
-            "PLANNING",
+            core.section_field(after, "Blocked Resolution", "Decision"),
+            decision,
         )
+
+    def test_resume_rejects_missing_decision_persistence(self) -> None:
+        decision = "Dependency resolved."
+
+        def fake_dispatch(*args, **kwargs):
+            (self.task / "STATUS.md").write_text(
+                blocked_status(
+                    self.contract_hash,
+                    state="PLANNING",
+                    resume="N/A",
+                    decision="N/A",
+                ),
+                encoding="utf-8",
+            )
+
+        with mock.patch.object(orch, "dispatch", side_effect=fake_dispatch):
+            with self.assertRaises(core.ProtocolViolation):
+                orch.resume_task(
+                    self.repo, self.root, "TASK-1", decision,
+                    "codex", "process", 50, 60,
+                )
 
     def test_resume_requires_blocked_state(self) -> None:
         (self.task / "STATUS.md").write_text(
-            blocked_status(state="PLANNING", resume="N/A"),
+            blocked_status(
+                self.contract_hash, state="PLANNING", resume="N/A"
+            ),
             encoding="utf-8",
         )
         with self.assertRaises(core.OrchestratorError):
