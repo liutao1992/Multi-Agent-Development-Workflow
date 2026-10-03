@@ -17,13 +17,17 @@ from agent_team_lib.core import (
     FileLock, OrchestratorError, ProtocolViolation, TERMINAL_STATES,
     control_root, control_snapshot, current_state, ensure_control_root,
     find_project_root, git_snapshot, inspect_control_root_safety,
-    project_fingerprint, project_lock_path, project_runtime_root,
-    read_status, require_clean_code_plane, select_role, task_digest,
-    task_lock_path, task_root, task_runtime_dir, tasks_dir,
+    project_control_snapshot, project_fingerprint, project_lock_path,
+    project_runtime_root, read_status, require_clean_code_plane, select_role,
+    task_digest, task_lock_path, task_root, task_runtime_dir, tasks_dir,
+    validate_bootstrap_control_boundary, validate_project_control_boundary,
     validate_role_postconditions,
 )
 from agent_team_lib.processes import choose_runtime, run_codex, run_pi_rpc
-from agent_team_lib.queue_runtime import queue_dispatch, worker_loop
+from agent_team_lib.queue_runtime import (
+    queue_dispatch, quarantined_jobs, require_no_quarantined_jobs, worker_loop,
+)
+from agent_team_lib.state_machine import validate_transition
 
 ROLE_COMMAND = {"Lead": "Continue", "Impl": "Continue", "Review": "Review"}
 
@@ -131,6 +135,8 @@ def run_task_locked(
             before_digest = task_digest(task)
             before_git = git_snapshot(project_root)
             before_control = control_snapshot(task)
+            before_project_control = project_control_snapshot(root, project_root)
+            before_status = status
 
             log_event(
                 root, project_root, task_id,
@@ -144,10 +150,18 @@ def run_task_locked(
 
             after_git = git_snapshot(project_root)
             after_control = control_snapshot(task)
+            after_project_control = project_control_snapshot(root, project_root)
+            after_status = read_status(task)
+
+            validate_project_control_boundary(
+                role, task, before_project_control, after_project_control,
+            )
             validate_role_postconditions(
                 role, state, task,
                 before_git, after_git, before_control, after_control,
             )
+            if role == "Lead":
+                validate_transition(task, before_status, after_status, after_git["head"])
 
             if task_digest(task) == before_digest:
                 raise OrchestratorError(
@@ -166,6 +180,7 @@ def run_task(
         f"Code Plane {project_root}",
         recover_stale=False,
     ):
+        require_no_quarantined_jobs(root, project_root)
         return run_task_locked(
             project_root, root, task_id, runtime, transport, max_steps, timeout
         )
@@ -180,9 +195,11 @@ def create_task_and_run(
         f"Code Plane {project_root}",
         recover_stale=False,
     ):
+        require_no_quarantined_jobs(root, project_root)
         require_clean_code_plane(project_root)
         container = tasks_dir(root, project_root)
         before = {p.name for p in container.iterdir() if p.is_dir()}
+        before_project_control = project_control_snapshot(root, project_root)
         bootstrap_log = project_runtime_root(root, project_root) / "bootstrap-lead.log"
         before_git = git_snapshot(project_root)
 
@@ -207,6 +224,11 @@ def create_task_and_run(
                 f"Expected exactly one new Task, found {len(created)}: {created}"
             )
 
+        after_project_control = project_control_snapshot(root, project_root)
+        validate_bootstrap_control_boundary(
+            created[0], before_project_control, after_project_control,
+        )
+
         print(f"[orchestrator] created {created[0]}")
         return run_task_locked(
             project_root, root, created[0],
@@ -227,6 +249,11 @@ def doctor(project_root: Path, root: Path, requested_runtime: str) -> int:
     if safety["inside_code_plane"]:
         print(f"Control Root Tracked: {'YES' if safety['tracked'] else 'NO'}")
         print(f"Control Root Ignored: {'YES' if safety['ignored'] else 'NO'}")
+
+    quarantine = quarantined_jobs(root, project_root)
+    print(f"Quarantined Queue Jobs: {len(quarantine)}")
+    for item in quarantine:
+        print(f"  - {item}")
 
     for runtime in ("codex", "pi"):
         print(f"Runtime {runtime}: {shutil.which(runtime) or 'NOT FOUND'}")

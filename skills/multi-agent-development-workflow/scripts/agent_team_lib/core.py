@@ -213,6 +213,84 @@ def control_snapshot(task: Path) -> dict[str, str]:
     }
 
 
+def project_control_snapshot(root: Path, project_root: Path) -> dict[str, str]:
+    """Snapshot durable Control Plane data for this project, excluding runtime metadata."""
+    base = project_control_root(root, project_root)
+    if not base.exists():
+        return {}
+    result: dict[str, str] = {}
+    for path in sorted(p for p in base.rglob("*") if p.is_file()):
+        rel = path.relative_to(base)
+        if rel.parts and rel.parts[0] == "runtime":
+            continue
+        result[rel.as_posix()] = hash_file(path)
+    return result
+
+
+def validate_project_control_boundary(
+    role: str,
+    task: Path,
+    before: dict[str, str],
+    after: dict[str, str],
+) -> None:
+    added = after.keys() - before.keys()
+    removed = before.keys() - after.keys()
+    modified = {
+        name for name in before.keys() & after.keys()
+        if before[name] != after[name]
+    }
+    changed = set(added) | set(removed) | modified
+    task_prefix = f"tasks/{task.name}/"
+    allowed_outside = {"INDEX.md"} if role == "Lead" else set()
+
+    outside = {
+        name for name in changed
+        if not name.startswith(task_prefix) and name not in allowed_outside
+    }
+    if outside:
+        raise ProtocolViolation(
+            f"{role} modified Control Plane data outside the current Task: {sorted(outside)}"
+        )
+
+    if role != "Lead" and "INDEX.md" in changed:
+        raise ProtocolViolation(f"{role} modified INDEX.md; only Lead may update it.")
+
+
+def validate_bootstrap_control_boundary(
+    new_task_id: str,
+    before: dict[str, str],
+    after: dict[str, str],
+) -> None:
+    added = after.keys() - before.keys()
+    removed = before.keys() - after.keys()
+    modified = {
+        name for name in before.keys() & after.keys()
+        if before[name] != after[name]
+    }
+    if removed:
+        raise ProtocolViolation(
+            f"Task bootstrap removed existing Control Plane data: {sorted(removed)}"
+        )
+
+    disallowed_modified = modified - {"INDEX.md"}
+    if disallowed_modified:
+        raise ProtocolViolation(
+            "Task bootstrap modified existing Control Plane data outside INDEX.md: "
+            f"{sorted(disallowed_modified)}"
+        )
+
+    allowed_new = {
+        "INDEX.md",
+        f"tasks/{new_task_id}/TASK.md",
+        f"tasks/{new_task_id}/STATUS.md",
+    }
+    unexpected = set(added) - allowed_new
+    if unexpected:
+        raise ProtocolViolation(
+            f"Task bootstrap created unexpected artifacts: {sorted(unexpected)}"
+        )
+
+
 def task_digest(task: Path) -> str:
     digest = hashlib.sha256()
     for name, value in sorted(control_snapshot(task).items()):
@@ -300,10 +378,8 @@ def validate_role_postconditions(
         if after_git["status"].strip() or after_git["cached"].strip() or after_git["unstaged"].strip():
             raise ProtocolViolation("Implementation Impl did not leave the Code Plane clean after committing.")
         report = (task / created[0]).read_text(encoding="utf-8")
-        match = re.search(r"(?m)^Code Head SHA:\s*([0-9a-fA-F]{7,40})\s*$", report)
-        if not match or not (
-            after_git["head"].startswith(match.group(1)) or match.group(1).startswith(after_git["head"])
-        ):
+        match = re.search(r"(?m)^Code Head SHA:\s*([0-9a-fA-F]{40})\s*$", report)
+        if not match or after_git["head"].lower() != match.group(1).lower():
             raise ProtocolViolation("IMPL Code Head SHA does not match observed HEAD.")
         return
 
