@@ -2,6 +2,8 @@
 
 Task ID: TASK-YYYYMMDD-NNN-short-name
 Task Name: <human-readable name>
+Task Contract Revision: 1
+Task Contract Hash: <sha256>
 Review Round: 1
 Reviewed Implementation: IMPL-001
 

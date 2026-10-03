@@ -2,6 +2,8 @@
 
 Task ID: TASK-YYYYMMDD-NNN-short-name
 Task Name: <human-readable name>
+Task Contract Revision: 1
+Task Contract Hash: <sha256>
 Implementation Round: 1
 Round Result: READY_FOR_REVIEW
 

@@ -13,6 +13,17 @@ CREATED
 
 N/A
 
+## Blocked Resolution
+
+Decision: N/A
+Resolved By: N/A
+Resolved At: N/A
+
+## Task Contract
+
+Revision: 1
+Hash: <sha256>
+
 ## Workflow
 
 Type: standard | complex | bugfix

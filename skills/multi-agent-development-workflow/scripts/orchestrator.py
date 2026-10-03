@@ -17,11 +17,13 @@ from agent_team_lib.core import (
     FileLock, OrchestratorError, ProtocolViolation, TERMINAL_STATES,
     control_root, control_snapshot, current_state, ensure_control_root,
     find_project_root, git_snapshot, inspect_control_root_safety,
-    plan_content_snapshot, project_control_snapshot, project_fingerprint, project_lock_path,
+    plan_approval_snapshot, plan_content_snapshot, plan_full_snapshot,
+    project_control_snapshot, project_fingerprint, project_lock_path,
     project_runtime_root, read_status, require_clean_code_plane, select_role,
-    task_digest, task_lock_path, task_root, task_runtime_dir, tasks_dir,
-    validate_bootstrap_control_boundary, validate_plan_content_boundary,
-    validate_project_control_boundary, validate_role_postconditions,
+    task_contract_snapshot, task_digest, task_lock_path, task_root, task_runtime_dir, tasks_dir,
+    validate_bootstrap_control_boundary, validate_plan_approval_boundary,
+    validate_plan_content_boundary, validate_project_control_boundary,
+    validate_role_postconditions, validate_task_contract_mutation,
 )
 from agent_team_lib.processes import choose_runtime, run_codex, run_pi_rpc
 from agent_team_lib.queue_runtime import (
@@ -96,6 +98,7 @@ Human resolution / decision:
 
 Read STATUS.md first. The current state MUST be BLOCKED.
 Resolve the blocker using the supplied human decision and existing artifacts.
+Persist the decision verbatim in STATUS under "## Blocked Resolution" → "Decision:" and record Resolved By / Resolved At.
 Transition STATUS exactly to the recorded Resume State, or CANCELLED only if the human decision explicitly cancels the Task.
 Do not modify production code.
 Do not invoke the orchestrator recursively.
@@ -166,6 +169,9 @@ def run_task_locked(
             before_control = control_snapshot(task)
             before_project_control = project_control_snapshot(root, project_root)
             before_plan_content = plan_content_snapshot(task)
+            before_plan_full = plan_full_snapshot(task)
+            before_plan_approval = plan_approval_snapshot(task)
+            before_task_contract = task_contract_snapshot(task)
             before_status = status
 
             log_event(
@@ -182,9 +188,20 @@ def run_task_locked(
             after_control = control_snapshot(task)
             after_project_control = project_control_snapshot(root, project_root)
             after_plan_content = plan_content_snapshot(task)
+            after_plan_full = plan_full_snapshot(task)
+            after_plan_approval = plan_approval_snapshot(task)
+            after_task_contract = task_contract_snapshot(task)
             after_status = read_status(task)
 
+            validate_task_contract_mutation(
+                role, before_task_contract, after_task_contract, before_status, after_status,
+            )
             validate_plan_content_boundary(role, before_plan_content, after_plan_content)
+            validate_plan_approval_boundary(
+                role, state, before_status, after_status,
+                before_plan_full, after_plan_full,
+                before_plan_approval, after_plan_approval,
+            )
             validate_project_control_boundary(
                 role, task, before_project_control, after_project_control,
             )
@@ -194,6 +211,13 @@ def run_task_locked(
             )
             if role == "Lead":
                 validate_transition(task, before_status, after_status, after_git["head"])
+            resolution = section_field(after_status, "Blocked Resolution", "Decision")
+            if resolution in {"", "N/A"}:
+                raise ProtocolViolation("resume must persist the human decision in STATUS Blocked Resolution.")
+            if decision and resolution != decision.strip():
+                raise ProtocolViolation(
+                    "STATUS Blocked Resolution Decision must exactly match the resume CLI decision."
+                )
 
             if task_digest(task) == before_digest:
                 raise OrchestratorError(
@@ -251,6 +275,9 @@ def resume_task(
             before_control = control_snapshot(task)
             before_project_control = project_control_snapshot(root, project_root)
             before_plan_content = plan_content_snapshot(task)
+            before_plan_full = plan_full_snapshot(task)
+            before_plan_approval = plan_approval_snapshot(task)
+            before_task_contract = task_contract_snapshot(task)
 
             dispatch(
                 runtime,
@@ -267,9 +294,20 @@ def resume_task(
             after_control = control_snapshot(task)
             after_project_control = project_control_snapshot(root, project_root)
             after_plan_content = plan_content_snapshot(task)
+            after_plan_full = plan_full_snapshot(task)
+            after_plan_approval = plan_approval_snapshot(task)
+            after_task_contract = task_contract_snapshot(task)
             after_status = read_status(task)
 
+            validate_task_contract_mutation(
+                "Lead", before_task_contract, after_task_contract, before_status, after_status,
+            )
             validate_plan_content_boundary("Lead", before_plan_content, after_plan_content)
+            validate_plan_approval_boundary(
+                "Lead", "BLOCKED", before_status, after_status,
+                before_plan_full, after_plan_full,
+                before_plan_approval, after_plan_approval,
+            )
             validate_project_control_boundary(
                 "Lead", task, before_project_control, after_project_control,
             )

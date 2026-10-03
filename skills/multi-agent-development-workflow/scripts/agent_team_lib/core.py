@@ -291,6 +291,120 @@ def validate_bootstrap_control_boundary(
         )
 
 
+TASK_CONTRACT_SECTIONS = (
+    "Objective",
+    "Requirements",
+    "Acceptance Criteria",
+    "Constraints",
+    "Dependencies",
+    "Out of Scope",
+    "Rework Requirements",
+)
+
+
+def line_field(text: str, field: str) -> str:
+    match = re.search(rf"(?m)^{re.escape(field)}:\s*(.*?)\s*$", text)
+    return match.group(1).strip() if match else ""
+
+
+def task_contract_content(text: str) -> str:
+    parts: list[str] = []
+    for heading in TASK_CONTRACT_SECTIONS:
+        body = section(text, heading).strip()
+        parts.append(f"## {heading}\n{body}\n")
+    return "\n".join(parts)
+
+
+def task_contract_hash(text: str) -> str:
+    return hashlib.sha256(task_contract_content(text).encode("utf-8")).hexdigest()
+
+
+def task_contract_snapshot(task: Path) -> dict[str, object]:
+    path = task / "TASK.md"
+    if not path.is_file():
+        raise ProtocolViolation(f"TASK.md not found: {path}")
+    text = path.read_text(encoding="utf-8")
+    revision_raw = line_field(text, "Task Contract Revision")
+    declared_hash = line_field(text, "Task Contract Hash").lower()
+    try:
+        revision = int(revision_raw)
+    except ValueError as exc:
+        raise ProtocolViolation("Task Contract Revision must be an integer.") from exc
+    computed = task_contract_hash(text)
+    return {
+        "revision": revision,
+        "declared_hash": declared_hash,
+        "computed_hash": computed,
+        "change_log": section(text, "Requirement Change Log").strip(),
+        "file_hash": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+    }
+
+
+def validate_task_contract_integrity(task: Path, status: str) -> tuple[int, str]:
+    snap = task_contract_snapshot(task)
+    revision = int(snap["revision"])
+    declared = str(snap["declared_hash"])
+    computed = str(snap["computed_hash"])
+    if revision < 1:
+        raise ProtocolViolation("Task Contract Revision must be >= 1.")
+    if not re.fullmatch(r"[0-9a-f]{64}", declared):
+        raise ProtocolViolation("Task Contract Hash must be a full 64-character SHA-256.")
+    if declared != computed:
+        raise ProtocolViolation("TASK declared Task Contract Hash does not match computed contract content.")
+
+    status_revision = section_field(status, "Task Contract", "Revision")
+    status_hash = section_field(status, "Task Contract", "Hash").lower()
+    if status_revision != str(revision) or status_hash != declared:
+        raise ProtocolViolation("STATUS Task Contract Revision/Hash must match TASK.md.")
+    return revision, declared
+
+
+def validate_task_contract_mutation(
+    role: str,
+    before: dict[str, object],
+    after: dict[str, object],
+    before_status: str,
+    after_status: str,
+) -> None:
+    if before["file_hash"] == after["file_hash"]:
+        return
+    if role != "Lead":
+        raise ProtocolViolation(f"{role} modified TASK.md.")
+
+    before_contract = str(before["computed_hash"])
+    after_contract = str(after["computed_hash"])
+    if before_contract == after_contract:
+        raise ProtocolViolation(
+            "Lead modified TASK.md without changing the requirement contract; use STATUS/other Lead-owned artifacts instead."
+        )
+
+    before_revision = int(before["revision"])
+    after_revision = int(after["revision"])
+    if after_revision != before_revision + 1:
+        raise ProtocolViolation(
+            f"Task Contract Revision must increment exactly once: {before_revision} -> {after_revision}."
+        )
+    if str(after["declared_hash"]) != after_contract:
+        raise ProtocolViolation("Updated TASK.md must declare its newly computed Task Contract Hash.")
+
+    log = str(after["change_log"])
+    required_tokens = (
+        f"Revision: {after_revision}",
+        f"Previous Hash: {before_contract}",
+        f"New Hash: {after_contract}",
+    )
+    if any(token not in log for token in required_tokens):
+        raise ProtocolViolation(
+            "Requirement Change Log must record Revision, Previous Hash, and New Hash for a contract amendment."
+        )
+
+    after_state = current_state(after_status)
+    if after_state in {"READY_FOR_FINAL_ACCEPTANCE", "ACCEPTED"}:
+        raise ProtocolViolation(
+            "A requirement contract amendment invalidates existing acceptance evidence and cannot enter final acceptance."
+        )
+
+
 def plan_content_without_approval(text: str) -> str:
     """Return Plan content excluding the Lead-owned ## Approval section."""
     return re.sub(
@@ -299,6 +413,26 @@ def plan_content_without_approval(text: str) -> str:
         text,
         count=1,
     )
+
+
+def plan_full_snapshot(task: Path) -> dict[str, str]:
+    plans = task / "plans"
+    if not plans.exists():
+        return {}
+    return {
+        path.name: hash_file(path)
+        for path in sorted(plans.glob("PLAN-v*.md"))
+    }
+
+
+def plan_approval_snapshot(task: Path) -> dict[str, str]:
+    plans = task / "plans"
+    if not plans.exists():
+        return {}
+    return {
+        path.name: line_field(path.read_text(encoding="utf-8"), "Approval Status")
+        for path in sorted(plans.glob("PLAN-v*.md"))
+    }
 
 
 def plan_content_snapshot(task: Path) -> dict[str, str]:
@@ -323,6 +457,45 @@ def validate_plan_content_boundary(
         raise ProtocolViolation(
             f"{role} modified immutable Plan content outside the Approval block: {changed}"
         )
+
+
+def validate_plan_approval_boundary(
+    role: str,
+    state: str,
+    before_status: str,
+    after_status: str,
+    before_full: dict[str, str],
+    after_full: dict[str, str],
+    before_approval: dict[str, str],
+    after_approval: dict[str, str],
+) -> None:
+    changed = sorted(
+        name for name in before_full.keys() & after_full.keys()
+        if before_full[name] != after_full[name]
+    )
+    if not changed:
+        return
+
+    if role != "Lead" or state != "PLAN_REVIEW":
+        raise ProtocolViolation(
+            f"Existing Plan versions are frozen outside Lead PLAN_REVIEW approval: {changed}"
+        )
+
+    current = section_field(before_status, "Current Plan", "Artifact")
+    if changed != [current]:
+        raise ProtocolViolation(
+            f"Lead may modify only the current Plan during PLAN_REVIEW; changed={changed}, current={current}"
+        )
+
+    if before_approval.get(current) != "PENDING":
+        raise ProtocolViolation("Only a PENDING Plan may receive an approval decision.")
+
+    decision = after_approval.get(current)
+    if decision not in {"APPROVED", "REWORK"}:
+        raise ProtocolViolation("Plan approval decision must be APPROVED or REWORK.")
+
+    if section_field(after_status, "Current Plan", "Approval") != decision:
+        raise ProtocolViolation("STATUS Plan Approval must match the decided Plan Approval block.")
 
 
 def task_digest(task: Path) -> str:

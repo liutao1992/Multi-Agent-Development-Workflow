@@ -3,7 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 import re
 
-from .core import ProtocolViolation, current_state, section, section_field
+from .core import (
+    ProtocolViolation, current_state, line_field, section, section_field,
+    validate_task_contract_integrity,
+)
 
 FULL_SHA = re.compile(r"^[0-9a-fA-F]{40}$")
 
@@ -33,8 +36,7 @@ def _first_line(text: str, heading: str) -> str:
 
 
 def _line_field(text: str, field: str) -> str:
-    match = re.search(rf"(?m)^{re.escape(field)}:\s*(.*?)\s*$", text)
-    return match.group(1).strip() if match else ""
+    return line_field(text, field)
 
 
 def _artifact(task: Path, subdir: str, name: str) -> Path:
@@ -54,10 +56,30 @@ def _require_full_sha(value: str, label: str) -> str:
     return value.lower()
 
 
+def _validate_contract_evidence(
+    task: Path,
+    status: str,
+    text: str,
+    label: str,
+) -> None:
+    revision, contract_hash = validate_task_contract_integrity(task, status)
+    evidence_revision = _line_field(text, "Task Contract Revision")
+    evidence_hash = _line_field(text, "Task Contract Hash").lower()
+    if evidence_revision != str(revision) or evidence_hash != contract_hash:
+        raise ProtocolViolation(
+            f"{label} Task Contract Revision/Hash does not match current TASK/STATUS contract."
+        )
+
+
+def _artifact_text(task: Path, subdir: str, name: str) -> str:
+    return _artifact(task, subdir, name).read_text(encoding="utf-8")
+
+
 def _plan_approval(task: Path, status: str) -> str:
     artifact = section_field(status, "Current Plan", "Artifact")
-    plan = _artifact(task, "plans", artifact)
-    return _line_field(plan.read_text(encoding="utf-8"), "Approval Status")
+    text = _artifact_text(task, "plans", artifact)
+    _validate_contract_evidence(task, status, text, "Plan")
+    return _line_field(text, "Approval Status")
 
 
 def _review_result(task: Path, status: str) -> str:
@@ -71,10 +93,14 @@ def _review_field(text: str, field: str) -> str:
     return _line_field(text, field)
 
 
-def _validate_review_evidence(task: Path, status: str, observed_head: str) -> None:
+def _review_common(
+    task: Path,
+    status: str,
+    observed_head: str,
+) -> tuple[str, str, str, str]:
     review_name = section_field(status, "Current Review", "Artifact")
-    review = _artifact(task, "reviews", review_name)
-    text = review.read_text(encoding="utf-8")
+    text = _artifact_text(task, "reviews", review_name)
+    _validate_contract_evidence(task, status, text, "Review")
 
     current_impl = section_field(status, "Current Implementation", "Artifact")
     reviewed_impl = _review_field(text, "Reviewed Implementation")
@@ -96,14 +122,25 @@ def _validate_review_evidence(task: Path, status: str, observed_head: str) -> No
         "Review Observed Code Head SHA",
     )
     observed_now = _require_full_sha(observed_head, "Current observed Code Head SHA")
+    return text, status_sha, declared, observed_review if observed_review else observed_now
+
+
+def _validate_review_pass_or_fail(
+    task: Path,
+    status: str,
+    observed_head: str,
+    expected_result: str,
+) -> None:
+    text, status_sha, declared, observed_review = _review_common(task, status, observed_head)
+    observed_now = _require_full_sha(observed_head, "Current observed Code Head SHA")
     if not (status_sha == declared == observed_review == observed_now):
         raise ProtocolViolation(
             "Review evidence Code Head must equal STATUS and current observed HEAD."
         )
-
     if _review_field(text, "Protocol Status") != "READY_FOR_REVIEW":
-        raise ProtocolViolation("PASS Review requires Protocol Status READY_FOR_REVIEW.")
-
+        raise ProtocolViolation(f"{expected_result} Review requires Protocol Status READY_FOR_REVIEW.")
+    if section_field(status, "Current Review", "Protocol Status") != "READY_FOR_REVIEW":
+        raise ProtocolViolation(f"STATUS protocol must be READY_FOR_REVIEW for {expected_result}.")
     for field in (
         "Unstaged Diff Clean",
         "Staged Diff Clean",
@@ -111,10 +148,34 @@ def _validate_review_evidence(task: Path, status: str, observed_head: str) -> No
         "Control Plane Excluded",
     ):
         if _review_field(text, field) != "YES":
-            raise ProtocolViolation(f"PASS Review requires {field}: YES.")
+            raise ProtocolViolation(f"{expected_result} Review requires {field}: YES.")
 
-    if _review_result(task, status) != "PASS":
-        raise ProtocolViolation("Review artifact must declare PASS.")
+    artifact_result = _review_result(task, status)
+    status_result = section_field(status, "Current Review", "Result")
+    if artifact_result != expected_result or status_result != expected_result:
+        raise ProtocolViolation(
+            f"STATUS and Review artifact must both declare {expected_result}."
+        )
+
+    if expected_result == "FAIL":
+        blocking = section(text, "Blocking Issues")
+        if not re.search(r"(?m)^### REV-\d+", blocking):
+            raise ProtocolViolation("FAIL Review requires at least one blocking REV issue.")
+
+
+def _validate_review_mismatch(task: Path, status: str, observed_head: str) -> None:
+    text, status_sha, declared, observed_review = _review_common(task, status, observed_head)
+    observed_now = _require_full_sha(observed_head, "Current observed Code Head SHA")
+    if declared != status_sha:
+        raise ProtocolViolation("Mismatch Review Declared Code Head must match submitted STATUS Code Head.")
+    if observed_review != observed_now:
+        raise ProtocolViolation("Mismatch Review Observed Code Head must match current Git HEAD.")
+    if _review_field(text, "Protocol Status") != "REVIEW_TARGET_MISMATCH":
+        raise ProtocolViolation("Mismatch Review artifact must declare REVIEW_TARGET_MISMATCH.")
+    if section_field(status, "Current Review", "Protocol Status") != "REVIEW_TARGET_MISMATCH":
+        raise ProtocolViolation("STATUS must declare REVIEW_TARGET_MISMATCH.")
+    if _review_result(task, status) != "N/A" or section_field(status, "Current Review", "Result") != "N/A":
+        raise ProtocolViolation("Review target mismatch requires Review Result N/A in STATUS and artifact.")
 
 
 def _validate_implementation_target(task: Path, status: str, observed_head: str) -> None:
@@ -129,6 +190,7 @@ def _validate_implementation_target(task: Path, status: str, observed_head: str)
         raise ProtocolViolation("Review Target must be frozen before review handoff.")
 
     report = impl.read_text(encoding="utf-8")
+    _validate_contract_evidence(task, status, report, "Implementation")
     report_sha = _require_full_sha(_line_field(report, "Code Head SHA"), "IMPL Code Head SHA")
     observed = _require_full_sha(observed_head, "Observed Code Head SHA")
     if status_sha != report_sha or report_sha != observed:
@@ -146,6 +208,7 @@ def _validate_acceptance(task: Path, status: str, observed_head: str) -> None:
         raise ProtocolViolation(f"Acceptance artifact does not exist: {acceptance}")
 
     text = acceptance.read_text(encoding="utf-8")
+    _validate_contract_evidence(task, status, text, "Acceptance")
     if _line_field(text, "Final Result") != "ACCEPTED":
         raise ProtocolViolation("Acceptance artifact must declare Final Result: ACCEPTED.")
 
@@ -175,6 +238,7 @@ def _validate_acceptance(task: Path, status: str, observed_head: str) -> None:
 
 
 def validate_transition(task: Path, before_status: str, after_status: str, observed_head: str) -> None:
+    validate_task_contract_integrity(task, after_status)
     before = current_state(before_status)
     after = current_state(after_status)
 
@@ -247,17 +311,20 @@ def validate_transition(task: Path, before_status: str, after_status: str, obser
         if section_field(after_status, "Current Review", "Result") != "PASS":
             raise ProtocolViolation("READY_FOR_FINAL_ACCEPTANCE requires STATUS Review Result PASS.")
         _validate_implementation_target(task, after_status, observed_head)
-        _validate_review_evidence(task, after_status, observed_head)
+        _validate_review_pass_or_fail(task, after_status, observed_head, "PASS")
 
     if before == "REVIEWING" and after == "REWORK":
         result = section_field(after_status, "Current Review", "Result")
         protocol = section_field(after_status, "Current Review", "Protocol Status")
-        if result != "FAIL" and protocol != "REVIEW_TARGET_MISMATCH":
+        if result == "FAIL":
+            _validate_review_pass_or_fail(task, after_status, observed_head, "FAIL")
+        elif protocol == "REVIEW_TARGET_MISMATCH":
+            _validate_review_mismatch(task, after_status, observed_head)
+        else:
             raise ProtocolViolation("REVIEWING -> REWORK requires Review FAIL or REVIEW_TARGET_MISMATCH.")
 
     if before == "REVIEWING" and after == "READY_FOR_REVIEW":
-        if section_field(after_status, "Current Review", "Protocol Status") != "REVIEW_TARGET_MISMATCH":
-            raise ProtocolViolation("REVIEWING -> READY_FOR_REVIEW requires REVIEW_TARGET_MISMATCH.")
+        _validate_review_mismatch(task, after_status, observed_head)
 
     if before == "REWORK" and after == "IMPLEMENTING":
         rw = section_field(after_status, "Rework", "Active RW IDs")
@@ -266,5 +333,5 @@ def validate_transition(task: Path, before_status: str, after_status: str, obser
 
     if before == "READY_FOR_FINAL_ACCEPTANCE" and after == "ACCEPTED":
         _validate_implementation_target(task, after_status, observed_head)
-        _validate_review_evidence(task, after_status, observed_head)
+        _validate_review_pass_or_fail(task, after_status, observed_head, "PASS")
         _validate_acceptance(task, after_status, observed_head)
