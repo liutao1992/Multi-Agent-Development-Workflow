@@ -119,6 +119,159 @@ For a new task:
 7. Create TASK.md and STATUS.md with the selected workflow and baseline.
 8. Continue according to the Lifecycle Transition Table.
 
+## Automatic Orchestration
+
+This Skill can run in **manual handoff mode** or **automatic orchestration mode**.
+
+Automatic orchestration does not change lifecycle authority:
+
+- Lead remains the only role allowed to transition \`STATUS.md\`;
+- Impl creates Plan / implementation evidence but does not transition lifecycle state;
+- Review creates independent Review evidence but does not transition lifecycle state;
+- the Orchestrator only selects and invokes the next role. It is not a fourth decision-making role.
+
+The executable entry point is:
+
+\`\`\`text
+scripts/agent-team
+\`\`\`
+
+It delegates to \`scripts/orchestrator.py\`.
+
+### Automatic lifecycle driver
+
+The Orchestrator repeatedly reads:
+
+\`\`\`text
+<project-root>/.agent-team/tasks/<TASK-ID>/STATUS.md
+\`\`\`
+
+and dispatches one role action at a time.
+
+Core selection rules:
+
+| Lifecycle state | Condition | Dispatch |
+|---|---|---|
+| CREATED | always | Lead |
+| PLANNING | no unrecorded new Plan artifact | Impl |
+| PLANNING | a new Plan exists but STATUS has not consumed it | Lead |
+| PLAN_REVIEW | always | Lead |
+| PLAN_REWORK | no unrecorded next Plan | Impl |
+| PLAN_REWORK | next Plan exists | Lead |
+| READY_FOR_IMPLEMENTATION | always | Lead |
+| IMPLEMENTING | no unrecorded new IMPL artifact | Impl |
+| IMPLEMENTING | new IMPL exists | Lead |
+| READY_FOR_REVIEW | always | Lead |
+| REVIEWING | no unrecorded new REVIEW artifact | Review |
+| REVIEWING | new REVIEW exists | Lead |
+| REWORK | always | Lead |
+| READY_FOR_FINAL_ACCEPTANCE | always | Lead |
+| ACCEPTED / CANCELLED / BLOCKED | terminal for current run | stop |
+
+Filename scanning is used only as a **handoff readiness signal**. It does not replace STATUS as lifecycle truth and does not authorize an agent to guess which artifact should be executed against. Lead still records the authoritative artifact reference in STATUS.
+
+### Orchestrated Worker contract
+
+Workers invoked by the Orchestrator receive:
+
+\`\`\`text
+Invocation Mode: Orchestrated Worker
+\`\`\`
+
+An orchestrated worker MUST:
+
+1. execute exactly one legal role action;
+2. read STATUS first;
+3. use the role file and referenced artifacts;
+4. stop at the next handoff boundary;
+5. never start another Orchestrator recursively;
+6. preserve role boundaries.
+
+Impl and Review MUST NOT rewrite lifecycle state in STATUS. Their newly created immutable artifact is the signal that Lead should run next.
+
+### Commands
+
+Create a Task and automatically run it:
+
+\`\`\`bash
+agent-team --runtime codex start "Add persistent AI chat history"
+\`\`\`
+
+Continue an existing Task:
+
+\`\`\`bash
+agent-team --runtime codex run TASK-YYYYMMDD-NNN-short-name
+\`\`\`
+
+Use Pi instead:
+
+\`\`\`bash
+agent-team --runtime pi run TASK-YYYYMMDD-NNN-short-name
+\`\`\`
+
+Validate the environment:
+
+\`\`\`bash
+agent-team --runtime codex doctor
+\`\`\`
+
+### Direct transport
+
+Default transport:
+
+\`\`\`bash
+agent-team --runtime codex --transport direct run <TASK-ID>
+\`\`\`
+
+The Orchestrator starts fresh headless role workers itself.
+
+### Warp three-pane queue transport
+
+For a visible three-pane workflow, use queue transport.
+
+Lead pane:
+
+\`\`\`bash
+agent-team --runtime codex --transport queue run <TASK-ID>
+\`\`\`
+
+Impl pane:
+
+\`\`\`bash
+agent-team --runtime codex worker Impl
+\`\`\`
+
+Review pane:
+
+\`\`\`bash
+agent-team --runtime codex worker Review
+\`\`\`
+
+Lead stays in the left pane. Impl and Review jobs are placed in the project-local Control Plane runtime queue and are automatically consumed by the right-side workers.
+
+No user prompt is required between lifecycle stages.
+
+The runtime queue under \`.agent-team/runtime/\` is execution metadata only. It is not lifecycle truth and must not be committed into the Code Plane.
+
+### Important Warp limitation
+
+Warp split panes are independent terminal sessions. The protocol does not simulate keystrokes into an already-running interactive Codex/Pi conversation.
+
+In queue transport, the right panes run the \`agent-team worker\` process, which launches the configured coding runtime when the Orchestrator sends work. Existing manually opened interactive agent sessions must therefore be replaced by worker commands once when switching to automatic mode.
+
+### Stop conditions
+
+Automatic execution stops instead of guessing when:
+
+- STATUS becomes BLOCKED;
+- a worker completes without producing protocol progress;
+- a required runtime is unavailable;
+- a pane worker disappears while a queue job is pending;
+- a genuine human/product decision is required;
+- maximum orchestration steps are exceeded.
+
+This preserves human authority at ambiguity boundaries while removing routine handoff work.
+
 ## Short Interaction Protocol
 
 The user should not have to repeat the full protocol on every handoff.

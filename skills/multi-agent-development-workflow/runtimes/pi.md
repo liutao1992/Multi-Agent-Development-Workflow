@@ -25,3 +25,27 @@ Share artifacts plus Task Baseline SHA, Previous Head SHA, exact Code Head SHA, 
 ## RPC / SDK
 
 Automation must restore workflow from STATUS for existing tasks, obey the Transition Table, keep Control Plane separate, and create a new round after every submitted Code Plane change.
+
+## Automatic Orchestrator driver
+
+The bundled Orchestrator starts Pi in RPC mode for each dispatched role action:
+
+\`\`\`bash
+pi --mode rpc --no-session --approve
+\`\`\`
+
+The worker prompt is sent through the RPC \`prompt\` command and the Orchestrator waits for \`agent_settled\`.
+
+Each Review dispatch uses a fresh Pi process/context.
+
+Use:
+
+\`\`\`bash
+agent-team --runtime pi run <TASK-ID>
+\`\`\`
+
+For Warp three-pane routing:
+
+\`\`\`bash
+agent-team --runtime pi --transport queue run <TASK-ID>
+\`\`\`

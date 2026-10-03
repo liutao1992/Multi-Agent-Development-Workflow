@@ -87,3 +87,17 @@ Read STATUS first, locate the current IMPL artifact, verify the exact clean Code
 Do not ask the user to restate snapshot SHAs, Plan reference, Review round, or protocol rules when recoverable from STATUS and artifacts.
 
 Stop after Review evidence is produced and return the concise handoff summary defined in SKILL.md.
+
+## Orchestrated Worker behavior
+
+When \`Invocation Mode: Orchestrated Worker\` is present:
+
+- perform exactly one independent Review round;
+- verify the exact clean Review Target before substantive review;
+- create the immutable REVIEW-NNN artifact;
+- do not transition lifecycle state;
+- do not rewrite STATUS to consume your own Review;
+- stop after Review evidence is complete;
+- never invoke \`agent-team\` recursively.
+
+The Orchestrator detects the new Review artifact and automatically dispatches Lead next.

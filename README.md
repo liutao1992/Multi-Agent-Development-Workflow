@@ -156,3 +156,46 @@ For task `<TASK-ID>`, task artifacts are located under:
 ```
 
 Every role reads `STATUS.md` first and follows the artifact references recorded there. The user should not need to manually paste Plan or Review content between Warp panes.
+
+## Experimental automatic orchestration
+
+The \`feature/agent-orchestrator\` branch adds an executable Orchestrator while leaving \`main\` unchanged.
+
+Two modes are supported:
+
+\`\`\`text
+direct
+  Lead orchestrator starts fresh Impl / Review workers itself
+
+queue
+  Lead pane dispatches jobs to dedicated Impl / Review Warp pane workers
+\`\`\`
+
+For the three-pane Warp layout:
+
+\`\`\`bash
+# right top
+skills/multi-agent-development-workflow/scripts/agent-team --runtime codex worker Impl
+
+# right bottom
+skills/multi-agent-development-workflow/scripts/agent-team --runtime codex worker Review
+
+# left
+skills/multi-agent-development-workflow/scripts/agent-team \
+  --runtime codex \
+  --transport queue \
+  run TASK-...
+\`\`\`
+
+To start from a requirement without creating the Task manually:
+
+\`\`\`bash
+skills/multi-agent-development-workflow/scripts/agent-team \
+  --runtime codex \
+  --transport queue \
+  start "Add iOS system dictionary meaning support"
+\`\`\`
+
+The Orchestrator runs until ACCEPTED, CANCELLED, BLOCKED, a required human decision, a runtime failure, or a no-progress guard fires.
+
+See [Automatic Orchestration](./skills/multi-agent-development-workflow/automation/orchestrator.md).

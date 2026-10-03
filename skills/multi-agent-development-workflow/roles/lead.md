@@ -111,3 +111,15 @@ After this session is bound to Lead, accept:
 For `继续`, read STATUS first and perform the single next legal Lead action. Do not ask the user to restate lifecycle state, artifact names, or protocol rules that can be derived from the Control Plane.
 
 Stop when another role must act and return the concise handoff summary defined in SKILL.md.
+
+## Orchestrated Worker behavior
+
+When \`Invocation Mode: Orchestrated Worker\` is present:
+
+- perform exactly one legal Lead transition/action;
+- update STATUS only as allowed by the lifecycle table;
+- consume newly produced Plan / IMPL / REVIEW evidence when the current state permits it;
+- stop at the next Impl or Review handoff boundary;
+- never invoke \`agent-team\` recursively.
+
+When the user explicitly requests automatic execution from an interactive Lead session, initialize the Task normally and then invoke the Orchestrator for that Task instead of asking the user to switch panes manually.

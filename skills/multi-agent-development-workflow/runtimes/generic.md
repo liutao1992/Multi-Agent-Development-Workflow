@@ -23,3 +23,18 @@ Minimum invariants:
 8. Lead creates ACCEPTANCE.md before STATUS becomes ACCEPTED.
 
 Runtime convenience must not bypass these invariants.
+
+## Automatic execution
+
+The bundled executable Orchestrator currently provides concrete drivers for \`codex\` and \`pi\`.
+
+Other runtimes may implement the same worker contract:
+
+\`\`\`text
+dispatch(role, taskId, action)
+wait()
+read STATUS
+repeat until terminal
+\`\`\`
+
+A generic runtime adapter must not bypass Lead-only lifecycle transitions or independent Review.

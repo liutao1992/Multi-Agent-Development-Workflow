@@ -97,3 +97,16 @@ Read STATUS first. If the state requires planning, produce the next Plan artifac
 Do not ask the user to restate the approved Plan, current round, Baseline/Previous/Code Head values, or workflow when those are recoverable from STATUS and artifacts.
 
 Stop at the Lead handoff boundary and return the concise handoff summary defined in SKILL.md.
+
+## Orchestrated Worker behavior
+
+When \`Invocation Mode: Orchestrated Worker\` is present:
+
+- perform exactly one Impl action for the current state;
+- create the required immutable Plan or IMPL artifact;
+- do not transition lifecycle state;
+- do not rewrite STATUS to consume your own artifact;
+- stop immediately after the artifact/handoff evidence is complete;
+- never invoke \`agent-team\` recursively.
+
+The Orchestrator detects the new artifact and automatically dispatches Lead next.
