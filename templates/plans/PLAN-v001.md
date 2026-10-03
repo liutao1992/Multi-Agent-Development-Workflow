@@ -3,7 +3,7 @@
 Task ID: TASK-YYYYMMDD-NNN-short-name
 Task Name: <human-readable name>
 Plan Version: 1
-Plan Content Owner: Implementation Agent
+Plan Content Owner: Impl
 
 ## Approval
 

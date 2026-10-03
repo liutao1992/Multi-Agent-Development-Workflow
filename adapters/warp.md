@@ -6,11 +6,11 @@ Warp is the preferred human-visible control surface. It does not define lifecycl
 
 ```text
 ┌──────────────────────────────┬──────────────────────────────┐
-│ Lead Agent                   │ Implementation Agent         │
+│ Lead                   │ Impl         │
 │ STATUS / Task / Plan Gate    │ Plan / Code / Test           │
 │ Rework / Acceptance          │ Code Snapshot / IMPL         │
 │                              ├──────────────────────────────┤
-│                              │ Review Agent                 │
+│                              │ Review                 │
 │                              │ Fresh Review / Exact SHA     │
 └──────────────────────────────┴──────────────────────────────┘
 ```
@@ -25,8 +25,8 @@ When opening a new Warp tab/session, bind each pane once:
 Lead pane:
 Use multi-agent-development-workflow. Role: Lead.
 
-Implementation pane:
-Use multi-agent-development-workflow. Role: Implementation.
+Impl pane:
+Use multi-agent-development-workflow. Role: Impl.
 
 Review pane:
 Use multi-agent-development-workflow. Role: Review.
@@ -42,13 +42,13 @@ Typical usage:
 Lead:
 新建任务：<requirement>
 
-Implementation:
+Impl:
 继续 <TASK-ID>
 
 Lead:
 继续 <TASK-ID>
 
-Implementation:
+Impl:
 继续 <TASK-ID>
 
 Review:
@@ -105,7 +105,7 @@ All three agents reference the same external Control Root.
 
 ## Stable Review handoff
 
-Before Review, Implementation commits Code Plane changes and records:
+Before Review, Impl commits Code Plane changes and records:
 
 - Task Baseline SHA;
 - Previous Head SHA;

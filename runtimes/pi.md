@@ -5,7 +5,7 @@ Core protocol is defined by SKILL.md.
 ## Warp mapping
 
 - Left → Pi Lead
-- Right top → Pi Implementation
+- Right top → Pi Impl
 - Right bottom → Pi Review
 
 ## Control Plane
@@ -20,7 +20,7 @@ Code Mode may improve tool orchestration but does not replace lifecycle, Plan Ga
 
 Prefer a fresh Pi Review session/context.
 
-Share artifacts plus Task Baseline SHA, Previous Head SHA, exact Code Head SHA, diffs, and test evidence. Do not share Implementation private reasoning as proof.
+Share artifacts plus Task Baseline SHA, Previous Head SHA, exact Code Head SHA, diffs, and test evidence. Do not share Impl private reasoning as proof.
 
 ## RPC / SDK
 

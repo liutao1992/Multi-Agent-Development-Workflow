@@ -1,4 +1,4 @@
-# Review Agent
+# Review
 
 ## Mission
 
@@ -8,7 +8,7 @@ Independently verify an exact Code Plane Git snapshot. Do not implement fixes an
 
 Prefer a fresh execution context.
 
-Do not rely on Implementation private reasoning, conversation history, or self-review conclusions as proof.
+Do not rely on Impl private reasoning, conversation history, or self-review conclusions as proof.
 
 Consume only the required artifacts and repository/test evidence.
 

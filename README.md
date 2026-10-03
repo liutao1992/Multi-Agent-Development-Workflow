@@ -1,14 +1,14 @@
 # Multi-Agent Development Workflow
 
-A runtime-independent, artifact-driven development protocol for coordinating **Lead**, **Implementation**, and **Review** agents across Codex, Pi, Claude Code, Cursor, OpenCode, or other coding agents.
+A runtime-independent, artifact-driven development protocol for coordinating **Lead**, **Impl**, and **Review** roles across Codex, Pi, Claude Code, Cursor, OpenCode, or other coding agents.
 
 The protocol separates:
 
-- **What should be built?** → Lead Agent
-- **How should it be built?** → Implementation Agent
-- **Was it built correctly?** → Review Agent
+- **What should be built?** → Lead
+- **How should it be built?** → Impl
+- **Was it built correctly?** → Review
 
-Only the Lead Agent can declare a task **ACCEPTED**.
+Only Lead can declare a task **ACCEPTED**.
 
 Warp is the preferred interactive terminal environment, but terminal and agent runtime are adapters rather than protocol authorities.
 
@@ -18,7 +18,7 @@ Bind each pane once per session:
 
 ```text
 Left:       Use multi-agent-development-workflow. Role: Lead.
-Right top:  Use multi-agent-development-workflow. Role: Implementation.
+Right top:  Use multi-agent-development-workflow. Role: Impl.
 Right bottom: Use multi-agent-development-workflow. Role: Review.
 ```
 
@@ -28,13 +28,13 @@ After that, normal interaction can stay short:
 Lead:
 新建任务：增加聊天记录持久化
 
-Implementation:
+Impl:
 继续 TASK-20261003-001-chat-history-persistence
 
 Lead:
 继续 TASK-20261003-001-chat-history-persistence
 
-Implementation:
+Impl:
 继续 TASK-20261003-001-chat-history-persistence
 
 Review:
@@ -53,13 +53,13 @@ User
  ↓
 Lead → TASK.md + STATUS.md
  ↓
-Implementation → PLAN-v001.md
+Impl → PLAN-v001.md
  ↓
 Lead Plan Gate
  ├─ REWORK → PLAN-v002.md
  └─ APPROVED
        ↓
-Implementation → Code Plane commit → IMPL-001.md
+Impl → Code Plane commit → IMPL-001.md
  ↓
 Independent Review → exact Code Head SHA → REVIEW-001.md
  ├─ FAIL → RW-001 → IMPL-002.md → REVIEW-002.md

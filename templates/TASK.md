@@ -3,7 +3,7 @@
 Task ID: TASK-YYYYMMDD-NNN-short-name
 Task Name: <human-readable name>
 Created: YYYY-MM-DD
-Requirement Owner: Lead Agent
+Requirement Owner: Lead
 
 > TASK.md is the requirement source of truth. Lifecycle state belongs only in STATUS.md.
 

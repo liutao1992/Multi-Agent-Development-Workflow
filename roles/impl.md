@@ -1,4 +1,4 @@
-# Implementation Agent
+# Impl
 
 ## Mission
 
@@ -61,7 +61,7 @@ Use confirmed RW IDs and the previous Review. Preserve Task Baseline SHA. Previo
 
 ## Short interaction behavior
 
-After this session is bound to Implementation, accept:
+After this session is bound to Impl, accept:
 
 - `继续 <TASK-ID>` / `Continue <TASK-ID>`
 - `继续` when one Task is unambiguous

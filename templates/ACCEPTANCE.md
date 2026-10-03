@@ -17,7 +17,7 @@ Accepted Implementation: IMPL-NNN.md
 Accepted Review: REVIEW-NNN.md
 Task Baseline SHA: <sha>
 Accepted Code Head SHA: <sha>
-Accepted By: Lead Agent
+Accepted By: Lead
 Acceptance Date: YYYY-MM-DD
 
 ## Objective Verification

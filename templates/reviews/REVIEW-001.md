@@ -30,7 +30,7 @@ If any verification item fails, substantive review stops and Review Result remai
 ## Independence
 
 Fresh Execution Context: YES / NO / NOT_SUPPORTED
-Implementation Private Reasoning Used: NO
+Impl Private Reasoning Used: NO
 
 ## Diff Scope
 

@@ -8,7 +8,7 @@ Use for normal feature work and medium-risk changes.
 CREATED
  ↓ Lead
 PLANNING
- ↓ Implementation writes Plan
+ ↓ Impl writes Plan
 PLAN_REVIEW
  ├─ REWORK → PLAN_REWORK → next Plan
  └─ APPROVED
@@ -16,7 +16,7 @@ PLAN_REVIEW
 READY_FOR_IMPLEMENTATION
  ↓ Lead handoff
 IMPLEMENTING
- ↓ Implementation commits Code Plane + writes IMPL
+ ↓ Impl commits Code Plane + writes IMPL
 READY_FOR_REVIEW
  ↓ Lead
 REVIEWING

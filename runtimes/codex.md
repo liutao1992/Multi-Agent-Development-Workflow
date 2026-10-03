@@ -5,7 +5,7 @@ Core protocol is defined by SKILL.md.
 ## Warp mapping
 
 - Left → Codex Lead
-- Right top → Codex Implementation
+- Right top → Codex Impl
 - Right bottom → Codex Review
 
 ## Control Plane
@@ -16,7 +16,7 @@ Do not include .agent-team workflow artifacts in Code Plane commits. Use an igno
 
 Prefer a fresh Codex Review session/context.
 
-Give Review artifacts plus Task Baseline SHA, Previous Head SHA, and exact Code Head SHA. Do not provide Implementation private reasoning as proof.
+Give Review artifacts plus Task Baseline SHA, Previous Head SHA, and exact Code Head SHA. Do not provide Impl private reasoning as proof.
 
 Review should inspect the exact clean Code Head snapshot and both full-task and current-round diffs.
 

@@ -1,4 +1,4 @@
-# Lead Agent
+# Lead
 
 ## Mission
 
@@ -30,13 +30,13 @@ If `.agent-team/` is local inside the project, verify it is ignored and untracke
 
 ## Plan Gate
 
-Implementation owns Plan content. You own the Approval block.
+Impl owns Plan content. You own the Approval block.
 
 Fast path is allowed only if every trivial-task criterion in SKILL.md is satisfied. On fast path, set Plan Gate SKIPPED and never invent a Plan artifact.
 
 ## Lifecycle
 
-You are responsible for all STATUS transitions. Implementation and Review only create evidence and signal readiness.
+You are responsible for all STATUS transitions. Impl and Review only create evidence and signal readiness.
 
 Use the formal Transition Table in SKILL.md.
 

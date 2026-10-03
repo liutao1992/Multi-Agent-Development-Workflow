@@ -9,9 +9,9 @@ description: Use for non-trivial software-development tasks that need multi-agen
 
 This skill defines a deterministic, runtime-independent development protocol using three logical roles:
 
-1. **Lead Agent** — requirements, lifecycle control, plan approval, rework decisions, final acceptance.
-2. **Implementation Agent** — investigation, planning, implementation, testing, immutable implementation-round evidence.
-3. **Review Agent** — fresh-context independent verification of an exact Code Plane Git snapshot.
+1. **Lead** — requirements, lifecycle control, plan approval, rework decisions, final acceptance.
+2. **Impl** — investigation, planning, implementation, testing, immutable implementation-round evidence.
+3. **Review** — fresh-context independent verification of an exact Code Plane Git snapshot.
 
 Only Lead may declare a task **ACCEPTED**.
 
@@ -21,7 +21,7 @@ Only Lead may declare a task **ACCEPTED**.
 
 When an existing Task ID is known or discovered:
 
-1. Determine acting role: Lead, Implementation, or Review. If orchestration is requested without an explicit role, use Lead.
+1. Determine acting role: Lead, Impl, or Review. If orchestration is requested without an explicit role, use Lead.
 2. Determine exact Task ID and Control Plane task directory.
    - Prefer an explicit Task ID.
    - If exactly one active task exists, it may be selected from INDEX.md.
@@ -66,7 +66,7 @@ Role: Lead.
 
 ```text
 Use multi-agent-development-workflow.
-Role: Implementation.
+Role: Impl.
 ```
 
 ```text
@@ -103,14 +103,14 @@ Accept TASK-...
 
 Perform final acceptance only when lifecycle state permits it.
 
-#### Implementation
+#### Impl
 
 ```text
 继续 TASK-...
 Continue TASK-...
 ```
 
-Read STATUS first and perform the current legal Implementation action:
+Read STATUS first and perform the current legal Impl action:
 - planning / plan rework → create the next Plan artifact;
 - implementing / rework implementation → implement, test, commit Code Plane changes, and create the next IMPL artifact.
 
@@ -176,7 +176,7 @@ Task: <TASK-ID>
 Completed: <what this role completed>
 State: <current lifecycle state>
 Artifact: <created/updated artifact>
-Next: <Lead | Implementation | Review> — <short action>
+Next: <Lead | Impl | Review> — <short action>
 ```
 
 This summary is for the user. The next Agent must still recover authoritative state from STATUS and artifacts rather than trusting the summary alone.
@@ -184,10 +184,10 @@ This summary is for the user. The next Agent must still recover authoritative st
 ## Core rule
 
 - **What should be built?** → Lead
-- **How should it be built?** → Implementation
+- **How should it be built?** → Impl
 - **Was it built correctly?** → Review
 
-Implementation cannot approve itself.
+Impl cannot approve itself.
 Review cannot redefine requirements.
 Only Lead can accept.
 
@@ -324,7 +324,7 @@ BLOCKED
 CANCELLED
 ```
 
-Lead is the lifecycle transition authority. Implementation and Review create evidence/artifacts; Lead validates the handoff and changes STATUS.
+Lead is the lifecycle transition authority. Impl and Review create evidence/artifacts; Lead validates the handoff and changes STATUS.
 
 ## Lifecycle Transition Table
 
@@ -332,14 +332,14 @@ Lead is the lifecycle transition authority. Implementation and Review create evi
 |---|---|---|---|
 | CREATED | Lead | start normal planning | PLANNING |
 | CREATED | Lead | confirm ALL trivial-task criteria and skip Plan Gate | READY_FOR_IMPLEMENTATION |
-| PLANNING | Implementation | create next PLAN-vNNN | PLANNING |
+| PLANNING | Impl | create next PLAN-vNNN | PLANNING |
 | PLANNING | Lead | receive complete Plan for decision | PLAN_REVIEW |
 | PLAN_REVIEW | Lead | approve Plan | READY_FOR_IMPLEMENTATION |
 | PLAN_REVIEW | Lead | reject Plan | PLAN_REWORK |
-| PLAN_REWORK | Implementation | create next Plan version | PLAN_REWORK |
+| PLAN_REWORK | Impl | create next Plan version | PLAN_REWORK |
 | PLAN_REWORK | Lead | receive next Plan for decision | PLAN_REVIEW |
 | READY_FOR_IMPLEMENTATION | Lead | hand off approved/fast-path task | IMPLEMENTING |
-| IMPLEMENTING | Implementation | create committed IMPL-NNN evidence | IMPLEMENTING |
+| IMPLEMENTING | Impl | create committed IMPL-NNN evidence | IMPLEMENTING |
 | IMPLEMENTING | Lead | validate snapshot/evidence | READY_FOR_REVIEW |
 | IMPLEMENTING | Lead | accept material-deviation signal | PLAN_REWORK |
 | READY_FOR_REVIEW | Lead | start independent Review | REVIEWING |
@@ -395,10 +395,10 @@ Do not reset numbering when a new artifact version is created.
 
 ## Plan ownership and approval
 
-- Plan Content Owner: Implementation.
+- Plan Content Owner: Impl.
 - Plan Approval Owner: Lead.
 
-Implementation creates PLAN-vNNN with Approval Status PENDING.
+Impl creates PLAN-vNNN with Approval Status PENDING.
 Lead may modify only the Approval block to record APPROVED or REWORK.
 
 Once decided, freeze that Plan version.
@@ -443,7 +443,7 @@ STOP implementation
  ↓
 Lead STATUS → PLAN_REWORK
  ↓
-Implementation creates next Plan version
+Impl creates next Plan version
  ↓
 Lead PLAN_REVIEW
  ↓
@@ -465,7 +465,7 @@ Control Plane Excluded: YES
 Frozen: true
 ```
 
-Before submission Implementation must commit intended Code Plane changes.
+Before submission Impl must commit intended Code Plane changes.
 
 After READY_FOR_REVIEW, Implementation must not mutate that submitted Code Head target. Any later Code Plane change creates a new implementation round.
 
@@ -494,7 +494,7 @@ If any check fails, do not perform substantive review. Record protocol status `R
 
 Review should start in a fresh execution context whenever supported.
 
-MUST NOT rely on Implementation private reasoning, implementation conversation history, or self-review conclusions as proof.
+MUST NOT rely on Impl private reasoning, implementation conversation history, or self-review conclusions as proof.
 
 MAY consume TASK, approved Plan or fast-path marker, IMPL, exact Code snapshot, full-task diff, round diff, test evidence, and prior Reviews for re-review.
 
