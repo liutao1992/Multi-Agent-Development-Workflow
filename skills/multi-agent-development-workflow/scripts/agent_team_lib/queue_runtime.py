@@ -15,6 +15,26 @@ from .processes import choose_runtime, run_codex, run_pi_rpc, terminate_pid_grou
 LEASE_SECONDS = 20
 
 
+def child_process_quiesced(pid: int) -> bool:
+    if not process_alive(pid):
+        return True
+    if os.name == "posix":
+        try:
+            result = subprocess.run(
+                ["ps", "-o", "stat=", "-p", str(pid)],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+            state = result.stdout.strip()
+            if not state or state.startswith("Z"):
+                return True
+        except OSError:
+            pass
+    return False
+
+
 def queue_root(root: Path, project_root: Path) -> Path:
     return project_runtime_root(root, project_root) / "queue"
 
@@ -150,9 +170,9 @@ def recover_expired_claims(root: Path, project_root: Path, role: str) -> None:
             )
             continue
 
-        if process_alive(pid):
+        if not child_process_quiesced(pid):
             terminate_pid_group(pid, grace=1.0)
-        if process_alive(pid):
+        if not child_process_quiesced(pid):
             quarantine_claim(
                 root, project_root, role, claim,
                 f"UNKNOWN_ORPHAN_RISK: child process {pid} could not be quiesced.",
@@ -238,9 +258,9 @@ def cancel_and_quiesce_job(
                 raise OrchestratorError(
                     f"Queue job {job_id} quarantined: child process identity is unknown."
                 )
-            if process_alive(int(child_pid)):
+            if not child_process_quiesced(int(child_pid)):
                 terminate_pid_group(int(child_pid), grace=1.0)
-            if process_alive(int(child_pid)):
+            if not child_process_quiesced(int(child_pid)):
                 quarantine_claim(
                     root, project_root, role, claim,
                     f"UNKNOWN_ORPHAN_RISK: child process {child_pid} survived cancellation.",

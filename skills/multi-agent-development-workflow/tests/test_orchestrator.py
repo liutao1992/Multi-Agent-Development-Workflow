@@ -160,7 +160,7 @@ class QueueTests(RepoTestCase):
         paths = queue_runtime.queue_paths(external, self.repo, "Impl")
         self.assertIn(core.project_fingerprint(self.repo), str(paths["queued"]))
 
-    def test_expired_claim_is_requeued(self) -> None:
+    def test_expired_claim_without_child_pid_is_quarantined(self) -> None:
         paths = queue_runtime.queue_paths(self.root, self.repo, "Impl")
         claim = paths["claimed"] / "job-1.json"
         core.write_json_atomic(claim, {
@@ -172,7 +172,8 @@ class QueueTests(RepoTestCase):
         })
         queue_runtime.recover_expired_claims(self.root, self.repo, "Impl")
         self.assertFalse(claim.exists())
-        self.assertTrue((paths["queued"] / "job-1.json").exists())
+        self.assertFalse((paths["queued"] / "job-1.json").exists())
+        self.assertTrue((paths["quarantined"] / "job-1.json").exists())
 
     def test_cancelled_queued_job_is_not_claimed(self) -> None:
         paths = queue_runtime.queue_paths(self.root, self.repo, "Review")
