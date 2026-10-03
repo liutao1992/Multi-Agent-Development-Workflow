@@ -1,45 +1,23 @@
 # Pi Runtime Adapter
 
-Use this file only for Pi-specific execution details.
+Core protocol is defined by SKILL.md.
 
-The core workflow remains defined by SKILL.md.
+## Warp mapping
 
-## Suggested Warp mapping
-
-```text
-Left        → pi → Lead role
-Right top   → pi → Implementation role
-Right bottom→ pi → Review role
-```
-
-Load the corresponding file from `roles/` into each session.
+- Left → Pi Lead
+- Right top → Pi Implementation
+- Right bottom → Pi Review
 
 ## Code Mode
 
-Code Mode can be useful for Implementation and Review because they often need to compose multiple file, shell, search, diff, and test operations.
+Code Mode may improve tool orchestration but does not replace Plan Gate, stable Git Review Target, independent Review, or Lead acceptance.
 
-Prefer enabling Code Mode without changing the role protocol.
+## Review isolation
 
-Code Mode is an execution mechanism, not a replacement for:
+Prefer a fresh Pi review session/context.
 
-- task separation
-- plan approval
-- independent review
+Share task artifacts, exact Plan version, IMPL round, Base/Head SHA, repository state, and test evidence. Do not provide private Implementation reasoning as proof.
 
-## Future automation
+## RPC / SDK automation
 
-Pi RPC / SDK may automate handoffs later.
-
-Automation must still preserve:
-
-```text
-Lead
- ↓
-Implementation
- ↓
-Review
- ↓
-Lead
-```
-
-Do not let automation remove the independent Review gate.
+Pi RPC/SDK may automate handoffs, but orchestration must enforce STATUS as lifecycle truth, immutable rounds, frozen Head SHA, new round after code changes, and final ACCEPTANCE.md.

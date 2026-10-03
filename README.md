@@ -1,24 +1,99 @@
 # Multi-Agent Development Workflow
 
-A runtime-independent multi-agent software development skill built around a simple principle:
+A runtime-independent development protocol for coordinating **Lead**, **Implementation**, and **Review** agents across Codex, Pi, Claude Code, Cursor, OpenCode, or other coding agents.
 
-> Separate **what should be built**, **how it should be built**, and **whether it was built correctly**.
+The protocol separates three questions:
 
-The default workflow uses three roles:
+- **What should be built?** → Lead Agent
+- **How should it be built?** → Implementation Agent
+- **Was it built correctly?** → Review Agent
 
-- **Lead Agent** — requirements, task definition, plan approval, rework decisions, final acceptance
-- **Implementation Agent** — investigation, planning, implementation, testing, implementation report
-- **Review Agent** — independent verification, regression review, testing, PASS / FAIL
+Only the Lead Agent can declare a task **ACCEPTED**.
 
-The workflow is designed to work with Codex, Pi, Claude Code, Cursor, OpenCode, or other coding agents.
+Warp is the preferred interactive terminal environment, but the protocol is terminal- and runtime-independent.
 
-Warp is the preferred interactive terminal environment, using a three-pane layout:
+## Core lifecycle
+
+```text
+User
+ ↓
+Lead → TASK.md
+ ↓
+Implementation → PLAN-v001.md
+ ↓
+Lead Plan Gate
+ ├─ PLAN_REWORK → PLAN-v002.md
+ └─ APPROVED
+       ↓
+Implementation → Git snapshot → IMPL-001.md
+ ↓
+Independent Review → REVIEW-001.md
+ ├─ FAIL → Lead → RW-001 → IMPL-002.md → REVIEW-002.md
+ └─ PASS
+       ↓
+Lead Final Acceptance
+ ↓
+ACCEPTANCE.md
+ ↓
+ACCEPTED
+```
+
+## Task workspace
+
+Each task has its own namespace and immutable round history:
+
+```text
+.agent-team/
+├── INDEX.md
+└── tasks/
+    └── TASK-YYYYMMDD-NNN-short-name/
+        ├── TASK.md
+        ├── STATUS.md
+        ├── plans/
+        │   ├── PLAN-v001.md
+        │   └── PLAN-v002.md
+        ├── implementations/
+        │   ├── IMPL-001.md
+        │   └── IMPL-002.md
+        ├── reviews/
+        │   ├── REVIEW-001.md
+        │   └── REVIEW-002.md
+        └── ACCEPTANCE.md
+```
+
+## Sources of truth
+
+| Concern | Source of truth |
+|---|---|
+| Requirements | `TASK.md` |
+| Approved implementation intent | approved `PLAN-vNNN.md` |
+| Implemented code | immutable Git Head SHA |
+| Verification evidence | `REVIEW-NNN.md` |
+| Current lifecycle state | `STATUS.md` |
+| Final closure | `ACCEPTANCE.md` |
+| Multi-task dashboard | `INDEX.md` (derived only) |
+
+## Stable review target
+
+Every implementation round submitted for review must bind to a stable Git snapshot:
+
+```text
+Branch: feature/foo
+Base SHA: abc123
+Head SHA: def456
+Working Tree: CLEAN
+Frozen: true
+```
+
+The **Head SHA** is the authoritative review target. Any later code change creates a new implementation round and review round.
+
+## Warp layout
 
 ```text
 ┌──────────────────────────┬──────────────────────────┐
 │ Lead Agent               │ Implementation Agent     │
 │                          │                          │
-│ Task / Plan Approval     │ Plan / Code / Test       │
+│ Task / Plan Gate         │ Plan / Code / Test       │
 │ Rework / Acceptance      │                          │
 │                          ├──────────────────────────┤
 │                          │ Review Agent             │
@@ -27,98 +102,4 @@ Warp is the preferred interactive terminal environment, using a three-pane layou
 └──────────────────────────┴──────────────────────────┘
 ```
 
-## Repository structure
-
-```text
-.
-├── SKILL.md
-├── roles/
-│   ├── lead.md
-│   ├── implementation.md
-│   └── review.md
-├── workflows/
-│   ├── standard.md
-│   ├── complex.md
-│   └── bugfix.md
-├── templates/
-│   ├── INDEX.md
-│   ├── TASK.md
-│   ├── PLAN.md
-│   ├── IMPLEMENTATION.md
-│   ├── REVIEW.md
-│   └── STATUS.md
-├── adapters/
-│   └── warp.md
-└── runtimes/
-    ├── pi.md
-    ├── codex.md
-    └── generic.md
-```
-
-## Task coordination
-
-Each development task has its own namespace:
-
-```text
-.agent-team/
-├── INDEX.md
-└── tasks/
-    └── TASK-YYYYMMDD-NNN-short-name/
-        ├── TASK.md
-        ├── PLAN.md
-        ├── IMPLEMENTATION.md
-        ├── REVIEW.md
-        └── STATUS.md
-```
-
-Example:
-
-```text
-TASK-20261003-001-word-review-redesign
-```
-
-The workflow maintains traceability across:
-
-```text
-Requirement
-  ↓
-Acceptance Criterion
-  ↓
-Plan Step
-  ↓
-Implementation Change
-  ↓
-Test
-  ↓
-Review Evidence
-```
-
-## Core lifecycle
-
-```text
-User
- ↓
-Lead
- ↓
-TASK.md
- ↓
-Implementation Agent
- ↓
-PLAN.md
- ↓
-Lead Plan Approval
- ↓
-Implementation
- ↓
-IMPLEMENTATION.md
- ↓
-Review
- ↓
-REVIEW.md
- ↓
-Lead
- ├─ REWORK → Implementation
- └─ ACCEPTED
-```
-
-See [SKILL.md](./SKILL.md) for the full protocol.
+See [SKILL.md](./SKILL.md) for the executable protocol.

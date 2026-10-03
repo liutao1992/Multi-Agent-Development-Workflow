@@ -1,44 +1,16 @@
 # Generic Runtime Adapter
 
-Use this adapter for coding agents that do not have a dedicated runtime file.
+Use three logical roles: Lead, Implementation, Review.
 
-## Requirements
+Minimum invariants:
 
-The runtime should ideally provide:
+1. Lead defines TASK and controls STATUS.
+2. Implementation creates immutable Plan versions.
+3. Lead approves Plan.
+4. Implementation commits code and creates IMPL-NNN bound to Base/Head SHA.
+5. Review starts independently and verifies exact Head SHA.
+6. Review creates immutable REVIEW-NNN.
+7. Lead decides rework or final acceptance.
+8. Lead creates ACCEPTANCE.md before STATUS becomes ACCEPTED.
 
-- repository file access
-- source editing
-- command execution
-- test execution
-- independent sessions or logical agents
-
-## Mapping
-
-Create three logical roles:
-
-```text
-Lead
-Implementation
-Review
-```
-
-They may be:
-
-- separate terminal sessions
-- subagents
-- separate processes
-- remote workers
-- logical roles managed by an orchestrator
-
-## Minimum invariant
-
-Regardless of runtime:
-
-1. Lead defines TASK.md.
-2. Implementation produces PLAN.md.
-3. Lead approves the plan.
-4. Implementation writes code and IMPLEMENTATION.md.
-5. Review independently verifies and produces REVIEW.md.
-6. Lead decides REWORK or ACCEPTED.
-
-Do not allow runtime convenience to bypass these gates for substantial work.
+Runtime convenience must not bypass these invariants.

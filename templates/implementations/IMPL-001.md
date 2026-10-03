@@ -2,10 +2,19 @@
 
 Task ID: TASK-YYYYMMDD-NNN-short-name
 Task Name: <human-readable name>
-
-Plan Version: 1
 Implementation Round: 1
-Status: READY_FOR_REVIEW
+Plan Version: 1
+Round Result: READY_FOR_REVIEW
+
+## Review Target
+
+Branch: <branch or detached>
+Base SHA: <sha>
+Head SHA: <sha>
+Working Tree: CLEAN
+Frozen: true
+
+> Head SHA is authoritative. Any later code change creates a new implementation round.
 
 ## Summary
 
@@ -14,15 +23,11 @@ Status: READY_FOR_REVIEW
 ## Completed Plan Steps
 
 - [ ] PLAN-001
-- [ ] PLAN-002
 
 ## Changes
 
 ### CHANGE-001
-
-Related:
-REQ-001
-PLAN-001
+Related: REQ-001, PLAN-001
 
 Files:
 - <path>
@@ -35,28 +40,23 @@ Description:
 | AC | Result | Evidence |
 |---|---|---|
 | AC-001 | PASS / FAIL | <evidence> |
-| AC-002 | PASS / FAIL | <evidence> |
 
 ## Tests
 
 ### TEST-001
-
-Command:
-`<command>`
-
-Result:
-PASS / FAIL
-
-Evidence:
-<...>
+Command: `<command>`
+Result: PASS / FAIL
+Evidence: <...>
 
 ## Tests Not Executed
 
 None
 
-## Plan Deviations
+## Minor Plan Deviations
 
 None
+
+> Material deviations require Plan re-approval and must not be hidden here.
 
 ## Known Issues
 
@@ -68,4 +68,4 @@ None
 
 ## Review Focus
 
-- <area reviewer should inspect carefully>
+- <area>

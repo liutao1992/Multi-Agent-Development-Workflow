@@ -1,31 +1,25 @@
 # Codex Runtime Adapter
 
-Use this file only for Codex-specific execution details.
+Core protocol is defined by SKILL.md.
 
-The core workflow remains defined by SKILL.md.
+## Warp mapping
 
-## Suggested Warp mapping
+- Left → Codex Lead
+- Right top → Codex Implementation
+- Right bottom → Codex Review
 
-```text
-Left         → codex → Lead role
-Right top    → codex → Implementation role
-Right bottom → codex → Review role
-```
+## Review isolation
 
-Load the corresponding file from `roles/` into each session.
+Prefer a fresh Codex review session/context.
 
-## Isolation
+Give Review artifacts and exact Git target, not Implementation private reasoning.
 
-When supported and useful, use separate worktrees or isolated agent environments.
+## Git target
 
-The Implementation Agent should be the primary production-code writer.
+Implementation submits a committed Head SHA. Review checks out or inspects that exact SHA.
 
-The Review Agent should inspect a stable implementation state, preferably identified by a branch or commit when using isolated worktrees.
+A moving branch name is not sufficient. New code changes require a new implementation round.
 
 ## Subagents
 
-If Codex offers subagent/delegation functionality, it may be used to execute the logical roles.
-
-Do not collapse role boundaries merely because the runtime can spawn agents.
-
-The Lead still owns final acceptance.
+Codex subagents/delegation may implement logical roles but must preserve lifecycle control, Plan Gate, stable Head SHA, independent Review, and Lead Acceptance.

@@ -1,130 +1,45 @@
 # Warp Adapter
 
-## Purpose
-
-Warp is the preferred visual terminal control surface for this workflow.
-
-Warp handles:
-
-- terminal layout
-- independent terminal sessions
-- visual monitoring
-- manual handoffs
-
-Warp does not define:
-
-- task semantics
-- acceptance policy
-- review policy
-- agent role boundaries
-
-Those belong to SKILL.md.
+Warp is the preferred human-visible control surface. It does not define lifecycle semantics.
 
 ## Default layout
-
-Use one Warp tab with three panes:
 
 ```text
 ┌──────────────────────────────┬──────────────────────────────┐
 │ Lead Agent                   │ Implementation Agent         │
-│                              │                              │
-│ Requirements                 │ Investigate                  │
-│ Task Management              │ Plan                         │
-│ Plan Approval                │ Implement                    │
-│ Rework Decision              │ Test                         │
-│ Final Acceptance             │ Report                       │
+│ Task / STATUS / Plan Gate    │ Plan / Code / Test           │
+│ Rework / Acceptance          │ Stable Review Target         │
 │                              ├──────────────────────────────┤
 │                              │ Review Agent                 │
-│                              │                              │
-│                              │ Review                       │
-│                              │ Test                         │
-│                              │ PASS / FAIL                  │
+│                              │ Fresh Review / Exact SHA     │
 └──────────────────────────────┴──────────────────────────────┘
 ```
 
-Recommended:
-
-- Left: Lead
-- Right top: Implementation
-- Right bottom: Review
+Do not enable synchronized input.
 
 ## Shared working tree mode
 
-Recommended while learning the workflow:
+Allowed only for sequential manual coordination.
 
-- Lead: read-oriented
-- Implementation: production-code writer
-- Review: read-oriented
+- Lead: read-oriented.
+- Implementation: production-code writer.
+- Review: read-oriented.
 
-All three panes may use the same repository.
+Before Review:
 
-Only Implementation normally modifies production files.
+1. Implementation commits intended changes.
+2. Working tree is clean.
+3. IMPL-NNN records Base SHA and Head SHA.
+4. Lead sets READY_FOR_REVIEW.
+5. Implementation stops modifying repository code until Review finishes.
 
-Lead and Review may run safe inspection and test commands.
+Review verifies `git rev-parse HEAD` equals Head SHA and uses Base→Head diff.
 
-Avoid repository-mutating commands from Lead/Review unless explicitly required.
+Any code change during Review invalidates the target and requires a new round.
 
-## Synchronized input
+## Recommended concurrent mode
 
-Do not enable synchronized input across the three panes.
-
-The panes intentionally have different roles and prompts.
-
-## Manual handoff
-
-### Lead → Implementation
-
-```text
-Task:
-<TASK-ID>
-
-Task directory:
-.agent-team/tasks/<TASK-ID>/
-
-Action:
-Read TASK.md and produce PLAN.md.
-
-Expected output:
-PLAN.md with Status: PENDING_APPROVAL.
-
-Do not modify production code before plan approval.
-```
-
-### Lead → Implementation after plan approval
-
-```text
-Task:
-<TASK-ID>
-
-PLAN.md is approved.
-
-Implement the approved plan, run relevant tests, and produce IMPLEMENTATION.md with Status: READY_FOR_REVIEW.
-```
-
-### Implementation → Review
-
-```text
-Task:
-<TASK-ID>
-
-Read TASK.md, approved PLAN.md, and IMPLEMENTATION.md.
-Inspect actual repository changes and perform independent review.
-Produce REVIEW.md with PASS or FAIL.
-```
-
-### Review → Lead
-
-```text
-Task:
-<TASK-ID>
-
-Read REVIEW.md and validate the findings.
-Decide REWORK or proceed to final acceptance.
-```
-
-## Worktree upgrade
-
-For stronger isolation, use:
+Prefer worktrees:
 
 ```text
 project-main/
@@ -132,19 +47,8 @@ project-implementation/
 project-review/
 ```
 
-Map:
+Review worktree should inspect the exact Head SHA, not only a branch name.
 
-- Lead → main worktree
-- Implementation → implementation worktree
-- Review → clean review worktree
+## Handoffs
 
-Use commit SHA / branch / patch / cherry-pick for handoff.
-
-## Automation progression
-
-Recommended progression:
-
-1. Warp + 3 panes + shared working tree + manual handoff.
-2. Warp + 3 panes + Git worktrees + commit-based handoff.
-3. Warp + agent-specific RPC/subagents/SDK.
-4. Automated orchestration while preserving independent Review.
+Every handoff includes Task ID, directory, lifecycle state, artifact/version, and exact Head SHA for Review.

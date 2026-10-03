@@ -2,17 +2,25 @@
 
 Task ID: TASK-YYYYMMDD-NNN-short-name
 Task Name: <human-readable name>
-
 Plan Version: 1
-Status: PENDING_APPROVAL
+Plan Content Owner: Implementation Agent
+
+## Approval
+
+Approval Status: PENDING
+Reviewed By: N/A
+Decision Date: N/A
+Decision Notes: N/A
+
+> Lead owns only this Approval block. Once a decision is recorded, freeze this Plan version.
 
 ## Current Implementation
 
-<Relevant existing behavior and architecture.>
+<Existing behavior and architecture.>
 
 ## Scope
 
-<What this implementation will modify.>
+<What will change.>
 
 ## Files / Components
 
@@ -21,20 +29,7 @@ Status: PENDING_APPROVAL
 ## Implementation Steps
 
 ### PLAN-001
-
-Related Requirements:
-REQ-001
-
-Action:
-<...>
-
-Reason:
-<...>
-
-### PLAN-002
-
-Related Requirements:
-REQ-002
+Related Requirements: REQ-001
 
 Action:
 <...>
@@ -44,19 +39,16 @@ Reason:
 
 ## Data / State Flow
 
-<Relevant flow changes.>
+<...>
 
 ## Compatibility
 
-<Compatibility requirements.>
+<...>
 
 ## Testing Plan
 
 ### TEST-001
-
-Related:
-REQ-001
-AC-001
+Related: REQ-001, AC-001
 
 <test approach>
 

@@ -1,46 +1,31 @@
 # Bugfix Workflow
 
-Use for defect investigation and repair.
-
-## TASK.md additions
-
-Record when available:
-
-- Expected Behavior
-- Actual Behavior
-- Reproduction Steps
-- Environment
-- Frequency / conditions
-- Known regression range
-
-## Flow
+TASK should record Expected Behavior, Actual Behavior, Reproduction Steps, Environment, frequency/conditions, and regression range when available.
 
 ```text
-Bug task
+Bug Task
  ↓
 Reproduce
  ↓
-Root-cause investigation
+Root cause
  ↓
-Fix plan
+PLAN-vNNN
  ↓
-Lead plan approval
+Plan Gate unless ALL trivial criteria pass
  ↓
-Implementation
+Fix + regression tests
  ↓
-Regression test
+Commit stable Review Target
  ↓
-Review
+IMPL-NNN
  ↓
-Final acceptance
+Independent Review at exact Head SHA
+ ↓
+REVIEW-NNN
+ ↓
+Lead ACCEPTANCE.md
 ```
 
-## Requirements
+Testing should reproduce the original defect, prove the fix, and cover adjacent regressions when appropriate.
 
-Implementation should identify the root cause rather than only suppressing the symptom.
-
-Testing should include:
-
-1. a case that reproduces the original defect;
-2. proof that the fix resolves it;
-3. regression coverage for adjacent behavior when appropriate.
+Review of an uncommitted or moving target is invalid.

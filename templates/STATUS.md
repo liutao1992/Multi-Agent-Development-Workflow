@@ -3,48 +3,47 @@
 Task ID: TASK-YYYYMMDD-NNN-short-name
 Task Name: <human-readable name>
 
+> This file is the only lifecycle source of truth.
+
 ## Current State
 
 CREATED
 
-## Task
+## Workflow
 
-Status:
-ACTIVE
+Type: standard | complex | bugfix
+Plan Gate: REQUIRED | SKIPPED
+Plan Gate Skip Reason: N/A
 
-## Plan
+## Current Plan
 
-Version:
-0
+Version: 0
+Artifact: N/A
+Approval: NOT_STARTED
 
-Status:
-NOT_STARTED
+## Current Implementation
 
-## Implementation
+Round: 0
+Artifact: N/A
+Base SHA: N/A
+Head SHA: N/A
+Review Target Frozen: false
 
-Round:
-0
+## Current Review
 
-Status:
-NOT_STARTED
-
-## Review
-
-Round:
-0
-
-Status:
-NOT_STARTED
+Round: 0
+Artifact: N/A
+Result: NOT_STARTED
 
 ## Rework
 
-Round:
-0
+Round: 0
+Active RW IDs: None
 
-## Overall
+## Final Acceptance
 
-Status:
-IN_PROGRESS
+Artifact: N/A
+Accepted Head SHA: N/A
 
 ## Updated
 

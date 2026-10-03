@@ -2,43 +2,32 @@
 
 Use for normal feature development and medium-risk changes.
 
-## Flow
-
 ```text
-Lead creates TASK
+Lead → TASK.md + STATUS CREATED
  ↓
-Implementation investigates
+Implementation → PLAN-v001
  ↓
-Implementation creates PLAN
+Lead Plan Gate
+ ├─ REWORK → PLAN-v002
+ └─ APPROVED
+       ↓
+STATUS READY_FOR_IMPLEMENTATION
  ↓
-Lead approves PLAN
+Implementation → code + tests + commit
  ↓
-Implementation implements + tests
+IMPL-001 binds Base SHA / Head SHA
  ↓
-Implementation creates IMPLEMENTATION
+STATUS READY_FOR_REVIEW
  ↓
-Review independently verifies
+Fresh Review verifies exact Head SHA
  ↓
-Review creates REVIEW
- ├─ FAIL → Lead validates → REWORK
- └─ PASS → Lead final acceptance
+REVIEW-001
+ ├─ FAIL → Lead confirms RW-xxx → REWORK → IMPL-002 → REVIEW-002
+ └─ PASS → READY_FOR_FINAL_ACCEPTANCE
+              ↓
+            Lead → ACCEPTANCE.md
+              ↓
+            ACCEPTED
 ```
 
-## Required gates
-
-1. TASK.md exists.
-2. PLAN.md approved before substantial production changes.
-3. IMPLEMENTATION.md says READY_FOR_REVIEW.
-4. REVIEW.md says PASS.
-5. Lead performs final acceptance.
-
-## Fast path
-
-For a trivial low-risk task, Lead may record:
-
-```text
-Plan Gate: SKIPPED
-Reason: <reason>
-```
-
-The Review and final-acceptance gates remain.
+Required gates: TASK, lifecycle STATUS, Plan approval unless ALL trivial criteria pass, committed/frozen Review Target, independent Review, and Lead ACCEPTANCE.md.

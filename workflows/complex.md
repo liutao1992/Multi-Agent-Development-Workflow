@@ -1,50 +1,15 @@
 # Complex Workflow
 
-Use for:
+Use when architecture, migration, security, concurrency, API/contract, cross-module behavior, major refactor, or high regression risk is involved.
 
-- architecture changes
-- database migrations
-- major refactors
-- security-sensitive changes
-- concurrency changes
-- cross-module changes
-- high regression risk
+Plan Gate is mandatory.
 
-## Flow
+PLAN should cover relevant architecture impact, migration/rollback, compatibility, failure modes, data integrity, observability, security/concurrency, tests, and rollout.
 
-```text
-Task
- ↓
-Technical investigation
- ↓
-Plan
- ↓
-Plan review
- ↓
-Implementation
- ↓
-Implementation self-check
- ↓
-Independent review
- ↓
-Tests / regression review
- ↓
-Final acceptance
-```
+Any material deviation requires STOP → new Plan version → Lead approval.
 
-## Additional expectations
+Implementation must produce a committed stable Review Target.
 
-PLAN.md should explicitly cover:
+Review must use a fresh context when supported and verify both local correctness and system-level impact against the exact Head SHA.
 
-- architecture impact
-- migration / rollback strategy when relevant
-- compatibility
-- failure modes
-- data integrity
-- observability
-- test strategy
-- rollout constraints
-
-Lead should be stricter about plan approval.
-
-Review should verify both local correctness and system-level impact.
+Final closure requires ACCEPTANCE.md.
