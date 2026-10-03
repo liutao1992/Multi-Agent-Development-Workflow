@@ -137,3 +137,22 @@ grep -qxF ".agent-team/" "$PROJECT_ROOT/.git/info/exclude" 2>/dev/null \
 ```
 
 An external Control Root is only used when explicitly configured.
+
+
+## Role entry and task lookup
+
+Each role has a fixed entry file inside the installed Skill:
+
+```text
+Lead   → roles/lead.md
+Impl   → roles/impl.md
+Review → roles/review.md
+```
+
+For task `<TASK-ID>`, task artifacts are located under:
+
+```text
+<project-root>/.agent-team/tasks/<TASK-ID>/
+```
+
+Every role reads `STATUS.md` first and follows the artifact references recorded there. The user should not need to manually paste Plan or Review content between Warp panes.

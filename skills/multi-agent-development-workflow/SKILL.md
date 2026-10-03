@@ -15,6 +15,76 @@ This skill defines a deterministic, runtime-independent development protocol usi
 
 Only Lead may declare a task **ACCEPTED**.
 
+## Role Entry Map
+
+Every agent must explicitly map its bound role to the corresponding role file before doing task work.
+
+| Bound Role | Role File | Primary Responsibility |
+|---|---|---|
+| Lead | `roles/lead.md` | Task definition, lifecycle transitions, Plan approval, rework, final acceptance |
+| Impl | `roles/impl.md` | Investigation, Plan creation, implementation, tests, IMPL evidence |
+| Review | `roles/review.md` | Independent verification, review tests, REVIEW evidence |
+
+Role files are resolved relative to this Skill's directory.
+
+Required startup order:
+
+```text
+SKILL.md
+  ↓
+roles/<role>.md
+  ↓
+<project-root>/.agent-team/tasks/<TASK-ID>/STATUS.md
+  ↓
+task artifacts required by current state
+```
+
+Do not perform role-specific task work before loading the matching role file.
+
+### Where each role finds the current task material
+
+Given:
+
+```text
+TASK_ROOT=<project-root>/.agent-team/tasks/<TASK-ID>/
+```
+
+**Lead reads:**
+
+```text
+TASK_ROOT/STATUS.md                ← always first
+TASK_ROOT/TASK.md                  ← requirements
+TASK_ROOT/plans/PLAN-vNNN.md       ← Plan awaiting approval / accepted Plan
+TASK_ROOT/implementations/IMPL-NNN.md
+TASK_ROOT/reviews/REVIEW-NNN.md
+TASK_ROOT/ACCEPTANCE.md            ← final closure
+```
+
+Lead chooses the exact Plan / IMPL / Review artifact from references recorded in `STATUS.md`; do not guess the latest file by filename alone.
+
+**Impl reads:**
+
+```text
+TASK_ROOT/STATUS.md                ← always first
+TASK_ROOT/TASK.md                  ← requirements
+TASK_ROOT/plans/PLAN-vNNN.md       ← approved implementation plan, when Plan Gate is REQUIRED
+TASK_ROOT/reviews/REVIEW-NNN.md    ← previous failed review, when in REWORK
+```
+
+When `Plan Gate: SKIPPED`, no Plan file exists and Impl must use `TASK.md + STATUS.md`.
+
+**Review reads:**
+
+```text
+TASK_ROOT/STATUS.md                ← always first
+TASK_ROOT/TASK.md                  ← requirements / acceptance criteria
+TASK_ROOT/plans/PLAN-vNNN.md       ← approved plan, or N/A on fast path
+TASK_ROOT/implementations/IMPL-NNN.md ← exact implementation round under review
+TASK_ROOT/reviews/REVIEW-NNN.md    ← prior review only for re-review context
+```
+
+Review must use the exact artifact references and Code Head SHA recorded in `STATUS.md` / `IMPL-NNN.md`.
+
 ## Invocation protocol
 
 ### Existing task
@@ -32,7 +102,7 @@ When an existing Task ID is known or discovered:
    - A workflow-type change requires an explicit Lead decision recorded in STATUS history.
 5. Determine invocation mode from STATUS and the request: planning, plan rework, implementation, implementation rework, review, re-review, or final acceptance.
 6. Determine runtime: Codex, Pi, or generic.
-7. Load the matching role file, the workflow recorded in STATUS, runtime adapter, and Warp adapter when applicable.
+7. Load the matching role file explicitly: Lead → `roles/lead.md`, Impl → `roles/impl.md`, Review → `roles/review.md`; then load the workflow recorded in STATUS, runtime adapter, and Warp adapter when applicable.
 8. Perform only actions allowed by the Lifecycle Transition Table.
 9. After a lifecycle transition, update STATUS.md first, then refresh INDEX.md.
 

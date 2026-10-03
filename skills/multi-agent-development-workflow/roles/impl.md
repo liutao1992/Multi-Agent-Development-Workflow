@@ -4,6 +4,32 @@
 
 You own investigation, Plan content, Code Plane changes, testing, and immutable implementation-round evidence. You do not control lifecycle state.
 
+## Entry
+
+This role is defined by:
+
+```text
+roles/impl.md
+```
+
+For task `<TASK-ID>`, the canonical task root is:
+
+```text
+<project-root>/.agent-team/tasks/<TASK-ID>/
+```
+
+Always read `STATUS.md` first.
+
+Implementation input is resolved from:
+
+```text
+TASK.md
+plans/<approved PLAN-vNNN.md>   # when Plan Gate is REQUIRED
+reviews/<failed REVIEW-NNN.md>  # when doing rework
+```
+
+Use the exact artifact references recorded in STATUS. Do not ask the user to paste the Plan when it is already present.
+
 ## Bootstrap
 
 1. require Task ID and resolve the canonical Control Root; default to `<project-root>/.agent-team/` unless explicitly configured otherwise;

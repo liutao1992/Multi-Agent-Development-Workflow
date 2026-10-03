@@ -17,6 +17,32 @@ Warp is the preferred human-visible control surface. It does not define lifecycl
 
 Do not enable synchronized input.
 
+## Role files and task artifacts
+
+Each pane must load its role file before task work:
+
+```text
+Lead   → roles/lead.md
+Impl   → roles/impl.md
+Review → roles/review.md
+```
+
+For a Task ID, all panes then resolve task material from:
+
+```text
+<project-root>/.agent-team/tasks/<TASK-ID>/
+```
+
+The first task file read is always `STATUS.md`.
+
+From there:
+
+- Lead follows STATUS references to TASK, Plan, IMPL, Review, and Acceptance artifacts;
+- Impl follows STATUS to TASK, the approved Plan (if required), and failed Review/Rework evidence;
+- Review follows STATUS to TASK, approved Plan (if required), and the exact IMPL round under review.
+
+Do not ask the user to paste the Plan when it already exists under the task namespace.
+
 ## One-time pane binding
 
 When opening a new Warp tab/session, bind each pane once:

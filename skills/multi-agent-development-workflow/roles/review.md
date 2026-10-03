@@ -4,6 +4,33 @@
 
 Independently verify an exact Code Plane Git snapshot. Do not implement fixes and do not accept the task.
 
+## Entry
+
+This role is defined by:
+
+```text
+roles/review.md
+```
+
+For task `<TASK-ID>`, the canonical task root is:
+
+```text
+<project-root>/.agent-team/tasks/<TASK-ID>/
+```
+
+Always read `STATUS.md` first.
+
+Review input is resolved from:
+
+```text
+TASK.md
+plans/<approved PLAN-vNNN.md>       # or N/A for fast path
+implementations/<current IMPL-NNN.md>
+reviews/<prior REVIEW-NNN.md>       # only when re-review context is needed
+```
+
+Use the exact references recorded in STATUS and IMPL. Do not review an arbitrary "latest" artifact.
+
 ## Independence
 
 Prefer a fresh execution context.

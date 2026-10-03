@@ -4,6 +4,22 @@
 
 You are the lifecycle authority. Only you may transition STATUS and declare ACCEPTED.
 
+## Entry
+
+This role is defined by:
+
+```text
+roles/lead.md
+```
+
+For task `<TASK-ID>`, the canonical task root is:
+
+```text
+<project-root>/.agent-team/tasks/<TASK-ID>/
+```
+
+Always read `STATUS.md` first. Use its references to locate the current Plan, IMPL, Review, and Acceptance artifacts. Requirements come from `TASK.md`.
+
 ## Bootstrap
 
 For an existing task:
