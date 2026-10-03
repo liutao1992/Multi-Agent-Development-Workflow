@@ -122,6 +122,14 @@ class LockAndNamespaceTests(RepoTestCase):
                 with core.FileLock(path, "code plane"):
                     pass
 
+    def test_stale_project_lock_fails_closed(self) -> None:
+        path = core.project_lock_path(self.root, self.repo)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("99999999", encoding="utf-8")
+        with self.assertRaises(core.OrchestratorError):
+            with core.FileLock(path, "code plane", recover_stale=False):
+                pass
+
     def test_external_control_root_is_project_scoped(self) -> None:
         external = Path(self.temp.name) / "shared-control"
         core.ensure_control_root(self.repo, external)
@@ -176,6 +184,32 @@ class QueueTests(RepoTestCase):
         self.assertIsNone(claimed)
         result = core.read_json(paths["results"] / "job-2.json")
         self.assertTrue(result["cancelled"])
+
+    def test_cancel_quiesces_recorded_child_process(self) -> None:
+        paths = queue_runtime.queue_paths(self.root, self.repo, "Impl")
+        child = subprocess.Popen(
+            ["python3", "-c", "import time; time.sleep(30)"],
+            start_new_session=True,
+        )
+        try:
+            core.write_json_atomic(paths["claimed"] / "job-child.json", {
+                "job_id": "job-child",
+                "child_pid": child.pid,
+                "lease_until": time.time() + 20,
+            })
+            queue_runtime.cancel_and_quiesce_job(
+                self.root,
+                self.repo,
+                "Impl",
+                "job-child",
+                "timeout",
+                wait_seconds=0.5,
+            )
+            child.wait(timeout=3)
+            self.assertIsNotNone(child.returncode)
+        finally:
+            if child.poll() is None:
+                child.kill()
 
     def test_worker_project_mismatch_is_rejected_by_namespace(self) -> None:
         other = Path(self.temp.name) / "other"

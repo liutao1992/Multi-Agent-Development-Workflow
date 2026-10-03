@@ -147,6 +147,34 @@ def renew_claim(claim: Path, worker_id: str, child_pid: int | None = None) -> No
     write_json_atomic(claim, data)
 
 
+def cancel_and_quiesce_job(
+    root: Path, project_root: Path, role: str, job_id: str,
+    reason: str, wait_seconds: float = 5.0,
+) -> None:
+    paths = queue_paths(root, project_root, role)
+    request_cancel(root, project_root, job_id, reason)
+    (paths["queued"] / f"{job_id}.json").unlink(missing_ok=True)
+
+    claim = paths["claimed"] / f"{job_id}.json"
+    if claim.exists():
+        try:
+            child_pid = read_json(claim).get("child_pid")
+            if child_pid and process_alive(int(child_pid)):
+                terminate_pid_group(int(child_pid), grace=1.0)
+        except Exception:
+            pass
+
+    result_path = paths["results"] / f"{job_id}.json"
+    deadline = time.monotonic() + wait_seconds
+    while time.monotonic() < deadline:
+        if result_path.exists():
+            result_path.unlink(missing_ok=True)
+            return
+        if not claim.exists():
+            return
+        time.sleep(0.1)
+
+
 def queue_dispatch(
     runtime: str, role: str, prompt: str, project_root: Path,
     root: Path, task_id: str, timeout: int,
@@ -188,8 +216,9 @@ def queue_dispatch(
             time.sleep(0.5)
         raise OrchestratorError(f"Timed out waiting for {role} queue job {job_id}.")
     except Exception as exc:
-        request_cancel(root, project_root, job_id, str(exc))
-        (paths["queued"] / f"{job_id}.json").unlink(missing_ok=True)
+        cancel_and_quiesce_job(
+            root, project_root, role, job_id, str(exc)
+        )
         raise
 
 

@@ -161,7 +161,11 @@ def run_task(
     project_root: Path, root: Path, task_id: str, runtime: str,
     transport: str, max_steps: int, timeout: int,
 ) -> int:
-    with FileLock(project_lock_path(root, project_root), f"Code Plane {project_root}"):
+    with FileLock(
+        project_lock_path(root, project_root),
+        f"Code Plane {project_root}",
+        recover_stale=False,
+    ):
         return run_task_locked(
             project_root, root, task_id, runtime, transport, max_steps, timeout
         )
@@ -171,7 +175,11 @@ def create_task_and_run(
     project_root: Path, root: Path, requirement: str, runtime: str,
     transport: str, max_steps: int, timeout: int,
 ) -> int:
-    with FileLock(project_lock_path(root, project_root), f"Code Plane {project_root}"):
+    with FileLock(
+        project_lock_path(root, project_root),
+        f"Code Plane {project_root}",
+        recover_stale=False,
+    ):
         require_clean_code_plane(project_root)
         container = tasks_dir(root, project_root)
         before = {p.name for p in container.iterdir() if p.is_dir()}

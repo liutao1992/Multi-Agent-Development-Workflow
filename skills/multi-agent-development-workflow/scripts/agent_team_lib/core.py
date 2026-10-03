@@ -341,9 +341,10 @@ def process_alive(pid: int) -> bool:
 
 
 class FileLock:
-    def __init__(self, path: Path, description: str):
+    def __init__(self, path: Path, description: str, recover_stale: bool = True):
         self.path = path
         self.description = description
+        self.recover_stale = recover_stale
 
     def __enter__(self):
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -354,6 +355,11 @@ class FileLock:
                 pid = int(self.path.read_text(encoding="utf-8").strip())
                 os.kill(pid, 0)
             except (ValueError, ProcessLookupError):
+                if not self.recover_stale:
+                    raise OrchestratorError(
+                        f"{self.description} has a stale lock. Fail-closed: inspect orphan "
+                        f"workers/processes before removing {self.path}."
+                    )
                 self.path.unlink(missing_ok=True)
                 return self.__enter__()
             except PermissionError:

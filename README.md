@@ -45,7 +45,7 @@ one working tree
 → one automated Task at a time
 ```
 
-The standalone Process/Queue runtime enforces this with a Code Plane lock. For true parallel Tasks, create a separate Git worktree per Task. Native SubAgent mode must follow the same rule even though its scheduling happens inside the parent Agent.
+The standalone Process/Queue runtime enforces this with a Code Plane lock. The lock is fail-closed: a stale lock is not automatically stolen because an orphan worker may still be changing the Code Plane. For true parallel Tasks, create a separate Git worktree per Task. Native SubAgent mode must follow the same rule even though its scheduling happens inside the parent Agent.
 
 ---
 
@@ -416,7 +416,7 @@ CLAIMED / RUNNING + lease
 SUCCEEDED / FAILED / CANCELLED
 ```
 
-Expired claims are recovered. A timed-out orchestrator cancels the job, and a running worker terminates its child runtime instead of continuing to make ghost changes.
+Expired claims are recovered. A timed-out orchestrator cancels the job and attempts to quiesce any claimed child process before returning; a running worker also observes cancellation and terminates its child runtime instead of continuing to make ghost changes.
 
 ---
 

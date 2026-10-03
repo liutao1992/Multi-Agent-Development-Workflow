@@ -123,7 +123,7 @@ QUEUED
 → SUCCEEDED / FAILED / CANCELLED
 ```
 
-On orchestrator timeout, a cancellation marker is written. Running workers observe cancellation and terminate the child process group. Expired claims are recovered; if a stale claim recorded an orphan child process, recovery attempts to terminate it before requeueing.
+On orchestrator timeout, a cancellation marker is written. Before the orchestrator releases control, it attempts to quiesce any claimed child process recorded for that job. Running workers also observe cancellation and terminate the child process group. Expired claims are recovered; if a stale claim recorded an orphan child process, recovery attempts to terminate it before requeueing.
 
 Every job is project-scoped and carries both canonical project root and project fingerprint.
 
@@ -152,6 +152,8 @@ Two locks are used:
 
 1. **Code Plane lock** — one automated Task per Git working tree.
 2. **Task lock** — prevents duplicate orchestration of the same Task.
+
+The Code Plane lock is deliberately **fail-closed**. If its owner process is gone, it is not automatically stolen because an orphan worker/child process may still be mutating the working tree. Inspect and quiesce leftovers before removing a stale Code Plane lock.
 
 Even disjoint file edits cannot safely share a working tree because Git HEAD and index are shared.
 
