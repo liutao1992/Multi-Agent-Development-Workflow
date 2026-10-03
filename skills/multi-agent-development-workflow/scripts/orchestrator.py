@@ -563,9 +563,11 @@ def dispatch(
 
     if transport == "queue" and role in {"Impl", "Review"}:
         queue_dispatch(runtime, role, prompt, project_root, root, task_id, timeout)
-    elif transport == "process" and runtime == "codex":
+    elif transport in {"process", "queue"} and runtime == "codex":
+        # In queue transport Lead remains local; only Impl/Review are queued.
         run_codex(prompt, project_root, log_path, role)
-    elif transport == "process" and runtime == "pi":
+    elif transport in {"process", "queue"} and runtime == "pi":
+        # In queue transport Lead remains local; only Impl/Review are queued.
         run_pi_rpc(prompt, project_root, log_path, role, timeout)
     else:
         raise OrchestratorError(f"Unsupported standalone transport/runtime: {transport}/{runtime}")
