@@ -67,6 +67,32 @@ NEW_PID="$(tmux display-message -p -t "$NEW_REVIEW_PANE" '#{pane_pid}')"
 [ "$REVIEW_PANE" = "$NEW_REVIEW_PANE" ]
 [ "$OLD_PID" != "$NEW_PID" ]
 
+TASK_ROOT="$REPO_A/.agent-team/tasks/TASK-TEST-001"
+mkdir -p "$TASK_ROOT/plans"
+cat >"$TASK_ROOT/STATUS.md" <<'EOF'
+# Task Status
+
+## Current State
+
+PLANNING
+
+## Current Implementation
+
+Artifact: N/A
+Code Head SHA: N/A
+
+## Current Review
+
+Artifact: N/A
+EOF
+(
+  sleep 0.3
+  printf 'plan evidence\n' > "$TASK_ROOT/plans/PLAN-v001.md"
+  cd "$REPO_A"
+  "$MADW" signal impl TASK-TEST-001 001 >/dev/null
+) &
+(cd "$REPO_A" && "$MADW" wait impl TASK-TEST-001 001 5) | grep -Fq "PLAN-v001.md"
+
 STATUS_OUTPUT="$(cd "$REPO_A" && "$MADW" status)"
 printf '%s\n' "$STATUS_OUTPUT" | grep -Fq "Team:    $SESSION_A"
 printf '%s\n' "$STATUS_OUTPUT" | grep -Fq "leader"

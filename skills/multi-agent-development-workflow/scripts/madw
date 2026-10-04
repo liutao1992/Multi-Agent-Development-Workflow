@@ -1,7 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+SOURCE="${BASH_SOURCE[0]}"
+while [ -h "$SOURCE" ]; do
+  SOURCE_DIR="$(CDPATH= cd -- "$(dirname -- "$SOURCE")" && pwd)"
+  LINK_TARGET="$(readlink "$SOURCE")"
+  case "$LINK_TARGET" in
+    /*) SOURCE="$LINK_TARGET" ;;
+    *) SOURCE="$SOURCE_DIR/$LINK_TARGET" ;;
+  esac
+done
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$SOURCE")" && pwd)"
 SKILL_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
 DEFAULT_BOOT_TIMEOUT="${MADW_BOOT_TIMEOUT:-15}"
 DEFAULT_WAIT_TIMEOUT="${MADW_WAIT_TIMEOUT:-3600}"
@@ -285,8 +294,8 @@ create_team() {
   tmux new-session -d -s "$session" -n team -c "$root" "$cmd"
   tmux set-option -t "$session:team" remain-on-exit on
   lead="$(tmux display-message -p -t "$session:team.0" '#{pane_id}')"
-  impl="$(tmux split-window -v -p 45 -P -F '#{pane_id}' -t "$lead" -c "$root" "$cmd")"
-  review="$(tmux split-window -h -p 50 -P -F '#{pane_id}' -t "$impl" -c "$root" "$cmd")"
+  impl="$(tmux split-window -v -l 45% -P -F '#{pane_id}' -t "$lead" -c "$root" "$cmd")"
+  review="$(tmux split-window -h -l 50% -P -F '#{pane_id}' -t "$impl" -c "$root" "$cmd")"
 
   tmux select-pane -t "$lead" -T "Lead"
   tmux select-pane -t "$impl" -T "Impl"
@@ -495,13 +504,31 @@ stop_team() {
   fi
 }
 
+handoff_kind() {
+  local role="$1" task_id="$2" root status state
+  root="$(project_root)"
+  status="$root/.agent-team/tasks/$task_id/STATUS.md"
+  [ -f "$status" ] || die "STATUS not found for $task_id"
+  state="$(status_state "$status")"
+  if [ "$role" = "review" ]; then
+    printf '%s\n' "review"
+  else
+    case "$state" in
+      PLANNING|PLAN_REWORK) printf '%s\n' "plan" ;;
+      *) printf '%s\n' "impl" ;;
+    esac
+  fi
+}
+
 handoff_channel() {
-  local role="$1" task_id="$2" round="$3"
+  local role="$1" task_id="$2" round="$3" kind
   case "$role" in impl|review) ;; *) die "completion role must be impl or review" ;; esac
   case "$round" in [0-9][0-9][0-9]) ;; *) die "ROUND must be three digits, for example 001" ;; esac
-  printf 'madw:%s:%s:%s
-' "$task_id" "$role" "$round"
+  kind="$(handoff_kind "$role" "$task_id")"
+  printf 'madw:%s:%s:%s:%s\n' "$task_id" "$role" "$kind" "$round"
 }
+
+expected_artifact() {
 
 expected_artifact() {
   local role="$1" task_id="$2" round="$3" root status state
