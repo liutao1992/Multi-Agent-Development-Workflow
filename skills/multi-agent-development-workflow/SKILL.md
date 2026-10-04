@@ -479,10 +479,10 @@ The standalone Orchestrator starts headless role workers itself. Use this for CI
 The normal interactive workflow is:
 
 ```text
-┌──────────────────────────────────────┐
-│ Lead                                 │
-├───────────────────┬──────────────────┤
-│ Impl              │ Review           │
+┌───────────────────┬──────────────────┐
+│                   │ Impl             │
+│ Lead              ├──────────────────┤
+│                   │ Review           │
 └───────────────────┴──────────────────┘
 ```
 

@@ -294,8 +294,8 @@ create_team() {
   tmux new-session -d -s "$session" -n team -c "$root" "$cmd"
   tmux set-option -t "$session:team" remain-on-exit on
   lead="$(tmux display-message -p -t "$session:team.0" '#{pane_id}')"
-  impl="$(tmux split-window -v -l 45% -P -F '#{pane_id}' -t "$lead" -c "$root" "$cmd")"
-  review="$(tmux split-window -h -l 50% -P -F '#{pane_id}' -t "$impl" -c "$root" "$cmd")"
+  impl="$(tmux split-window -h -l 50% -P -F '#{pane_id}' -t "$lead" -c "$root" "$cmd")"
+  review="$(tmux split-window -v -l 50% -P -F '#{pane_id}' -t "$impl" -c "$root" "$cmd")"
 
   tmux select-pane -t "$lead" -T "Lead"
   tmux select-pane -t "$impl" -T "Impl"
@@ -662,6 +662,8 @@ start_command() {
   local session root stored_runtime runtime
   session="$(team_session)"
   root="$(project_root)"
+  git -C "$root" rev-parse --verify HEAD >/dev/null 2>&1 ||
+    die "Git repository has no commit yet. Create an initial commit before 'madw start' so the Task Baseline SHA can be frozen."
 
   if session_exists "$session"; then
     validate_existing_team "$session"

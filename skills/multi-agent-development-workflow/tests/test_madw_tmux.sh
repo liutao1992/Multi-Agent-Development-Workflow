@@ -47,6 +47,20 @@ REPO_B="$TMP/other/project"
 init_repo "$REPO_A"
 init_repo "$REPO_B"
 
+EMPTY_REPO="$TMP/empty-project"
+mkdir -p "$EMPTY_REPO"
+git -C "$EMPTY_REPO" init -q
+if (cd "$EMPTY_REPO" && MADW_AGENT_CMD="$FAKE" MADW_NO_ATTACH=1 "$MADW" start) >"$TMP/empty-start.log" 2>&1; then
+  echo "start accepted a Git repository without a baseline commit" >&2
+  exit 1
+fi
+grep -Fq "no commit yet" "$TMP/empty-start.log"
+EMPTY_SESSION="$(cd "$EMPTY_REPO" && "$MADW" id)"
+if tmux list-sessions -F '#S' 2>/dev/null | grep -Fqx "$EMPTY_SESSION"; then
+  echo "start created tmux panes before checking the Git baseline" >&2
+  exit 1
+fi
+
 # Default install goes to the shared Agent Skills directory and removes an old
 # Codex-specific copy from the discovery path.
 INSTALL_HOME="$TMP/install-home"
@@ -68,6 +82,19 @@ SESSION_A="$(session_for "$REPO_A")"
 [ "$(tmux show-options -v -t "$SESSION_A" @madw_runtime)" = "custom" ]
 
 LEAD_PANE="$(tmux show-options -v -t "$SESSION_A" @madw_pane_leader)"
+IMPL_PANE="$(tmux show-options -v -t "$SESSION_A" @madw_pane_impl)"
+REVIEW_PANE="$(tmux show-options -v -t "$SESSION_A" @madw_pane_review)"
+LEAD_LEFT="$(tmux display-message -p -t "$LEAD_PANE" '#{pane_left}')"
+LEAD_HEIGHT="$(tmux display-message -p -t "$LEAD_PANE" '#{pane_height}')"
+IMPL_LEFT="$(tmux display-message -p -t "$IMPL_PANE" '#{pane_left}')"
+IMPL_TOP="$(tmux display-message -p -t "$IMPL_PANE" '#{pane_top}')"
+IMPL_HEIGHT="$(tmux display-message -p -t "$IMPL_PANE" '#{pane_height}')"
+REVIEW_LEFT="$(tmux display-message -p -t "$REVIEW_PANE" '#{pane_left}')"
+REVIEW_TOP="$(tmux display-message -p -t "$REVIEW_PANE" '#{pane_top}')"
+[ "$LEAD_LEFT" -lt "$IMPL_LEFT" ]
+[ "$IMPL_LEFT" -eq "$REVIEW_LEFT" ]
+[ "$IMPL_TOP" -lt "$REVIEW_TOP" ]
+[ "$LEAD_HEIGHT" -gt "$IMPL_HEIGHT" ]
 for _ in 1 2 3 4 5 6 7 8 9 10; do
   if tmux capture-pane -p -t "$LEAD_PANE" -S -100 | grep -q 'Role: Lead'; then break; fi
   sleep 0.1
