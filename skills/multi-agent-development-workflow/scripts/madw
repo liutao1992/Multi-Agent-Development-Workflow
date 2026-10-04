@@ -345,6 +345,52 @@ configure_team_labels() {
   tmux set-option -p -t "$review" @madw_label "Review"
 }
 
+configure_team_progress() {
+  local session
+  session="$(team_session)"
+  tmux set-option -t "$session" status 3
+  tmux set-option -t "$session" 'status-format[1]' '#[fg=colour45,bold] 任务进度 #[default] #{@madw_task_display}'
+  tmux set-option -t "$session" 'status-format[2]' '#[fg=colour220,bold] Agent 通信 #[default] #{@madw_flow_display}'
+  if [ -z "$(session_option "$session" @madw_task_display)" ]; then
+    tmux set-option -t "$session" @madw_task_display '尚未记录当前任务'
+  fi
+  if [ -z "$(session_option "$session" @madw_flow_display)" ]; then
+    tmux set-option -t "$session" @madw_flow_display '等待用户输入需求或 Leader 发起交接'
+  fi
+}
+
+state_label() {
+  case "$1" in
+    CREATED) echo '待规划' ;;
+    PLANNING) echo '规划中' ;;
+    PLAN_REVIEW) echo '计划待确认' ;;
+    PLAN_REWORK) echo '计划返工' ;;
+    READY_FOR_IMPLEMENTATION) echo '待实现' ;;
+    IMPLEMENTING) echo '实现中' ;;
+    READY_FOR_REVIEW) echo '待评审' ;;
+    REVIEWING) echo '评审中' ;;
+    REWORK) echo '实现返工' ;;
+    READY_FOR_FINAL_ACCEPTANCE) echo '待最终验收' ;;
+    ACCEPTED) echo '已验收' ;;
+    CANCELLED) echo '已取消' ;;
+    BLOCKED) echo '已阻塞' ;;
+    *) echo "${1:-状态未知}" ;;
+  esac
+}
+
+set_team_progress() {
+  local task_id="$1" flow="$2" session status state
+  session="$(team_session)"
+  if [ -n "$task_id" ]; then
+    status="$(project_root)/.agent-team/tasks/$task_id/STATUS.md"
+    state='等待 STATUS'
+    [ ! -f "$status" ] || state="$(status_state "$status")"
+    tmux set-option -t "$session" @madw_flow_task "$task_id"
+    tmux set-option -t "$session" @madw_task_display "【$(state_label "$state")】 $task_id"
+  fi
+  tmux set-option -t "$session" @madw_flow_display "$flow"
+}
+
 configure_team_keys() (
   local session table bindings
   session="$(team_session)"
@@ -392,6 +438,7 @@ create_team() {
   tmux set-option -p -t "$impl" @madw_role impl
   tmux set-option -p -t "$review" @madw_role review
   configure_team_labels
+  configure_team_progress
   configure_team_keys
 
   if ! wait_pane_alive "$lead" "$boot_timeout" ||
@@ -417,6 +464,7 @@ attach_team() {
   validate_existing_team "$session"
   tmux set-option -t "$session" mouse on
   configure_team_labels
+  configure_team_progress
   configure_team_keys
   repair_dead_panes
   pane="$(pane_for_role "$focus")"
@@ -666,25 +714,32 @@ wait_handoff() {
   pane="$(pane_for_role "$role")"
   artifact="$(expected_artifact "$role" "$task_id" "$round")"
 
+  local actor
+  case "$role" in impl) actor='Impl' ;; review) actor='Review' ;; esac
+
   if [ -n "$(session_option "$session" "$option")" ]; then
     verify_handoff "$session" "$option" "$artifact"
+    set_team_progress "$task_id" "$actor → Leader  |  第 $round 轮已完成，等待 Leader 检查工件"
     echo "completed: $channel"
     echo "artifact:  $artifact"
     return 0
   fi
 
+  set_team_progress "$task_id" "Leader → $actor  |  等待第 $round 轮工件与完成信号"
   tmux wait-for "$channel" &
   waiter=$!
   started="$(date +%s)"
   while kill -0 "$waiter" 2>/dev/null; do
     if ! pane_exists "$pane"; then
       kill "$waiter" 2>/dev/null || true; wait "$waiter" 2>/dev/null || true
+      set_team_progress "$task_id" "⚠ $actor 面板消失  |  等待已中止"
       die "$role pane disappeared while waiting for $channel"
     fi
     dead="$(tmux display-message -p -t "$pane" '#{pane_dead}')"
     pid="$(tmux display-message -p -t "$pane" '#{pane_pid}')"
     if [ "$dead" = "1" ] || ! kill -0 "$pid" 2>/dev/null; then
       kill "$waiter" 2>/dev/null || true; wait "$waiter" 2>/dev/null || true
+      set_team_progress "$task_id" "⚠ $actor 已退出  |  等待已中止"
       echo "madw: $role Agent exited while waiting for $channel" >&2
       tmux capture-pane -p -t "$pane" -S -80 >&2 2>/dev/null || true
       return 2
@@ -692,6 +747,7 @@ wait_handoff() {
     now="$(date +%s)"
     if [ $((now - started)) -ge "$timeout" ]; then
       kill "$waiter" 2>/dev/null || true; wait "$waiter" 2>/dev/null || true
+      set_team_progress "$task_id" "⚠ 等待 $actor 超时  |  请检查右侧 Agent"
       echo "madw: timeout waiting ${timeout}s for $channel" >&2
       tmux capture-pane -p -t "$pane" -S -80 >&2 2>/dev/null || true
       return 124
@@ -701,12 +757,13 @@ wait_handoff() {
   wait "$waiter"
 
   verify_handoff "$session" "$option" "$artifact"
+  set_team_progress "$task_id" "$actor → Leader  |  第 $round 轮已完成，等待 Leader 检查工件"
   echo "completed: $channel"
   echo "artifact:  $artifact"
 }
 
 signal_handoff() {
-  local channel option artifact session digest prior
+  local channel option artifact session digest prior actor active_task
   channel="$(handoff_channel "$1" "$2" "$3")"
   option="$(handoff_option "$channel")"
   artifact="$(expected_artifact "$1" "$2" "$3")"
@@ -720,12 +777,18 @@ signal_handoff() {
   fi
   tmux set-option -t "$session" "$option" "$digest"
   tmux wait-for -S "$channel"
+  case "$1" in impl) actor='Impl' ;; review) actor='Review' ;; esac
+  active_task="$(session_option "$session" @madw_flow_task)"
+  if [ -z "$active_task" ] || [ "$active_task" = "$2" ]; then
+    set_team_progress "$2" "$actor → Leader  |  第 $3 轮工件已提交，等待 Lead 验证"
+  fi
   echo "signaled: $channel"
 }
 
 send_role() {
-  local role="$1" message="$2" pane
+  local role="$1" message="$2" pane task_id actor
   pane="$(pane_for_role "$role")"
+  task_id="$(printf '%s\n' "$message" | grep -oE 'TASK-[A-Za-z0-9_-]+' | head -1 || true)"
   if [ "$role" = "impl" ] || [ "$role" = "review" ]; then
     message="$(role_prompt "$role")
 
@@ -733,6 +796,13 @@ send_role() {
 $message"
   fi
   send_to_pane "$pane" "$message"
+  [ -n "$task_id" ] || task_id="$(session_option "$(team_session)" @madw_flow_task)"
+  case "$role" in
+    impl) actor='Impl' ;;
+    review) actor='Review' ;;
+    leader) actor='Leader' ;;
+  esac
+  set_team_progress "$task_id" "Leader → $actor  |  任务已交接，$actor 正在处理"
   echo "sent to $role ($pane)"
 }
 
@@ -786,6 +856,7 @@ start_command() {
     fi
     tmux set-option -t "$session" mouse on
     configure_team_labels
+    configure_team_progress
     configure_team_keys
     repair_dead_panes
     echo "Project: $root"

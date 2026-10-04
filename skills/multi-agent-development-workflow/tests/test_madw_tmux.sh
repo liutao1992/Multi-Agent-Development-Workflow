@@ -142,6 +142,10 @@ SESSION_A="$(session_for "$REPO_A")"
 [ "$(tmux list-panes -t "$SESSION_A:team" -F '#{pane_id}' | wc -l | tr -d ' ')" = "3" ]
 [ "$(tmux show-options -v -t "$SESSION_A" @madw_runtime)" = "custom" ]
 [ "$(tmux show-options -v -t "$SESSION_A" mouse)" = "on" ]
+[ "$(tmux show-options -v -t "$SESSION_A" status)" = "3" ]
+tmux show-options -v -t "$SESSION_A" 'status-format[1]' | grep -Fq '任务进度'
+tmux show-options -v -t "$SESSION_A" 'status-format[2]' | grep -Fq 'Agent 通信'
+[ "$(tmux show-options -v -t "$SESSION_A" @madw_task_display)" = "尚未记录当前任务" ]
 [ "$(tmux show-options -v -t "$SESSION_A" key-table)" != "root" ]
 TEAM_TABLE="$(tmux show-options -v -t "$SESSION_A" key-table)"
 tmux list-keys -a | grep -E -- "-T $TEAM_TABLE[[:space:]]+C-c[[:space:]]+kill-session -t $SESSION_A$" >/dev/null
@@ -188,6 +192,8 @@ if tmux capture-pane -p -t "$REVIEW_PANE" -S -100 | grep -Fq 'Review 角色'; th
   exit 1
 fi
 (cd "$REPO_A" && "$MADW" send impl 'TASK-TEST-001: plan the change') >/dev/null
+[ "$(tmux show-options -v -t "$SESSION_A" @madw_flow_task)" = 'TASK-TEST-001' ]
+tmux show-options -v -t "$SESSION_A" @madw_flow_display | grep -Fq 'Leader → Impl'
 for _ in 1 2 3 4 5 6 7 8 9 10; do
   if tmux capture-pane -p -t "$IMPL_PANE" -S -100 | grep -Fq 'TASK-TEST-001: plan the change'; then break; fi
   sleep 0.1
@@ -268,6 +274,13 @@ EOF
   "$MADW" signal impl TASK-TEST-001 001 >/dev/null
 ) &
 (cd "$REPO_A" && "$MADW" wait impl TASK-TEST-001 001 5) | grep -Fq "PLAN-v001.md"
+tmux show-options -v -t "$SESSION_A" @madw_task_display | grep -Fq '【规划中】 TASK-TEST-001'
+tmux show-options -v -t "$SESSION_A" @madw_flow_display | grep -Fq 'Impl → Leader'
+
+# A late signal for an older task must not replace the current task's banner.
+(cd "$REPO_A" && "$MADW" send impl 'TASK-TEST-002: next task') >/dev/null
+(cd "$REPO_A" && "$MADW" signal impl TASK-TEST-001 001) >/dev/null
+[ "$(tmux show-options -v -t "$SESSION_A" @madw_flow_task)" = 'TASK-TEST-002' ]
 
 # Completion survives an interrupted/repeated wait and an early signal.
 (cd "$REPO_A" && "$MADW" wait impl TASK-TEST-001 001 1) | grep -Fq "PLAN-v001.md"
