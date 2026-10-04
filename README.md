@@ -171,6 +171,8 @@ Process 模式会检查工作树是否干净、角色写入边界、计划审批
 
 如果使用 Pi，三个面板都将 `--runtime codex` 改为 `--runtime pi`。Lead 会自动把工作派给右侧面板，等待结果，再继续状态转换、返工或验收；不需要在面板之间手动输入指令。
 
+`start` 只用于创建新 Task。如果它已经创建了 Task、随后在派发工作者时中断，请保留已打印的 Task ID，检查 `STATUS.md` 和运行目录中的 `pending-validation.json`；完成恢复检查后，在左侧用 `run <TASK-ID>` 继续。重复执行 `start` 不会接管现有 Task，可能报 `Expected exactly one new Task, found 0`。请先启动并保持 Impl、Review 两个 worker 运行，再在左侧执行 `start` 或 `run`。
+
 Queue 的任务按项目隔离。任务经过 `QUEUED → CLAIMED/RUNNING → SUCCEEDED/FAILED/CANCELLED`；如果过期任务的原工作者身份或停止状态无法证实，运行时会隔离该任务并停止新的自动执行，避免旧进程继续改同一个工作树。出现隔离时应先检查工作者进程与运行目录，再恢复任务。
 
 ## 方式四：手动交接
