@@ -391,6 +391,11 @@ def validate_task_contract_mutation(
         ):
             # The transition validator separately requires matching FAIL/MISMATCH evidence.
             return
+        if current_state(before_status) == "REVIEWING" and current_state(after_status) == "REWORK":
+            raise ProtocolViolation(
+                "During REVIEWING -> REWORK, Lead may change only TASK.md ## Rework Requirements; "
+                "keep ## Requirement Change Log unchanged."
+            )
         raise ProtocolViolation(
             "Lead modified TASK.md without changing the requirement contract; use STATUS/other Lead-owned artifacts instead."
         )

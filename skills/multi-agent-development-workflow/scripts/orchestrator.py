@@ -181,6 +181,11 @@ Before accepting, verify the REVIEW artifact has every machine-readable target f
 For a PASS review, STATUS Current Review Protocol Status MUST remain READY_FOR_REVIEW
 even when Current State becomes ACCEPTED; this field records target verification,
 not lifecycle completion. Copy it exactly from the REVIEW artifact."""
+        if state == "REVIEWING":
+            schema_hint += """
+If Review FAIL requires REVIEWING → REWORK, put confirmed RW-NNN remediation only
+under TASK.md ## Rework Requirements. Keep ## Requirement Change Log unchanged;
+do not change Task Contract Revision/Hash for Review remediation."""
     else:
         schema_hint = ""
     return f"""Use multi-agent-development-workflow.
