@@ -41,6 +41,8 @@ export AGENT_TEAM="$HOME/.codex/skills/multi-agent-development-workflow/scripts/
 
 此设置只对当前终端会话及其子进程生效。新开一个 Warp 面板或终端窗口时，需要在那个面板再执行一次；Queue 三个面板都要设置。也可以把这行加入 `~/.zshrc` 或 `~/.bashrc`，让之后启动的终端自动设置。使用 Pi 时，请把路径改为实际安装 Skill 的位置。
 
+**在 Warp 中请使用普通终端输入框执行这些 `bash` 命令。** 如果输入记录前出现 `/agent`，说明命令被送进 Warp AI 对话，随后出现“out of AI credits”是 Warp AI 的额度提示，`agent-team doctor` 并没有运行。此时打开或切换到显示 shell 提示符的终端面板，不要带 `/agent` 前缀；先执行上面的 `export`，再执行 `"$AGENT_TEAM" --runtime codex doctor`。可以先运行 `printf '%s\n' "$AGENT_TEAM"`，确认当前面板已经设置了路径。
+
 ## 方式一：Native SubAgent
 
 Native 模式由当前 Lead 会话作为父 Agent。Lead 通常复用同一个 Impl 子 Agent 完成计划、实现和返工；每轮 Review 都新建一个 Review 子 Agent，以保持独立性。Lead 自动执行计划审批、冻结 Review 目标、处理返工和最终验收。
@@ -137,7 +139,7 @@ Process 模式会检查工作树是否干净、角色写入边界、计划审批
 └──────────────────────────────┴──────────────────────────────┘
 ```
 
-三个面板都进入同一个目标项目，并在每个面板分别执行上文的 `AGENT_TEAM="..."` 路径设置。启动顺序如下。
+三个面板都进入同一个目标项目，并在每个面板的普通终端输入框分别执行上文的 `export AGENT_TEAM="..."` 路径设置。启动顺序如下。
 
 **右上 Impl 面板**，运行一次并保持运行：
 
