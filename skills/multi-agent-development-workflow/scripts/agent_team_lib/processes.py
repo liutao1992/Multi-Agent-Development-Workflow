@@ -17,6 +17,7 @@ from .core import OrchestratorError, process_alive
 
 PROCESS_GRACE_SECONDS = 5
 CODEX_TOKENS = re.compile(r"(?m)^tokens used\s*\n\s*([\d,]+)\s*$")
+SKILL_ROOT = Path(__file__).resolve().parents[2]
 
 
 def reported_codex_tokens(log_path: Path, offset: int = 0) -> int | None:
@@ -196,8 +197,14 @@ def run_pi_rpc(
     tick: Callable[[subprocess.Popen], None] | None = None,
     cancelled: Callable[[], bool] | None = None,
 ) -> None:
+    command = ["pi", "--mode", "rpc", "--no-session", "--approve", "--no-extensions",
+               "--skill", str(SKILL_ROOT)]
+    if model := os.environ.get("AGENT_TEAM_PI_MODEL"):
+        command.extend(["--model", model])
+    if thinking := os.environ.get("AGENT_TEAM_PI_THINKING"):
+        command.extend(["--thinking", thinking])
     proc = subprocess.Popen(
-        ["pi", "--mode", "rpc", "--no-session", "--approve"],
+        command,
         cwd=str(cwd),
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,

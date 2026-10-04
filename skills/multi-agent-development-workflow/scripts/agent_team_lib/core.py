@@ -302,7 +302,11 @@ TASK_CONTRACT_SECTIONS = (
 
 
 def line_field(text: str, field: str) -> str:
-    match = re.search(rf"(?m)^{re.escape(field)}:[^\S\r\n]*(.*?)[^\S\r\n]*\r?$", text)
+    match = re.search(
+        rf"(?m)^(?:-[^\S\r\n]+)?(?:\*\*)?{re.escape(field)}:(?:\*\*)?"
+        rf"[^\S\r\n]*(.*?)[^\S\r\n]*\r?$",
+        text,
+    )
     return match.group(1).strip() if match else ""
 
 
@@ -604,8 +608,8 @@ def validate_role_postconditions(
         if after_git["status"].strip() or after_git["cached"].strip() or after_git["unstaged"].strip():
             raise ProtocolViolation("Implementation Impl did not leave the Code Plane clean after committing.")
         report = (task / created[0]).read_text(encoding="utf-8")
-        match = re.search(r"(?m)^Code Head SHA:\s*([0-9a-fA-F]{40})\s*$", report)
-        if not match or after_git["head"].lower() != match.group(1).lower():
+        report_head = line_field(report, "Code Head SHA")
+        if not re.fullmatch(r"[0-9a-fA-F]{40}", report_head) or after_git["head"].lower() != report_head.lower():
             raise ProtocolViolation("IMPL Code Head SHA does not match observed HEAD.")
         return
 

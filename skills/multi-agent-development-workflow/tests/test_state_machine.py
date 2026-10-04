@@ -336,6 +336,34 @@ Protocol Status: {protocol}
                 self.head,
             )
 
+    def test_implementation_head_field_allows_markdown_bullet(self) -> None:
+        self.write_impl()
+        artifact = self.task / "implementations" / "IMPL-001.md"
+        artifact.write_text(
+            artifact.read_text(encoding="utf-8").replace("Code Head SHA:", "- Code Head SHA:"),
+            encoding="utf-8",
+        )
+        state_machine.validate_transition(
+            self.task, self.st("IMPLEMENTING"),
+            self.st("REVIEWING", impl_artifact="IMPL-001.md", code_head=self.head, frozen="true"),
+            self.head,
+        )
+
+    def test_implementation_head_field_allows_bold_markdown_bullet(self) -> None:
+        self.write_impl()
+        artifact = self.task / "implementations" / "IMPL-001.md"
+        artifact.write_text(
+            artifact.read_text(encoding="utf-8")
+            .replace("Task Contract Hash:", "- **Task Contract Hash:**")
+            .replace("Code Head SHA:", "- **Code Head SHA:**"),
+            encoding="utf-8",
+        )
+        state_machine.validate_transition(
+            self.task, self.st("IMPLEMENTING"),
+            self.st("REVIEWING", impl_artifact="IMPL-001.md", code_head=self.head, frozen="true"),
+            self.head,
+        )
+
     def test_direct_acceptance_requires_pass_review_and_matching_acceptance(self) -> None:
         self.write_impl()
         self.write_review()

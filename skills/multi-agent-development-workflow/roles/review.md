@@ -84,6 +84,12 @@ For IMPL-001 these ranges are equivalent.
 
 Create a new immutable REVIEW-NNN using new task-global REV/TEST IDs as needed.
 
+Use `templates/reviews/REVIEW-001.md` for the machine-readable target block:
+`Declared Code Head SHA`, `Observed Code Head SHA`, all four cleanliness fields,
+and `Protocol Status` must appear as exact field labels on separate lines.
+Place the result under `## Review Result`. Narrative checks may supplement these
+fields but cannot replace them.
+
 Never overwrite previous rounds.
 
 ## Result

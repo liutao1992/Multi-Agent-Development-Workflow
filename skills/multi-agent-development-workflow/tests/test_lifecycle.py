@@ -28,6 +28,7 @@ class LifecycleTests(unittest.TestCase):
         self.fields: dict[str, str] = {}
         self.calls: list[tuple[str, str]] = []
         self.direct_handoffs = False
+        self.bold_impl_head = False
         self.write_status("CREATED")
 
     def write_status(self, state: str, **fields: str) -> None:
@@ -63,6 +64,8 @@ class LifecycleTests(unittest.TestCase):
             git(self.repo, "commit", "-qm", f"implement round {number}")
             self.head = git(self.repo, "rev-parse", "HEAD")
             report = self.evidence() + f"Task Baseline SHA: {self.baseline}\nPrevious Head SHA: {previous}\nCode Head SHA: {self.head}\n"
+            if self.bold_impl_head:
+                report = report.replace("Code Head SHA:", "- **Code Head SHA:**")
             (self.task / "implementations" / f"IMPL-{number:03d}.md").write_text(report, encoding="utf-8")
         elif role == "Review":
             number = 1 if self.fields["impl_artifact"] == "IMPL-001.md" else 2
@@ -155,6 +158,7 @@ class LifecycleTests(unittest.TestCase):
 
     def test_direct_handoffs_reduce_lead_calls_without_skipping_review(self) -> None:
         self.direct_handoffs = True
+        self.bold_impl_head = True
         with mock.patch.object(orch, "dispatch", side_effect=self.dispatch):
             self.assertEqual(
                 orch.run_task(self.repo, self.root, "TASK-1", "codex", "process", 20, 60),

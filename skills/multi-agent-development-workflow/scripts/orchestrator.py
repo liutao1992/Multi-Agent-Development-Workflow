@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import sys
 import time
@@ -22,7 +23,8 @@ from agent_team_lib.core import (
     plan_approval_snapshot, plan_content_snapshot, plan_full_snapshot,
     project_control_snapshot, project_fingerprint, project_lock_path,
     project_runtime_root, read_status, require_clean_code_plane, section_field, select_role,
-    task_contract_snapshot, task_digest, task_lock_path, task_root, task_runtime_dir, tasks_dir,
+    task_contract_hash, task_contract_snapshot, task_digest, task_lock_path, task_root,
+    task_runtime_dir, tasks_dir,
     validate_bootstrap_control_boundary, validate_plan_approval_boundary,
     validate_plan_content_boundary, validate_project_control_boundary,
     validate_role_postconditions, validate_task_contract_integrity,
@@ -108,6 +110,37 @@ def ensure_task_artifact_dirs(task: Path) -> None:
         (task / directory).mkdir(exist_ok=True)
 
 
+def finalize_bootstrap_contract(task: Path) -> bool:
+    """Fill the two derived hash fields after Lead has authored a new contract."""
+    task_path = task / "TASK.md"
+    task_text = task_path.read_text(encoding="utf-8")
+    task_pattern = re.compile(r"(?m)^(Task Contract Hash:[^\S\r\n]*).*$")
+    if len(task_pattern.findall(task_text)) != 1:
+        raise ProtocolViolation("Bootstrap TASK.md must contain one Task Contract Hash field.")
+    computed = task_contract_hash(task_text)
+    new_task = task_pattern.sub(lambda match: match.group(1) + computed, task_text)
+
+    status_path = task / "STATUS.md"
+    status_text = status_path.read_text(encoding="utf-8")
+    section_match = re.search(r"(?m)^## Task Contract[^\S\r\n]*$", status_text)
+    if section_match is None:
+        raise ProtocolViolation("Bootstrap STATUS.md must contain a Task Contract section.")
+    section_end = re.search(r"(?m)^## ", status_text[section_match.end():])
+    end = section_match.end() + section_end.start() if section_end else len(status_text)
+    body = status_text[section_match.end():end]
+    status_pattern = re.compile(r"(?m)^(Hash:[^\S\r\n]*).*$")
+    if len(status_pattern.findall(body)) != 1:
+        raise ProtocolViolation("Bootstrap STATUS.md Task Contract must contain one Hash field.")
+    new_body = status_pattern.sub(lambda match: match.group(1) + computed, body)
+    new_status = status_text[:section_match.end()] + new_body + status_text[end:]
+    changed = new_task != task_text or new_status != status_text
+    if changed:
+        task_path.write_text(new_task, encoding="utf-8")
+        status_path.write_text(new_status, encoding="utf-8")
+    validate_task_contract_integrity(task, new_status)
+    return changed
+
+
 def build_worker_prompt(role: str, task_id: str, project_root: Path, root: Path) -> str:
     task = task_root(root, project_root, task_id)
     skill = SCRIPT_DIR.parent
@@ -133,6 +166,23 @@ def build_worker_prompt(role: str, task_id: str, project_root: Path, root: Path)
         "REVIEWING → ACCEPTED after a PASS Review when final acceptance can be decided."
         if role == "Lead" else ""
     )
+    if role == "Review":
+        schema_hint = f"""Use {skill / 'templates' / 'reviews' / 'REVIEW-001.md'} as the report schema.
+The REVIEW artifact MUST contain these exact standalone field labels with verified values:
+Declared Code Head SHA:, Observed Code Head SHA:, Unstaged Diff Clean:,
+Staged Diff Clean:, Status Porcelain Clean:, Control Plane Excluded:,
+Protocol Status:. Put PASS, FAIL, or N/A as the first line under ## Review Result.
+Do not replace these fields with prose, a checklist, or renamed headings."""
+    elif role == "Lead" and state in {"REVIEWING", "READY_FOR_FINAL_ACCEPTANCE"}:
+        schema_hint = f"""If accepting, use {skill / 'templates' / 'ACCEPTANCE.md'}.
+The acceptance artifact MUST contain exact standalone fields Final Result: ACCEPTED,
+Accepted Review: <current REVIEW filename>, and Accepted Code Head SHA: <full Git SHA>.
+Before accepting, verify the REVIEW artifact has every machine-readable target field.
+For a PASS review, STATUS Current Review Protocol Status MUST remain READY_FOR_REVIEW
+even when Current State becomes ACCEPTED; this field records target verification,
+not lifecycle completion. Copy it exactly from the REVIEW artifact."""
+    else:
+        schema_hint = ""
     return f"""Use multi-agent-development-workflow.
 Role: {role}.
 Invocation Mode: Orchestrated Worker.
@@ -153,24 +203,33 @@ In a Review report, Reviewed Implementation may be IMPL-001 or IMPL-001.md
 when STATUS Current Implementation Artifact is IMPL-001.md.
 {candidate or ''}
 {role_hint}
+{schema_hint}
 Impl/Review must not transition STATUS. Lead is the only lifecycle authority.
 Do not invoke the orchestrator recursively. Stop rather than inventing a human/product decision.
 """
 
 
 def build_new_task_prompt(requirement: str, project_root: Path, root: Path) -> str:
+    skill = SCRIPT_DIR.parent
     return f"""Use multi-agent-development-workflow.
 Role: Lead.
 Invocation Mode: Orchestrated Worker.
 Project Root: {project_root}
 Control Root: {root}
+Skill Root: {skill}
 
 New task requirement:
 {requirement}
 
+Read the Skill entry map/new-task rules, {skill / 'roles' / 'lead.md'}, and the
+TASK.md, STATUS.md, and INDEX.md templates. Do not inspect validator source
+unless a documented rule is unclear.
 Create exactly ONE new Task under {tasks_dir(root, project_root)}.
 Initialize TASK.md and STATUS.md, freeze Task Baseline SHA, select workflow, and advance only to the next Impl handoff.
+Write AUTO in both Task Contract Hash fields; the orchestrator computes and fills
+the exact hash after bootstrap. Do not spend time calculating it manually.
 Do not modify production code. Do not invoke the orchestrator recursively.
+After writing TASK.md, STATUS.md, and INDEX.md, stop at the Impl handoff.
 """
 
 
@@ -512,13 +571,16 @@ def create_task_and_run(
             created[0], before_project_control, after_project_control,
         )
 
-        ensure_task_artifact_dirs(task_root(root, project_root, created[0]))
+        task = task_root(root, project_root, created[0])
+        hash_corrected = finalize_bootstrap_contract(task)
+        ensure_task_artifact_dirs(task)
 
         log_event(root, project_root, created[0], {
             "event": "bootstrap_complete", "role": "Lead", "runtime": runtime,
             "transport": transport,
             "duration_ms": round((time.monotonic() - bootstrap_started) * 1000),
             "tokens_used": reported_codex_tokens(bootstrap_log, bootstrap_offset) if runtime == "codex" else None,
+            "contract_hash_filled": hash_corrected,
         })
 
         print(f"[orchestrator] created {created[0]}")

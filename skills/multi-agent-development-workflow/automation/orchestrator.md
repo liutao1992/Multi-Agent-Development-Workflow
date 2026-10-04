@@ -17,6 +17,9 @@ ACCEPTED / BLOCKED
 \`\`\`
 
 The Orchestrator is an execution mechanism, not a fourth authority.
+During new-task bootstrap it fills the two Task Contract Hash fields from
+Lead-authored TASK content using the same deterministic validator hash function.
+It does not choose or alter requirements.
 
 For a straightforward pass, Lead now moves directly from IMPLEMENTING to
 REVIEWING and from REVIEWING to ACCEPTED. Each direct transition has the same

@@ -132,6 +132,12 @@ On Review PASS:
 ## Final acceptance
 
 Create ACCEPTANCE.md bound to exact Code Head SHA and accepted artifact rounds.
+Use `templates/ACCEPTANCE.md`, including exact fields `Final Result: ACCEPTED`,
+`Accepted Review`, and `Accepted Code Head SHA`; prose alone does not satisfy
+the acceptance validator.
+After a PASS Review, keep STATUS `Current Review → Protocol Status` equal to
+`READY_FOR_REVIEW` through acceptance. It is the Review target verification
+result, not a lifecycle completion flag.
 
 Support Plan Gate SKIPPED by recording Plan Reference/Version N/A.
 

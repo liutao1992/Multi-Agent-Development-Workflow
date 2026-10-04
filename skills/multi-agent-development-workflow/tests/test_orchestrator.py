@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 import subprocess
@@ -274,16 +275,26 @@ class TimeoutTests(RepoTestCase):
 
     def test_pi_reads_settled_event_from_same_write(self) -> None:
         real_popen = subprocess.Popen
+        launched: list[str] = []
         script = (
             "import sys,time; sys.stdin.readline(); "
             "sys.stdout.write('{\"type\":\"agent_started\"}\\n{\"type\":\"agent_settled\"}\\n'); "
             "sys.stdout.flush(); time.sleep(3)"
         )
         def fake_pi(command, **kwargs):
+            launched.extend(command)
             return real_popen([sys.executable, "-u", "-c", script], **kwargs)
 
-        with mock.patch.object(processes.subprocess, "Popen", side_effect=fake_pi):
-            processes.run_pi_rpc("work", self.repo, Path(self.temp.name) / "pi.log", "Impl", 2)
+        with mock.patch.dict(os.environ, {
+            "AGENT_TEAM_PI_MODEL": "kimi-coding/kimi-for-coding-highspeed",
+            "AGENT_TEAM_PI_THINKING": "low",
+        }):
+            with mock.patch.object(processes.subprocess, "Popen", side_effect=fake_pi):
+                processes.run_pi_rpc("work", self.repo, Path(self.temp.name) / "pi.log", "Impl", 2)
+        self.assertIn("--no-extensions", launched)
+        self.assertIn("--skill", launched)
+        self.assertIn("kimi-coding/kimi-for-coding-highspeed", launched)
+        self.assertIn("low", launched)
 
     def test_stream_process_timeout(self) -> None:
         log = Path(self.temp.name) / "timeout.log"
@@ -344,6 +355,31 @@ class DoctorTests(RepoTestCase):
         self.assertIn("Candidate pending evidence: implementations/IMPL-001.md", prompt)
         self.assertIn("STATUS Artifact value: IMPL-001.md", prompt)
         self.assertTrue((task / "reviews").is_dir())
+        (task / "STATUS.md").write_text(status("REVIEWING", impl="IMPL-001.md"), encoding="utf-8")
+        review_prompt = orch.build_worker_prompt("Review", "TASK-1", self.repo, self.root)
+        self.assertIn("Declared Code Head SHA:", review_prompt)
+        self.assertIn("## Review Result", review_prompt)
+        (task / "reviews" / "REVIEW-001.md").write_text("review\n", encoding="utf-8")
+        lead_prompt = orch.build_worker_prompt("Lead", "TASK-1", self.repo, self.root)
+        self.assertIn("Final Result: ACCEPTED", lead_prompt)
+        self.assertIn("Protocol Status MUST remain READY_FOR_REVIEW", lead_prompt)
+
+    def test_bootstrap_fills_derived_contract_hash(self) -> None:
+        task = core.task_root(self.root, self.repo, "TASK-1")
+        task.mkdir(parents=True)
+        (task / "TASK.md").write_text(
+            "Task Contract Revision: 1\nTask Contract Hash: AUTO\n"
+            "## Objective\n\nCorrect typo.\n\n## Requirements\n\nOnly one word.\n",
+            encoding="utf-8",
+        )
+        (task / "STATUS.md").write_text(
+            "## Current State\n\nIMPLEMENTING\n\n## Task Contract\n\n"
+            "Revision: 1\nHash: AUTO\n\n## Workflow\n\nType: bugfix\n",
+            encoding="utf-8",
+        )
+        self.assertTrue(orch.finalize_bootstrap_contract(task))
+        self.assertFalse(orch.finalize_bootstrap_contract(task))
+        core.validate_task_contract_integrity(task, core.read_status(task))
 
 
 class InvariantTests(RepoTestCase):
