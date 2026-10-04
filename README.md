@@ -13,6 +13,95 @@ Only **Lead** may transition lifecycle state and declare a task `ACCEPTED`.
 
 ---
 
+## Quick start
+
+Use the Skill from the **project you want to change**. Lead owns the task and
+the final decision; Impl plans and changes code; a fresh Review agent checks
+the committed result. The task is done only when Lead records `ACCEPTED`.
+
+### 1. Install or load the Skill
+
+Install `skills/multi-agent-development-workflow/` in your coding agent, or
+open this repository and load that Skill from the workspace. See
+[Install the Skill](#2-install-the-skill) for the Codex install command.
+
+### 2. Start in your coding agent
+
+When the parent agent supports native SubAgents, give the request to Lead:
+
+```text
+Use multi-agent-development-workflow.
+Role: Lead.
+Mode: Automatic.
+Transport: native-subagent.
+
+Implement <describe the change and expected behavior>.
+```
+
+Lead creates the task, runs the Plan / implementation / independent Review
+cycle, handles any rework, and records final acceptance. To continue later,
+send:
+
+```text
+Use multi-agent-development-workflow.
+Role: Lead.
+Mode: Automatic.
+Transport: native-subagent.
+
+Continue TASK-YYYYMMDD-NNN-short-name.
+```
+
+Native SubAgents run inside the parent-agent session. Do not ask the standalone
+`agent-team` CLI to create native SubAgents; it supports process and queue
+workers only. If native SubAgents are unavailable, use the CLI below.
+
+### 3. Or run with the standalone CLI
+
+The CLI supports Codex and Pi process workers. Set its path after installing
+the Skill:
+
+```bash
+AGENT_TEAM="$HOME/.codex/skills/multi-agent-development-workflow/scripts/agent-team"
+```
+
+Check the runtime, start a task from a requirement, and inspect its state:
+
+```bash
+"$AGENT_TEAM" --runtime codex doctor
+"$AGENT_TEAM" --runtime codex --transport process start "<describe the change>"
+"$AGENT_TEAM" status TASK-YYYYMMDD-NNN-short-name
+```
+
+Use `--runtime pi` in place of `--runtime codex` for Pi. `start` prints the
+created Task ID; use that ID with `run` to continue a task:
+
+```bash
+"$AGENT_TEAM" --runtime codex --transport process run TASK-YYYYMMDD-NNN-short-name
+```
+
+Use `--transport queue` when Impl and Review should run in dedicated Warp
+panes. The full setup is in [Process fallback](#5-process-fallback) and
+[Warp three-pane Queue fallback](#6-warp-three-pane-queue-fallback).
+
+### 4. Find the task and its result
+
+By default, task records are kept in the target project's
+`.agent-team/tasks/<TASK-ID>/`. `STATUS.md` is the lifecycle source of truth;
+`TASK.md` contains the requirements. `ACCEPTANCE.md` records Lead's final
+decision. Keep `.agent-team/` out of Git commits.
+
+If the workflow reaches `BLOCKED`, provide the requested product decision to
+Lead. In standalone CLI mode, resume explicitly with:
+
+```bash
+"$AGENT_TEAM" --runtime codex resume TASK-YYYYMMDD-NNN-short-name "<your decision>"
+```
+
+Do not start another automated task in the same Git working tree while one is
+running. Use a separate worktree for parallel tasks.
+
+---
+
 ## 1. Which mode should I use?
 
 | Mode | Recommended for | Human handoff | Warp panes |
