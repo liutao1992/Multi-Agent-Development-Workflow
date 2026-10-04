@@ -42,9 +42,10 @@ madw start --layout balanced  # Lead left; Impl and Review stacked on the right
 madw start --layout columns   # Lead, Impl, Review in three columns
 ```
 
-`MADW_LAYOUT=columns` sets the default. `balanced` is the default layout, and
-the selection applies when creating a new team; an existing team keeps its
-current arrangement.
+`MADW_LAYOUT=columns` sets the default; it also accepts `balanced`. With no
+environment setting, the default is `balanced`. An explicit `--layout` option
+overrides `MADW_LAYOUT`. The selection applies when creating a new team; an
+existing team keeps its current arrangement.
 
 Runtime selection:
 

@@ -113,8 +113,9 @@ madw start --layout columns
 MADW_LAYOUT=columns madw start
 ```
 
-`--layout balanced` 可显式恢复默认布局。布局仅在创建新团队时应用；已有团队
-保留其当前面板排列。
+`MADW_LAYOUT` 支持 `balanced` 和 `columns`，未设置时默认为 `balanced`；显式
+`--layout` 参数优先于环境变量。布局仅在创建新团队时应用；已有团队保留其当前
+面板排列。
 
 像截图中的 tmux session 名一样，每个 pane 的底部分隔线上固定显示
 青色 `[Leader]`、绿色 `[Impl]`、紫色 `[Review]`。Agent 自己更新终端标题时，

@@ -43,12 +43,17 @@ init_repo() {
 
 session_for() { local dir="$1"; (cd "$dir" && MADW_AGENT_CMD="$FAKE" "$MADW" id); }
 start_for() { local dir="$1"; (cd "$dir" && MADW_AGENT_CMD="$FAKE" MADW_NO_ATTACH=1 "$MADW" start); }
+start_with_layout_for() { local dir="$1"; shift; (cd "$dir" && MADW_AGENT_CMD="$FAKE" MADW_NO_ATTACH=1 "$MADW" start "$@"); }
 stop_for() { local dir="$1"; (cd "$dir" && "$MADW" stop); }
 
 REPO_A="$TMP/project"
 REPO_B="$TMP/other/project"
+REPO_C="$TMP/layout-precedence"
+REPO_D="$TMP/layout-invalid"
 init_repo "$REPO_A"
 init_repo "$REPO_B"
+init_repo "$REPO_C"
+init_repo "$REPO_D"
 
 EMPTY_REPO="$TMP/empty-project"
 mkdir -p "$EMPTY_REPO"
@@ -181,6 +186,69 @@ REVIEW_TOP="$(tmux display-message -p -t "$REVIEW_PANE" '#{pane_top}')"
 [ "$IMPL_LEFT" -eq "$REVIEW_LEFT" ]
 [ "$IMPL_TOP" -lt "$REVIEW_TOP" ]
 [ "$LEAD_HEIGHT" -gt "$IMPL_HEIGHT" ]
+
+# A new team can use the explicit three-column layout. Pane positions are
+# compared relationally so this remains independent of terminal dimensions.
+start_with_layout_for "$REPO_B" --layout columns >/dev/null
+SESSION_B="$(session_for "$REPO_B")"
+LEAD_B="$(tmux show-options -v -t "$SESSION_B" @madw_pane_leader)"
+IMPL_B="$(tmux show-options -v -t "$SESSION_B" @madw_pane_impl)"
+REVIEW_B="$(tmux show-options -v -t "$SESSION_B" @madw_pane_review)"
+LEAD_B_LEFT="$(tmux display-message -p -t "$LEAD_B" '#{pane_left}')"
+IMPL_B_LEFT="$(tmux display-message -p -t "$IMPL_B" '#{pane_left}')"
+REVIEW_B_LEFT="$(tmux display-message -p -t "$REVIEW_B" '#{pane_left}')"
+[ "$LEAD_B_LEFT" -lt "$IMPL_B_LEFT" ]
+[ "$IMPL_B_LEFT" -lt "$REVIEW_B_LEFT" ]
+[ "$(tmux show-options -v -t "$SESSION_B" @madw_layout)" = "columns" ]
+
+# A valid CLI choice overrides MADW_LAYOUT. The existing team keeps its
+# columns when a later start requests balanced.
+(cd "$REPO_C" && MADW_AGENT_CMD="$FAKE" MADW_NO_ATTACH=1 MADW_LAYOUT=columns "$MADW" start --layout balanced) >/dev/null
+SESSION_C="$(session_for "$REPO_C")"
+LEAD_C="$(tmux show-options -v -t "$SESSION_C" @madw_pane_leader)"
+IMPL_C="$(tmux show-options -v -t "$SESSION_C" @madw_pane_impl)"
+REVIEW_C="$(tmux show-options -v -t "$SESSION_C" @madw_pane_review)"
+LEAD_C_LEFT="$(tmux display-message -p -t "$LEAD_C" '#{pane_left}')"
+IMPL_C_LEFT="$(tmux display-message -p -t "$IMPL_C" '#{pane_left}')"
+IMPL_C_TOP="$(tmux display-message -p -t "$IMPL_C" '#{pane_top}')"
+REVIEW_C_LEFT="$(tmux display-message -p -t "$REVIEW_C" '#{pane_left}')"
+REVIEW_C_TOP="$(tmux display-message -p -t "$REVIEW_C" '#{pane_top}')"
+[ "$LEAD_C_LEFT" -lt "$IMPL_C_LEFT" ]
+[ "$IMPL_C_LEFT" -eq "$REVIEW_C_LEFT" ]
+[ "$IMPL_C_TOP" -lt "$REVIEW_C_TOP" ]
+[ "$(tmux show-options -v -t "$SESSION_C" @madw_layout)" = "balanced" ]
+
+(cd "$REPO_B" && MADW_AGENT_CMD="$FAKE" MADW_NO_ATTACH=1 "$MADW" start --layout balanced) >/dev/null
+[ "$(tmux display-message -p -t "$LEAD_B" '#{pane_left}')" = "$LEAD_B_LEFT" ]
+[ "$(tmux display-message -p -t "$IMPL_B" '#{pane_left}')" = "$IMPL_B_LEFT" ]
+[ "$(tmux display-message -p -t "$REVIEW_B" '#{pane_left}')" = "$REVIEW_B_LEFT" ]
+[ "$(tmux show-options -v -t "$SESSION_B" @madw_layout)" = "columns" ]
+
+# Environment selection applies when no CLI option is present.
+ENV_REPO="$TMP/layout-environment"
+init_repo "$ENV_REPO"
+(cd "$ENV_REPO" && MADW_AGENT_CMD="$FAKE" MADW_NO_ATTACH=1 MADW_LAYOUT=columns "$MADW" start) >/dev/null
+ENV_SESSION="$(session_for "$ENV_REPO")"
+ENV_LEAD="$(tmux show-options -v -t "$ENV_SESSION" @madw_pane_leader)"
+ENV_IMPL="$(tmux show-options -v -t "$ENV_SESSION" @madw_pane_impl)"
+ENV_REVIEW="$(tmux show-options -v -t "$ENV_SESSION" @madw_pane_review)"
+[ "$(tmux display-message -p -t "$ENV_LEAD" '#{pane_left}')" -lt "$(tmux display-message -p -t "$ENV_IMPL" '#{pane_left}')" ]
+[ "$(tmux display-message -p -t "$ENV_IMPL" '#{pane_left}')" -lt "$(tmux display-message -p -t "$ENV_REVIEW" '#{pane_left}')" ]
+
+# Unsupported environment and CLI values fail with a useful error before
+# creating a team.
+if (cd "$REPO_D" && MADW_AGENT_CMD="$FAKE" MADW_NO_ATTACH=1 MADW_LAYOUT=invalid "$MADW" start) >"$TMP/invalid-env-layout.log" 2>&1; then
+  echo "start accepted an unsupported MADW_LAYOUT value" >&2
+  exit 1
+fi
+grep -Fq "unknown layout 'invalid' (choose balanced or columns)" "$TMP/invalid-env-layout.log"
+if (cd "$REPO_D" && MADW_AGENT_CMD="$FAKE" MADW_NO_ATTACH=1 "$MADW" start --layout invalid) >"$TMP/invalid-cli-layout.log" 2>&1; then
+  echo "start accepted an unsupported --layout value" >&2
+  exit 1
+fi
+grep -Fq "unknown layout 'invalid' (choose balanced or columns)" "$TMP/invalid-cli-layout.log"
+[ ! -e "$REPO_D/.agent-team" ]
+
 for _ in 1 2 3 4 5 6 7 8 9 10; do
   if tmux capture-pane -p -t "$LEAD_PANE" -S -100 | grep -Fq '队长，团队已就绪。'; then break; fi
   sleep 0.1
