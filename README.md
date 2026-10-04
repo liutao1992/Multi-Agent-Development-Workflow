@@ -104,17 +104,19 @@ Git 根目录短 hash 隔离。
 └──────────────────┴──────────────────┘
 ```
 
-也可以启动为三列布局，Lead、Impl、Review 各占一列。用户可通过启动参数
-选择布局；默认 `balanced` 保持上图：
+也可以启动为三列布局，Lead、Impl、Review 各占一列。以下命令可分别选择默认布局、
+显式选择 `balanced` 或 `columns`，也可设置环境默认值：
 
 ```bash
+madw start
+madw start --layout balanced
 madw start --layout columns
-# 或为后续启动设置默认值
+MADW_LAYOUT=balanced madw start
 MADW_LAYOUT=columns madw start
 ```
 
 `MADW_LAYOUT` 支持 `balanced` 和 `columns`，未设置时默认为 `balanced`；显式
-`--layout` 参数优先于环境变量。布局仅在创建新团队时应用；已有团队保留其当前
+`--layout` 参数优先于环境变量。布局选择仅在创建新团队时应用；已有团队保留其当前
 面板排列。
 
 像截图中的 tmux session 名一样，每个 pane 的底部分隔线上固定显示
