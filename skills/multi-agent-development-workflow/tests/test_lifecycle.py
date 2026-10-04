@@ -126,6 +126,37 @@ class LifecycleTests(unittest.TestCase):
                 self.assertEqual(self.calls, [("Impl", "PLANNING"), ("Lead", "PLANNING")])
                 self.assertEqual(core.current_state(core.read_status(self.task)), "PLAN_REVIEW")
 
+    def test_lead_can_approve_legacy_plan_header_without_changing_content(self) -> None:
+        plan = self.task / "plans" / "PLAN-v001.md"
+        plan.write_text(
+            self.evidence() + "Approval Status: PENDING\n\n## Scope\nImplement A.\n",
+            encoding="utf-8",
+        )
+        self.write_status("PLAN_REVIEW", plan_artifact=plan.name, plan_approval="PENDING")
+        before_status = core.read_status(self.task)
+        before_content = core.plan_content_snapshot(self.task)
+        before_full = core.plan_full_snapshot(self.task)
+        before_approval = core.plan_approval_snapshot(self.task)
+
+        plan.write_text(
+            plan.read_text(encoding="utf-8").replace(
+                "Approval Status: PENDING",
+                "Approval Status: APPROVED\n\n## Approval\nDecision: APPROVED",
+            ),
+            encoding="utf-8",
+        )
+        self.write_status("READY_FOR_IMPLEMENTATION", plan_approval="APPROVED")
+        core.validate_plan_content_boundary("Lead", before_content, core.plan_content_snapshot(self.task))
+        core.validate_plan_approval_boundary(
+            "Lead", "PLAN_REVIEW", before_status, core.read_status(self.task),
+            before_full, core.plan_full_snapshot(self.task),
+            before_approval, core.plan_approval_snapshot(self.task),
+        )
+
+        plan.write_text(plan.read_text(encoding="utf-8").replace("Implement A.", "Implement B."), encoding="utf-8")
+        with self.assertRaisesRegex(core.ProtocolViolation, "immutable Plan content"):
+            core.validate_plan_content_boundary("Lead", before_content, core.plan_content_snapshot(self.task))
+
     def test_full_lifecycle_with_review_fail_rework_and_acceptance(self) -> None:
         with mock.patch.object(orch, "dispatch", side_effect=self.dispatch):
             result = orch.run_task(self.repo, self.root, "TASK-1", "codex", "process", 20, 60)

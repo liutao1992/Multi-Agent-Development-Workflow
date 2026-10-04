@@ -344,7 +344,7 @@ For existing `PLAN-vNNN.md` artifacts:
 - Impl owns Plan content;
 - Lead owns only the `## Approval` block.
 
-Executable fallback runtimes MUST hash/compare Plan content with the Approval block excluded.
+Executable fallback runtimes MUST hash/compare Plan content with the Approval block excluded. For Plans created with a top-level `Approval Status:` line, that one line is also treated as approval metadata during comparison; all other Plan content remains immutable. New Plans place the status inside `## Approval` as the template specifies.
 
 Lead approval MUST NOT change Scope, Implementation Steps, Testing Plan, Risks, Open Questions, or other Plan content.
 

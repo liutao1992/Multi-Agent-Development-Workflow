@@ -429,13 +429,19 @@ def validate_task_contract_mutation(
 
 
 def plan_content_without_approval(text: str) -> str:
-    """Return Plan content excluding the Lead-owned ## Approval section."""
-    return re.sub(
+    """Exclude approval metadata, including the legacy top-level status line."""
+    without_section = re.sub(
         r"(?ms)^## Approval\s*\n.*?(?=^## |\Z)",
         "",
         text,
         count=1,
     )
+    first_section = re.search(r"(?m)^## ", without_section)
+    boundary = first_section.start() if first_section else len(without_section)
+    header = re.sub(
+        r"(?m)^Approval Status:[^\r\n]*\r?\n?", "", without_section[:boundary], count=1,
+    )
+    return header + without_section[boundary:]
 
 
 def plan_full_snapshot(task: Path) -> dict[str, str]:

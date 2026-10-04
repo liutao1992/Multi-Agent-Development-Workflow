@@ -59,7 +59,7 @@ Before creating any Plan or IMPL artifact:
 
 When Plan Gate is REQUIRED, create the next immutable PLAN-vNNN, using new task-global PLAN/TEST IDs as needed.
 
-The new Plan must bind the current Task Contract and must set its Approval Status to PENDING. Impl never writes APPROVED or REWORK.
+The new Plan must bind the current Task Contract and must set its Approval Status to PENDING inside the `## Approval` block, as in the Plan template. Do not place another Approval Status line in the header. Impl never writes APPROVED or REWORK.
 
 Then stop for Lead approval.
 
