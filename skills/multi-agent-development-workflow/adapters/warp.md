@@ -1,218 +1,33 @@
 # Warp Adapter
 
-Warp is the preferred human-visible control surface. It does not define lifecycle semantics.
+Warp is an optional terminal UI. tmux supplies the actual multi-Agent topology
+and communication layer.
 
-## Default layout
-
-```text
-┌──────────────────────────────┬──────────────────────────────┐
-│ Lead                   │ Impl         │
-│ STATUS / Task / Plan Gate    │ Plan / Code / Test           │
-│ Rework / Acceptance          │ Code Snapshot / IMPL         │
-│                              ├──────────────────────────────┤
-│                              │ Review                 │
-│                              │ Fresh Review / Exact SHA     │
-└──────────────────────────────┴──────────────────────────────┘
-```
-
-Do not enable synchronized input.
-
-## Role files and task artifacts
-
-Each pane must load its role file before task work:
-
-```text
-Lead   → roles/lead.md
-Impl   → roles/impl.md
-Review → roles/review.md
-```
-
-For a Task ID, all panes then resolve task material from:
-
-```text
-<project-root>/.agent-team/tasks/<TASK-ID>/
-```
-
-The first task file read is always `STATUS.md`.
-
-From there:
-
-- Lead follows STATUS references to TASK, Plan, IMPL, Review, and Acceptance artifacts;
-- Impl follows STATUS to TASK, the approved Plan (if required), and failed Review/Rework evidence;
-- Review follows STATUS to TASK, approved Plan (if required), and the exact IMPL round under review.
-
-Do not ask the user to paste the Plan when it already exists under the task namespace.
-
-## Automatic three-pane mode
-
-Warp itself does not provide the workflow with a role-addressed input bus between arbitrary interactive panes. For automatic operation, use the filesystem queue transport supplied by this Skill.
-
-Recommended panes:
-
-\`\`\`text
-┌──────────────────────────────┬──────────────────────────────┐
-│ Lead / Orchestrator          │ Impl Worker                  │
-│                              │ agent-team ... worker Impl   │
-│ Reads STATUS                 │ automatically consumes jobs  │
-│ Dispatches next role         ├──────────────────────────────┤
-│ Final acceptance             │ Review Worker                │
-│                              │ agent-team ... worker Review │
-└──────────────────────────────┴──────────────────────────────┘
-\`\`\`
-
-Start the two right-side workers once:
-
-\`\`\`bash
-# right-top pane
-agent-team --runtime codex worker Impl
-
-# right-bottom pane
-agent-team --runtime codex worker Review
-\`\`\`
-
-Then the Lead pane can run:
-
-\`\`\`bash
-agent-team --runtime codex --transport queue run <TASK-ID>
-\`\`\`
-
-or create and run a new Task:
-
-\`\`\`bash
-agent-team --runtime codex --transport queue start "<requirement>"
-\`\`\`
-
-After that, Plan → Lead approval → implementation → Review → rework → re-review → acceptance proceeds automatically until ACCEPTED, CANCELLED, BLOCKED, a no-progress condition, or a required human decision.
-
-The queue is stored under:
-
-\`\`\`text
-<project-root>/.agent-team/runtime/
-\`\`\`
-
-and is Control Plane runtime metadata, not Code Plane content.
-
-## One-time pane binding
-
-When opening a new Warp tab/session, bind each pane once:
-
-```text
-Lead pane:
-Use multi-agent-development-workflow. Role: Lead.
-
-Impl pane:
-Use multi-agent-development-workflow. Role: Impl.
-
-Review pane:
-Use multi-agent-development-workflow. Role: Review.
-```
-
-After binding, do not paste the full protocol at every handoff.
-
-## Daily short commands
-
-Typical usage:
-
-```text
-Lead:
-新建任务：<requirement>
-
-Impl:
-继续 <TASK-ID>
-
-Lead:
-继续 <TASK-ID>
-
-Impl:
-继续 <TASK-ID>
-
-Review:
-Review <TASK-ID>
-
-Lead:
-继续 <TASK-ID>
-```
-
-If the session already has one unambiguous Task bound, the Task ID may be omitted:
-
-```text
-继续
-Review
-验收
-```
-
-Each pane must recover authoritative state from STATUS.md and the task artifacts. Short commands never weaken role boundaries or lifecycle gates.
-
-## Control Plane location
-
-### Default: current project directory
-
-Use the current project's Git root as the canonical location:
+Start inside a normal Warp shell:
 
 ```bash
-PROJECT_ROOT="$(git rev-parse --show-toplevel)"
-CONTROL_ROOT="$PROJECT_ROOT/.agent-team"
-mkdir -p "$CONTROL_ROOT/tasks"
+madw start
 ```
 
-Do not automatically use `/private/tmp`, `/tmp`, or another external directory.
-
-Keep `.agent-team/` excluded from Code Plane Git tracking.
-
-Prefer a local exclude so the project does not need a workflow-specific committed `.gitignore` entry:
-
-```bash
-printf "\n.agent-team/\n" >> .git/info/exclude
-```
-
-Verify:
-
-```bash
-git ls-files .agent-team
-git check-ignore -q .agent-team/
-```
-
-Do not force-add it.
-
-### Automated Task concurrency
-
-Within one working tree, run at most one automated Task at a time. The standalone Orchestrator enforces this with a Code Plane lock.
-
-To run multiple automated Tasks in parallel, use separate Git worktrees.
-
-### Multiple worktrees / concurrent agents
-
-Prefer the primary project checkout's project-local Control Root:
+The attached tmux session already shows:
 
 ```text
-workspace/
-├── project-main/
-│   └── .agent-team/        ← canonical Control Root
-├── project-implementation/
-└── project-review/
+┌─────────────────────────────────────┐
+│ Lead                                │
+├──────────────────┬──────────────────┤
+│ Impl             │ Review           │
+└──────────────────┴──────────────────┘
 ```
 
-The Impl and Review worktrees should reference `project-main/.agent-team/` as their shared Control Root.
+Do not enable Warp synchronized input.
 
-Use an external directory only when the user explicitly configures one, for example through `AGENT_TEAM_DIR`.
+Responsibility boundary:
 
-## Stable Review handoff
-
-Before Review, Impl commits Code Plane changes and records:
-
-- Task Baseline SHA;
-- Previous Head SHA;
-- Code Head SHA.
-
-Review verifies:
-
-```bash
-git rev-parse HEAD
-git diff --quiet
-git diff --cached --quiet
-git status --porcelain
+```text
+Warp        = terminal UI
+tmux        = panes + addressed transport + synchronization
+Lead        = orchestration authority
+.agent-team = durable state/evidence
 ```
 
-Only an exact clean Code Plane target may be reviewed.
-
-Any Code Plane change after submission creates a new implementation round.
+No Warp-specific worker Queue is required.

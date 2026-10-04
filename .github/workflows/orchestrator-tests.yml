@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - feature/agent-orchestrator
+      - feature/tmux-native-communication
   pull_request:
     paths:
       - "skills/multi-agent-development-workflow/scripts/**"
@@ -19,11 +20,23 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Install tmux
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tmux
       - name: Compile
         run: |
           python -m py_compile \
             skills/multi-agent-development-workflow/scripts/orchestrator.py \
             skills/multi-agent-development-workflow/scripts/agent_team_lib/*.py
+      - name: Shell syntax
+        run: |
+          bash -n skills/multi-agent-development-workflow/scripts/madw
+          bash -n skills/multi-agent-development-workflow/tests/test_madw_tmux.sh
+          bash -n install.sh
+      - name: tmux integration tests
+        run: |
+          bash skills/multi-agent-development-workflow/tests/test_madw_tmux.sh
       - name: Unit tests
         env:
           AGENT_TEAM_REQUIRE_PROCESS_INSPECTION: "1"

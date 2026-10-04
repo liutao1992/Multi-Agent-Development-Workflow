@@ -128,15 +128,22 @@ When \`Invocation Mode: Orchestrated Worker\` is present:
 - stop after Review evidence is complete;
 - never invoke \`agent-team\` recursively.
 
-The Orchestrator detects the new Review artifact and automatically dispatches Lead next.
+In tmux-native mode, signal the completion channel supplied by Lead after REVIEW-NNN is complete; Lead then consumes it.
 
 
-## Native SubAgent freshness
+## Tmux Review behavior
 
-In native orchestration you MUST be a fresh child for the current Review round.
+The Review pane is a stable address, but every substantive Review round MUST use
+a fresh Agent context. Lead should run `madw restart review` before sending the
+round.
 
-Do not assume context from an earlier Review child.
-Do not request Impl private conversation history.
-Do not continue into implementation fixes.
+Consume only bounded evidence: Task ID, STATUS, approved Plan/fast-path marker,
+exact IMPL artifact, frozen Code Head, diffs/tests, and prior Review only when
+re-review context requires it.
 
-After creating REVIEW-NNN, return the result to Lead and end this Review context.
+After creating REVIEW-NNN:
+
+1. do not modify implementation code;
+2. do not transition STATUS;
+3. signal Lead with `madw signal review <TASK-ID> <ROUND>`;
+4. stop; do not continue into fixes.

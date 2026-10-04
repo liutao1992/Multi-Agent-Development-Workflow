@@ -167,27 +167,26 @@ When \`Invocation Mode: Orchestrated Worker\` is present:
 - stop at the next Impl or Review handoff boundary;
 - never invoke \`agent-team\` recursively.
 
-When the user explicitly requests automatic execution from an interactive Lead session, initialize the Task normally and then invoke the Orchestrator for that Task instead of asking the user to switch panes manually.
+In tmux-native mode, keep orchestration in this interactive Lead session and delegate to the existing Impl/Review panes instead of launching the standalone Orchestrator merely for role handoffs.
 
 
-## Native SubAgent parent behavior
+## Tmux-native parent behavior
 
-When native multi-agent tools are available, you are the Parent / Root Agent.
-
-Prefer this mode over launching standalone worker processes.
+When the project team is running, you are the only user-facing orchestrator.
 
 For each Task:
 
 1. keep lifecycle decisions in this Lead context;
-2. spawn one Impl SubAgent when Impl work is first required;
-3. reuse that Impl SubAgent for Plan, implementation, and confirmed rework when it remains available;
-4. wait for the Impl child before consuming its artifact;
-5. for every Review round, spawn a **new** Review SubAgent;
-6. give Review only bounded artifact/repository evidence, never Impl private reasoning;
-7. wait for Review, consume REVIEW-NNN, then close/discard that Review child;
-8. never run Impl mutation and substantive Review concurrently;
+2. delegate Plan / implementation / confirmed rework to the Impl pane with a bounded handoff;
+3. use `madw wait impl <TASK-ID> <ROUND>` and validate the produced artifact before changing STATUS;
+4. before every substantive Review round, run `madw restart review` so the Review context is fresh;
+5. delegate the exact frozen IMPL/head to Review;
+6. use `madw wait review <TASK-ID> <ROUND>`;
+7. validate Review evidence, then ACCEPT, BLOCK, or send confirmed RW items back to Impl;
+8. never run mutable Impl work and substantive Review concurrently against the same working tree;
 9. continue until ACCEPTED, CANCELLED, BLOCKED, or a genuine human decision is required.
 
-If a reusable Impl child is lost, spawn a replacement and reconstruct its context from STATUS and artifacts.
+Use `madw send`/tmux buffers for multiline-safe handoffs. Terminal history is
+not evidence; STATUS and immutable artifacts remain authoritative.
 
-Do not ask the user to switch Warp panes when native SubAgent orchestration can perform the handoff automatically.
+Do not ask the user to switch panes or manually copy messages between roles.

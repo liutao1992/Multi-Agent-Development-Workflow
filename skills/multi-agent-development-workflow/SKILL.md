@@ -1,6 +1,6 @@
 ---
 name: multi-agent-development-workflow
-description: Use for non-trivial software-development tasks that need multi-agent coordination, task definition, plan approval, implementation, independent review, rework, stable Git code snapshots, lifecycle control, and final acceptance across Codex, Pi, Warp, or other coding-agent environments.
+description: Use for non-trivial software-development tasks that need tmux-native multi-agent coordination, task definition, plan approval, implementation, independent review, rework, stable Git code snapshots, lifecycle control, and final acceptance across Pi, Codex, or other terminal coding-agent runtimes.
 ---
 
 # Multi-Agent Development Workflow
@@ -111,7 +111,7 @@ When an existing Task ID is known or discovered:
    - A workflow-type change requires an explicit Lead decision recorded in STATUS history.
 5. Determine invocation mode from STATUS and the request: planning, plan rework, implementation, implementation rework, review, re-review, or final acceptance.
 6. Determine runtime: Codex, Pi, or generic.
-7. Load the matching role file explicitly: Lead → `roles/lead.md`, Impl → `roles/impl.md`, Review → `roles/review.md`; then load the workflow recorded in STATUS, runtime adapter, and Warp adapter when applicable.
+7. Load the matching role file explicitly: Lead → `roles/lead.md`, Impl → `roles/impl.md`, Review → `roles/review.md`; then load the workflow recorded in STATUS, runtime adapter, and tmux adapter when applicable.
 8. Perform only actions allowed by the Lifecycle Transition Table.
 9. After a lifecycle transition, update STATUS.md first, then refresh INDEX.md.
 
@@ -130,121 +130,92 @@ For a new task:
 
 ## Automatic Orchestration
 
-This Skill can run in **manual handoff mode** or **automatic orchestration mode**. Native SubAgent orchestration is the preferred automatic mode when supported by the parent runtime.
+The default interactive execution model is **tmux-native orchestration**.
 
 Automatic orchestration does not change lifecycle authority:
 
-- Lead remains the only role allowed to transition \`STATUS.md\`;
+- Lead remains the only role allowed to transition `STATUS.md`;
 - Impl creates Plan / implementation evidence but does not transition lifecycle state;
 - Review creates independent Review evidence but does not transition lifecycle state;
-- the Orchestrator only selects and invokes the next role. It is not a fourth decision-making role.
+- tmux is transport/synchronization only; it is not a fourth decision-making role.
 
-The executable entry point is:
+Default topology:
 
-\`\`\`text
-scripts/agent-team
-\`\`\`
-
-It delegates to \`scripts/orchestrator.py\`.
-
-### Preferred transport: native SubAgents
-
-When the current parent runtime exposes native multi-agent/subagent primitives, **Lead MUST prefer native SubAgent orchestration** over launching separate worker processes.
-
-In native mode:
-
-\`\`\`text
+```text
 User
  ↓
-Lead = Parent / Root Agent
- ├─ Impl SubAgent       ← reusable within the same Task
- └─ Review SubAgent     ← fresh for every Review round
-\`\`\`
+Lead = project-scoped tmux pane
+ ├─ Impl pane
+ └─ Review pane
+```
 
-Lead remains the lifecycle authority and directly drives the state machine.
+The user talks only to Lead. Lead delegates through tmux until ACCEPTED, CANCELLED,
+BLOCKED, or a genuine human/product decision is required.
 
-#### Impl lifecycle
+### Preferred transport: tmux-native
 
-For one Task, Lead should normally create one Impl SubAgent and reuse it:
+Use one project-scoped tmux session with three role panes. The bundled launcher is:
 
-\`\`\`text
-spawn Impl
-  ↓
-PLAN-v001
-  ↓
-Lead Plan Gate
-  ↓
-follow up same Impl
-  ↓
-implementation + tests + IMPL-001
-  ↓
-Review FAIL
-  ↓
-follow up same Impl with confirmed RW IDs
-  ↓
-IMPL-002
-\`\`\`
+```bash
+madw start
+```
 
-Reusing Impl preserves useful codebase context.
+The launcher derives the session from the canonical Git root:
 
-If the parent session is lost, a replacement Impl MAY be spawned. It must reconstruct state from STATUS and immutable artifacts rather than conversation history.
+```text
+madw-<repo-name>-<path-hash>
+└── team
+    ├── Lead
+    ├── Impl
+    └── Review
+```
 
-#### Review lifecycle
+This prevents unrelated projects from reusing global `leader/impl/review`
+sessions.
 
-Every Review round MUST use a newly spawned Review SubAgent:
+tmux owns only:
 
-\`\`\`text
-IMPL-001 → spawn fresh Review-1 → REVIEW-001
-IMPL-002 → spawn fresh Review-2 → REVIEW-002
-\`\`\`
+```text
+role addressing
+message delivery
+completion synchronization
+terminal observability
+```
 
-Do not reuse a prior Review SubAgent for a new round.
+`.agent-team/` remains the durable lifecycle/evidence source of truth.
 
-Do not fork or pass Impl private conversation/reasoning into Review.
+Use bounded handoffs:
 
-Review receives only bounded evidence:
+```bash
+madw send impl "<Task ID + action + STATUS/artifact references>"
+madw wait impl TASK-... 001
 
-- TASK.md;
-- approved Plan or Plan Gate SKIPPED marker;
-- exact IMPL-NNN;
-- Task Baseline SHA;
-- Previous Head SHA;
-- Code Head SHA;
-- relevant Git diffs and repository/test evidence;
-- prior REVIEW only when re-review context requires it.
+madw restart review
+madw send review "<Task ID + exact IMPL/head + STATUS references>"
+madw wait review TASK-... 001
+```
 
-#### Parent / child coordination
+Workers signal only after writing their immutable artifact:
 
-Use the runtime's native collaboration primitives when available:
+```bash
+madw signal impl TASK-... 001
+madw signal review TASK-... 001
+```
 
-\`\`\`text
-spawn Impl
-wait for Impl
-Lead evaluates artifact
-follow up Impl
-wait for Impl
-Lead freezes Review target
-spawn fresh Review
-wait for Review
-Lead evaluates PASS / FAIL
-\`\`\`
+`madw wait` wraps `tmux wait-for` with timeout, dead-pane detection, recent
+output capture, and expected-artifact verification. A completion signal never
+authorizes a lifecycle transition by itself; Lead must validate the evidence.
 
-Do not run Impl and Review concurrently against the same mutable Code Plane.
+Impl may keep its context across Plan, implementation and confirmed rework.
+Before every substantive Review round, Lead MUST refresh Review with
+`madw restart review` (or an equivalent runtime-native new-conversation
+operation) so Review does not inherit prior private context.
 
-SubAgents do not gain lifecycle authority. Impl/Review still MUST NOT transition STATUS.
+The standalone `scripts/agent-team` Python Orchestrator remains a **process
+fallback** for CI/unattended execution. It is not the communication layer for
+the interactive tmux team.
 
-#### Transport priority
-
-Automatic execution chooses transports in this order:
-
-\`\`\`text
-1. native-subagent  ← preferred when current parent runtime exposes it
-2. process          ← standalone codex exec / Pi RPC fallback
-3. queue            ← Warp visible worker fallback
-4. manual           ← only if automation is unavailable
-\`\`\`
-
-The standalone \`scripts/agent-team\` CLI cannot attach to the native SubAgent tools of an already-running parent conversation. Therefore it implements only the fallback execution transports. Native SubAgent orchestration happens **inside the Lead parent session**.
+### Code Plane concurrency invariant
 
 ### Code Plane concurrency invariant
 
@@ -256,13 +227,13 @@ one Git working tree = at most one automated Task at a time
 
 A Task-level lock is not sufficient because HEAD, index, and working tree are shared resources.
 
-Standalone Process/Queue orchestration MUST hold a Code Plane lock for the full Task run, including Task creation. Native SubAgent orchestration MUST obey the same invariant at the parent-agent level.
+Standalone Process fallback MUST hold a Code Plane lock for the full Task run, including Task creation. Tmux-native Lead MUST obey the same invariant and serialize mutable work in the shared working tree.
 
 Parallel automated Tasks require separate Git worktrees.
 
 ### Programmatic role postconditions
 
-Executable fallback transports MUST validate role boundaries after every worker action.
+The standalone Process fallback MUST validate role boundaries after every worker action. Tmux-native Lead MUST enforce the same postconditions before advancing STATUS.
 
 - **Planning Impl:** Code Plane unchanged; STATUS/TASK unchanged; existing immutable artifacts unchanged; exactly one new PLAN.
 - **Implementation Impl:** STATUS/TASK unchanged; existing immutable artifacts unchanged; exactly one new IMPL; Code Plane clean after commit; IMPL Code Head matches observed HEAD.
@@ -273,7 +244,7 @@ A postcondition violation is a protocol failure. Stop orchestration rather than 
 
 ### Executable lifecycle state machine
 
-For Process/Queue orchestration, the Lifecycle Transition Table is a programmatic invariant, not prompt-only guidance.
+For the standalone Process fallback, the Lifecycle Transition Table is a programmatic invariant, not prompt-only guidance. Tmux-native Lead must preserve the same evidence requirements.
 
 After each Lead action the runtime MUST validate:
 
@@ -344,7 +315,7 @@ For existing `PLAN-vNNN.md` artifacts:
 - Impl owns Plan content;
 - Lead owns only the `## Approval` block.
 
-Executable fallback runtimes MUST hash/compare Plan content with the Approval block excluded. For Plans created with a top-level `Approval Status:` line, that one line is also treated as approval metadata during comparison; all other Plan content remains immutable. New Plans place the status inside `## Approval` as the template specifies.
+The standalone Process fallback MUST hash/compare Plan content with the Approval block excluded. For Plans created with a top-level `Approval Status:` line, that one line is also treated as approval metadata during comparison; all other Plan content remains immutable. New Plans place the status inside `## Approval` as the template specifies.
 
 Lead approval MUST NOT change Scope, Implementation Steps, Testing Plan, Risks, Open Questions, or other Plan content.
 
@@ -376,7 +347,7 @@ Task bootstrap may create only the new Task's `TASK.md` / `STATUS.md` and update
 
 ### Automatic lifecycle driver
 
-The Orchestrator repeatedly reads:
+Lead in tmux-native mode (or the standalone Orchestrator in process fallback) repeatedly reads:
 
 \`\`\`text
 <project-root>/.agent-team/tasks/<TASK-ID>/STATUS.md
@@ -432,36 +403,45 @@ Impl and Review MUST NOT rewrite lifecycle state in STATUS. Their newly created 
 
 ### Commands
 
-Create a Task and automatically run it:
-
-\`\`\`bash
-agent-team --runtime codex start "Add persistent AI chat history"
-\`\`\`
-
-Continue an existing Task:
-
-\`\`\`bash
-agent-team --runtime codex run TASK-YYYYMMDD-NNN-short-name
-\`\`\`
-
-Use Pi instead:
-
-\`\`\`bash
-agent-team --runtime pi run TASK-YYYYMMDD-NNN-short-name
-\`\`\`
-
-Validate the environment:
-
-\`\`\`bash
-agent-team --runtime codex doctor
-\`\`\`
-
-Inspect invocation counts, elapsed time, validation failures, and available
-Codex token totals for one Task:
+Start the visible project-scoped team:
 
 ```bash
+madw start
+```
+
+Inspect or watch it:
+
+```bash
+madw status
+madw watch
+```
+
+Lead handoff helpers:
+
+```bash
+madw send impl "<handoff>"
+madw wait impl TASK-... 001
+
+madw restart review
+madw send review "<handoff>"
+madw wait review TASK-... 001
+```
+
+Environment/preflight:
+
+```bash
+madw doctor
+```
+
+For CI/unattended process fallback:
+
+```bash
+agent-team --runtime codex --transport process start "Add persistent AI chat history"
+agent-team --runtime codex --transport process run TASK-YYYYMMDD-NNN-short-name
 agent-team metrics TASK-YYYYMMDD-NNN-short-name
 ```
+
+### BLOCKED resume entry
 
 ### BLOCKED resume entry
 
@@ -493,41 +473,36 @@ Default transport:
 agent-team --runtime codex --transport process run <TASK-ID>
 \`\`\`
 
-The standalone Orchestrator starts headless role workers itself. Use this only when native SubAgent orchestration is unavailable.
+The standalone Orchestrator starts headless role workers itself. Use this for CI/unattended execution, not as the interactive tmux team's transport.
 
-### Warp three-pane queue transport
+### tmux three-pane transport
 
-For a visible three-pane workflow, use queue transport.
+The normal interactive workflow is:
 
-Lead pane:
+```text
+┌──────────────────────────────────────┐
+│ Lead                                 │
+├───────────────────┬──────────────────┤
+│ Impl              │ Review           │
+└───────────────────┴──────────────────┘
+```
 
-\`\`\`bash
-agent-team --runtime codex --transport queue run <TASK-ID>
-\`\`\`
+`madw start` performs preflight before creating panes: Git repository, Skill
+installation, tmux, and Agent runtime. Runtime selection is explicit argument,
+then `MADW_RUNTIME`, then installed Pi, then installed Codex.
 
-Impl pane:
+The launcher does not depend on a blind fixed `sleep 1`; it verifies pane
+process startup up to a configurable boot timeout and removes a partial team on
+failure.
 
-\`\`\`bash
-agent-team --runtime codex worker Impl
-\`\`\`
+Review freshness uses `tmux respawn-pane -k` through `madw restart review`,
+which keeps the pane address/layout stable while replacing the Review Agent
+context.
 
-Review pane:
+No project-defined Queue, mailbox, heartbeat, lease, claim, quarantine, or
+`agent-team worker Impl/Review` communication layer is used in tmux-native mode.
 
-\`\`\`bash
-agent-team --runtime codex worker Review
-\`\`\`
-
-Lead stays in the left pane. Impl and Review jobs are placed in the project-local Control Plane runtime queue and are automatically consumed by the right-side workers.
-
-No user prompt is required between lifecycle stages.
-
-The runtime queue under \`.agent-team/runtime/\` is execution metadata only. It is not lifecycle truth and must not be committed into the Code Plane.
-
-### Important Warp limitation
-
-Warp split panes are independent terminal sessions. The protocol does not simulate keystrokes into an already-running interactive Codex/Pi conversation.
-
-In queue transport, the right panes run the \`agent-team worker\` process, which launches the configured coding runtime when the Orchestrator sends work. Existing manually opened interactive agent sessions must therefore be replaced by worker commands once when switching to automatic mode.
+### Stop conditions
 
 ### Stop conditions
 
@@ -536,7 +511,7 @@ Automatic execution stops instead of guessing when:
 - STATUS becomes BLOCKED;
 - a worker completes without producing protocol progress;
 - a required runtime is unavailable;
-- a pane worker disappears while a queue job is pending;
+- a tmux role pane / Agent process disappears while a handoff is pending;
 - a genuine human/product decision is required;
 - maximum orchestration steps are exceeded.
 

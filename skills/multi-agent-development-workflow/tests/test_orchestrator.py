@@ -15,7 +15,6 @@ sys.path.insert(0, str(SCRIPTS))
 import orchestrator as orch
 from agent_team_lib import core
 from agent_team_lib import processes
-from agent_team_lib import queue_runtime
 from process_test_support import require_process_inspection
 
 
@@ -77,9 +76,9 @@ class TransportTests(unittest.TestCase):
     def test_normalize_transport(self) -> None:
         self.assertEqual(orch.normalize_transport("auto"), "process")
         self.assertEqual(orch.normalize_transport("direct"), "process")
-        self.assertEqual(orch.normalize_transport("queue"), "queue")
-        with self.assertRaises(core.OrchestratorError):
-            orch.normalize_transport("subagent")
+        for removed in ("queue", "tmux", "subagent"):
+            with self.subTest(transport=removed), self.assertRaises(core.OrchestratorError):
+                orch.normalize_transport(removed)
 
     def test_command_routing(self) -> None:
         self.assertFalse(orch.command_requires_runtime("status"))
@@ -87,7 +86,8 @@ class TransportTests(unittest.TestCase):
         self.assertTrue(orch.command_requires_runtime("run"))
         self.assertTrue(orch.command_requires_runtime("resume"))
         self.assertFalse(orch.command_mutates_control_plane("status"))
-        self.assertTrue(orch.command_mutates_control_plane("worker"))
+        self.assertTrue(orch.command_mutates_control_plane("run"))
+        self.assertFalse(orch.command_mutates_control_plane("worker"))
 
 
 class RoleSelectionTests(unittest.TestCase):
@@ -171,96 +171,6 @@ class LockAndNamespaceTests(RepoTestCase):
         git(self.repo, "add", "tracked-control/state.txt")
         with self.assertRaises(core.OrchestratorError):
             core.ensure_control_root(self.repo, custom)
-
-
-class QueueTests(RepoTestCase):
-    def test_keyboard_interrupt_cancels_queued_job(self) -> None:
-        with mock.patch.object(queue_runtime, "worker_available", return_value=True), \
-             mock.patch.object(queue_runtime.time, "sleep", side_effect=KeyboardInterrupt):
-            with self.assertRaises(KeyboardInterrupt):
-                queue_runtime.queue_dispatch(
-                    "codex", "Impl", "work", self.repo, self.root, "TASK-1", 10,
-                )
-        queued = queue_runtime.queue_paths(self.root, self.repo, "Impl")["queued"]
-        self.assertEqual(list(queued.glob("*.json")), [])
-        cancelled = list((queue_runtime.queue_root(self.root, self.repo) / "cancelled").glob("*.json"))
-        self.assertEqual(len(cancelled), 1)
-        self.assertIsNone(queue_runtime.claim_next_job(self.root, self.repo, "Impl", "worker"))
-
-    def test_project_scoped_queue_paths_for_shared_external_root(self) -> None:
-        external = Path(self.temp.name) / "shared-control"
-        core.ensure_control_root(self.repo, external)
-        paths = queue_runtime.queue_paths(external, self.repo, "Impl")
-        self.assertIn(core.project_fingerprint(self.repo), str(paths["queued"]))
-
-    def test_expired_claim_without_child_pid_is_quarantined(self) -> None:
-        paths = queue_runtime.queue_paths(self.root, self.repo, "Impl")
-        claim = paths["claimed"] / "job-1.json"
-        core.write_json_atomic(claim, {
-            "job_id": "job-1",
-            "state": "RUNNING",
-            "lease_owner": "dead",
-            "lease_until": time.time() - 1,
-            "project_root": str(self.repo),
-        })
-        queue_runtime.recover_expired_claims(self.root, self.repo, "Impl")
-        self.assertFalse(claim.exists())
-        self.assertFalse((paths["queued"] / "job-1.json").exists())
-        self.assertTrue((paths["quarantined"] / "job-1.json").exists())
-
-    def test_cancelled_queued_job_is_not_claimed(self) -> None:
-        paths = queue_runtime.queue_paths(self.root, self.repo, "Review")
-        core.write_json_atomic(paths["queued"] / "job-2.json", {"job_id": "job-2"})
-        queue_runtime.request_cancel(self.root, self.repo, "job-2", "timeout")
-        claimed = queue_runtime.claim_next_job(
-            self.root, self.repo, "Review", "worker"
-        )
-        self.assertIsNone(claimed)
-        result = core.read_json(paths["results"] / "job-2.json")
-        self.assertTrue(result["cancelled"])
-
-    def test_cancel_quiesces_recorded_child_process(self) -> None:
-        paths = queue_runtime.queue_paths(self.root, self.repo, "Impl")
-        child = subprocess.Popen(
-            ["python3", "-c", "import time; time.sleep(30)"],
-            start_new_session=True,
-        )
-        try:
-            require_process_inspection(self, child.pid)
-            core.write_json_atomic(paths["claimed"] / "job-child.json", {
-                "job_id": "job-child",
-                "child_pid": child.pid,
-                "child_identity": processes.process_identity(child.pid),
-                "lease_until": time.time() + 20,
-            })
-            queue_runtime.cancel_and_quiesce_job(
-                self.root,
-                self.repo,
-                "Impl",
-                "job-child",
-                "timeout",
-                wait_seconds=0.5,
-            )
-            child.wait(timeout=3)
-            self.assertIsNotNone(child.returncode)
-        finally:
-            if child.poll() is None:
-                child.kill()
-            child.wait(timeout=3)
-
-    def test_worker_project_mismatch_is_rejected_by_namespace(self) -> None:
-        other = Path(self.temp.name) / "other"
-        other.mkdir()
-        init_repo(other)
-        external = Path(self.temp.name) / "shared-control"
-        self.assertNotEqual(
-            core.project_fingerprint(self.repo),
-            core.project_fingerprint(other),
-        )
-        self.assertNotEqual(
-            queue_runtime.queue_root(external, self.repo),
-            queue_runtime.queue_root(external, other),
-        )
 
 
 class CleanCodePlaneTests(RepoTestCase):

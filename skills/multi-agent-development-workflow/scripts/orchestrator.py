@@ -31,10 +31,6 @@ from agent_team_lib.core import (
     validate_task_contract_mutation, write_json_atomic,
 )
 from agent_team_lib.processes import choose_runtime, reported_codex_tokens, run_codex, run_pi_rpc
-from agent_team_lib.queue_runtime import (
-    queue_dispatch, quarantined_jobs, require_no_quarantined_jobs,
-    shared_orphan_risk_path, worker_loop,
-)
 from agent_team_lib.state_machine import validate_terminal_state, validate_transition
 
 ROLE_COMMAND = {"Lead": "Continue", "Impl": "Continue", "Review": "Review"}
@@ -273,11 +269,19 @@ Stop after the lifecycle transition.
 def normalize_transport(requested: str) -> str:
     if requested in {"auto", "process", "direct"}:
         return "process"
+    if requested == "tmux":
+        raise OrchestratorError(
+            "tmux-native coordination runs inside the interactive Lead session. "
+            "Use scripts/madw start, then talk to Lead."
+        )
     if requested == "queue":
-        return "queue"
+        raise OrchestratorError(
+            "Queue transport was removed. Use scripts/madw start for tmux-native "
+            "coordination, or --transport process for the standalone fallback."
+        )
     if requested == "subagent":
         raise OrchestratorError(
-            "Native SubAgent transport runs inside the Lead parent session, not this standalone CLI."
+            "Native SubAgent transport is not implemented by this standalone CLI."
         )
     raise OrchestratorError(f"Unknown transport: {requested}")
 
@@ -297,9 +301,7 @@ def dispatch(
     )
     outcome = "worker_failed"
     try:
-        if transport == "queue" and role in {"Impl", "Review"}:
-            queue_dispatch(runtime, role, prompt, project_root, root, task_id, timeout)
-        elif runtime == "codex":
+        if runtime == "codex":
             run_codex(prompt, project_root, log_path, role, timeout)
         elif runtime == "pi":
             run_pi_rpc(prompt, project_root, log_path, role, timeout)
@@ -423,7 +425,6 @@ def run_task(
         f"Code Plane {project_root}",
         recover_stale=False,
     ):
-        require_no_quarantined_jobs(root, project_root)
         return run_task_locked(
             project_root, root, task_id, runtime, transport, max_steps, timeout
         )
@@ -448,7 +449,6 @@ def resume_task(
         f"Code Plane {project_root}",
         recover_stale=False,
     ):
-        require_no_quarantined_jobs(root, project_root)
         require_clean_code_plane(project_root)
 
         with FileLock(task_lock_path(root, project_root, task_id), f"Task {task_id}"):
@@ -542,7 +542,6 @@ def create_task_and_run(
         f"Code Plane {project_root}",
         recover_stale=False,
     ):
-        require_no_quarantined_jobs(root, project_root)
         require_clean_code_plane(project_root)
         container = tasks_dir(root, project_root)
         before = {p.name for p in container.iterdir() if p.is_dir()}
@@ -611,12 +610,6 @@ def doctor(project_root: Path, root: Path, requested_runtime: str) -> int:
         print(f"Control Root Tracked: {'YES' if safety['tracked'] else 'NO'}")
         print(f"Control Root Ignored: {'YES' if safety['ignored'] else 'NO'}")
 
-    quarantine = quarantined_jobs(root, project_root)
-    print(f"Quarantined Queue Jobs: {len(quarantine)}")
-    for item in quarantine:
-        print(f"  - {item}")
-    shared_risk = shared_orphan_risk_path(root, project_root)
-    print(f"Shared Orphan Risk: {shared_risk if shared_risk.exists() else 'NO'}")
 
     for runtime in ("codex", "pi"):
         print(f"Runtime {runtime}: {shutil.which(runtime) or 'NOT FOUND'}")
@@ -629,11 +622,11 @@ def doctor(project_root: Path, root: Path, requested_runtime: str) -> int:
 
 
 def command_requires_runtime(command: str) -> bool:
-    return command in {"start", "run", "resume", "worker"}
+    return command in {"start", "run", "resume"}
 
 
 def command_mutates_control_plane(command: str) -> bool:
-    return command in {"start", "run", "resume", "worker"}
+    return command in {"start", "run", "resume"}
 
 
 def main() -> int:
@@ -646,7 +639,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--transport",
-        choices=["auto", "subagent", "process", "direct", "queue"],
+        choices=["auto", "tmux", "subagent", "process", "direct", "queue"],
         default=os.environ.get("AGENT_TEAM_TRANSPORT", "auto"),
     )
     parser.add_argument("--max-steps", type=int, default=50)
@@ -675,10 +668,6 @@ def main() -> int:
         help="Human resolution/decision used to resume the BLOCKED Task.",
     )
 
-    worker_p = sub.add_parser("worker")
-    worker_p.add_argument("role", choices=["Impl", "Review"])
-    worker_p.add_argument("--once", action="store_true")
-    worker_p.add_argument("--poll", type=float, default=0.5)
 
     args = parser.parse_args()
     project_root = find_project_root(args.project)
@@ -699,10 +688,6 @@ def main() -> int:
     runtime = choose_runtime(args.runtime)
     transport = normalize_transport(args.transport)
 
-    if args.command == "worker":
-        return worker_loop(
-            project_root, root, args.role, runtime, args.once, args.poll
-        )
     if args.command == "run":
         return run_task(
             project_root, root, args.task_id,

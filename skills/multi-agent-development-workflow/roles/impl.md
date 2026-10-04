@@ -122,19 +122,23 @@ When \`Invocation Mode: Orchestrated Worker\` is present:
 - stop immediately after the artifact/handoff evidence is complete;
 - never invoke \`agent-team\` recursively.
 
-The Orchestrator detects the new artifact and automatically dispatches Lead next.
+In tmux-native mode, signal the completion channel supplied by Lead after the immutable artifact is complete; Lead then consumes it.
 
 
-## Native SubAgent identity
+## Tmux worker behavior
 
-In native orchestration you are normally a reusable child of Lead for one Task.
+In tmux-native mode you normally remain in the long-lived Impl pane and MAY keep
+useful implementation context across Plan creation, implementation and confirmed
+rework.
 
-You MAY retain implementation context across:
+A Lead handoff supplies Task ID, requested action, STATUS/artifact references and
+a three-digit completion round. Recover authoritative context from STATUS and
+immutable artifacts.
 
-- Plan creation;
-- approved implementation;
-- confirmed rework.
+After writing exactly the required Plan or IMPL artifact:
 
-Your retained conversation is convenience only. STATUS and immutable artifacts remain authoritative.
+1. do not transition STATUS;
+2. stop at the handoff boundary;
+3. signal Lead with `madw signal impl <TASK-ID> <ROUND>`.
 
-Do not spawn or impersonate Review. Stop after producing the requested Plan/IMPL handoff evidence and return control to Lead.
+Conversation memory is convenience only. Do not dispatch or impersonate Review.

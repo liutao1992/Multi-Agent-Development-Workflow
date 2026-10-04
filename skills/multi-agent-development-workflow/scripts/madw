@@ -1,0 +1,663 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+SKILL_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+DEFAULT_BOOT_TIMEOUT="${MADW_BOOT_TIMEOUT:-15}"
+DEFAULT_WAIT_TIMEOUT="${MADW_WAIT_TIMEOUT:-3600}"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  madw start [pi|codex] [--boot-timeout SECONDS]
+  madw status
+  madw watch
+  madw attach [leader|impl|review]
+  madw send <leader|impl|review> <message>
+  madw wait <impl|review> <TASK-ID> <ROUND> [timeout-seconds]
+  madw signal <impl|review> <TASK-ID> <ROUND>
+  madw restart <leader|impl|review> [pi|codex]
+  madw stop
+  madw doctor [pi|codex]
+  madw id
+
+Defaults:
+  - Project-scoped tmux session: madw-<repo>-<path-hash>
+  - One session/window with three panes: Lead / Impl / Review
+  - Runtime auto-select: MADW_RUNTIME, then pi, then codex
+
+Environment:
+  MADW_AGENT_CMD       Override the interactive Agent command.
+  MADW_RUNTIME         Default runtime: pi or codex.
+  MADW_SESSION         Override the project-scoped tmux session name.
+  MADW_BOOT_TIMEOUT    Agent startup timeout (default: 15).
+  MADW_WAIT_TIMEOUT    Handoff completion timeout (default: 3600).
+  MADW_NO_ATTACH=1     Do not attach after start.
+EOF
+}
+
+die() {
+  echo "madw: $*" >&2
+  exit 1
+}
+
+require_command() {
+  command -v "$1" >/dev/null 2>&1 || die "required command not found: $1"
+}
+
+project_root() {
+  if [ -n "${MADW_PROJECT_ROOT:-}" ]; then
+    (cd "$MADW_PROJECT_ROOT" && git rev-parse --show-toplevel 2>/dev/null) ||
+      die "MADW_PROJECT_ROOT is not inside a Git repository: $MADW_PROJECT_ROOT"
+    return
+  fi
+  git rev-parse --show-toplevel 2>/dev/null ||
+    die "run madw inside a Git repository"
+}
+
+project_slug() {
+  local root base slug
+  root="$(project_root)"
+  base="$(basename "$root")"
+  slug="$(printf '%s' "$base" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9_.-]+/-/g; s/^-+//; s/-+$//')"
+  [ -n "$slug" ] || slug="project"
+  printf '%s
+' "$slug"
+}
+
+project_hash() {
+  local root
+  root="$(project_root)"
+  printf '%s' "$root" | git hash-object --stdin | cut -c1-6
+}
+
+team_session() {
+  if [ -n "${MADW_SESSION:-}" ]; then
+    printf '%s
+' "$MADW_SESSION"
+  else
+    printf 'madw-%s-%s
+' "$(project_slug)" "$(project_hash)"
+  fi
+}
+
+session_exists() {
+  local session="$1"
+  tmux list-sessions -F '#S' 2>/dev/null | grep -Fqx "$session"
+}
+
+pane_exists() {
+  local pane="$1"
+  tmux list-panes -a -F '#{pane_id}' 2>/dev/null | grep -Fqx "$pane"
+}
+
+session_option() {
+  local session="$1" option="$2"
+  tmux show-options -v -t "$session" "$option" 2>/dev/null || true
+}
+
+pane_for_role() {
+  local role="$1" session option pane
+  session="$(team_session)"
+  case "$role" in
+    leader) option="@madw_pane_leader" ;;
+    impl) option="@madw_pane_impl" ;;
+    review) option="@madw_pane_review" ;;
+    *) die "unknown role: $role" ;;
+  esac
+  pane="$(session_option "$session" "$option")"
+  [ -n "$pane" ] || die "team metadata is missing $option; run 'madw stop' then 'madw start'"
+  pane_exists "$pane" || die "$role pane is missing: $pane"
+  printf '%s
+' "$pane"
+}
+
+resolve_runtime() {
+  local requested="${1:-}"
+  if [ -z "$requested" ] && [ -n "${MADW_RUNTIME:-}" ]; then
+    requested="$MADW_RUNTIME"
+  fi
+  if [ -n "$requested" ] && [ "$requested" != "auto" ]; then
+    case "$requested" in
+      pi|codex) printf '%s
+' "$requested"; return ;;
+      *) die "unsupported runtime: $requested (expected pi or codex)" ;;
+    esac
+  fi
+  if [ -n "${MADW_AGENT_CMD:-}" ]; then
+    printf '%s
+' "custom"
+  elif command -v pi >/dev/null 2>&1; then
+    printf '%s
+' "pi"
+  elif command -v codex >/dev/null 2>&1; then
+    printf '%s
+' "codex"
+  else
+    die "no supported Agent runtime found; install pi/codex or set MADW_AGENT_CMD"
+  fi
+}
+
+runtime_command() {
+  local runtime="$1"
+  if [ -n "${MADW_AGENT_CMD:-}" ]; then
+    printf '%s
+' "$MADW_AGENT_CMD"
+    return
+  fi
+  case "$runtime" in
+    pi) printf '%s
+' "pi" ;;
+    codex) printf '%s
+' "codex" ;;
+    custom) die "MADW_AGENT_CMD is required for custom runtime" ;;
+    *) die "unsupported runtime: $runtime" ;;
+  esac
+}
+
+command_head() {
+  local cmd="$1"
+  set -- $cmd
+  [ "$#" -gt 0 ] || die "empty Agent command"
+  printf '%s
+' "$1"
+}
+
+preflight_base() {
+  require_command git
+  require_command tmux
+  project_root >/dev/null
+  [ -f "$SKILL_ROOT/SKILL.md" ] ||
+    die "Skill installation is incomplete: $SKILL_ROOT/SKILL.md not found"
+}
+
+preflight_runtime() {
+  local runtime="$1" cmd head
+  cmd="$(runtime_command "$runtime")"
+  head="$(command_head "$cmd")"
+  command -v "$head" >/dev/null 2>&1 ||
+    die "Agent command not found: $head"
+}
+
+validate_existing_team() {
+  local session="$1" root stored
+  root="$(project_root)"
+  stored="$(session_option "$session" "@madw_project_root")"
+  [ -n "$stored" ] || die "tmux session '$session' exists but is not a MADW team"
+  [ "$stored" = "$root" ] || die "tmux session '$session' belongs to another project: $stored"
+  pane_for_role leader >/dev/null
+  pane_for_role impl >/dev/null
+  pane_for_role review >/dev/null
+}
+
+wait_pane_started() {
+  local pane="$1" timeout="${2:-$DEFAULT_BOOT_TIMEOUT}"
+  local started now dead pid
+  started="$(date +%s)"
+  while :; do
+    pane_exists "$pane" || die "pane disappeared during startup: $pane"
+    dead="$(tmux display-message -p -t "$pane" '#{pane_dead}')"
+    pid="$(tmux display-message -p -t "$pane" '#{pane_pid}')"
+    if [ "$dead" != "1" ] && [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+      return 0
+    fi
+    now="$(date +%s)"
+    if [ $((now - started)) -ge "$timeout" ]; then
+      echo "madw: Agent failed to become ready in pane $pane within ${timeout}s" >&2
+      tmux capture-pane -p -t "$pane" -S -40 >&2 2>/dev/null || true
+      return 1
+    fi
+    sleep 0.1
+  done
+}
+
+send_to_pane() {
+  local pane="$1" message="$2"
+  local buffer="madw-$PPID-$$-$(date +%s)"
+  printf '%s' "$message" | tmux load-buffer -b "$buffer" -
+  tmux paste-buffer -b "$buffer" -t "$pane" -d
+  tmux send-keys -t "$pane" Enter
+}
+
+role_prompt() {
+  local role="$1" lead="$2" impl="$3" review="$4"
+  local root session
+  root="$(project_root)"
+  session="$(team_session)"
+  case "$role" in
+    leader)
+      cat <<EOF
+Use multi-agent-development-workflow.
+Role: Lead.
+Mode: tmux-native.
+Project Root: $root
+MADW CLI: $SCRIPT_DIR/madw
+tmux team: $session
+Role targets:
+- leader: $lead (this pane)
+- impl: $impl
+- review: $review
+
+You are the only user-facing orchestrator. Delegate Plan/Implementation/Rework to Impl and independent verification to Review. Prefer "$SCRIPT_DIR/madw send" for bounded handoffs, "$SCRIPT_DIR/madw wait" for timeout/death-aware synchronization, and "$SCRIPT_DIR/madw restart review" before each substantive Review round. STATUS and immutable artifacts are durable truth; terminal scrollback is observational only. Continue Impl -> Review -> rework until PASS/ACCEPTED, BLOCKED, CANCELLED, or a genuine human decision is required.
+EOF
+      ;;
+    impl)
+      cat <<EOF
+Use multi-agent-development-workflow.
+Role: Impl.
+Mode: tmux-native.
+Project Root: $root
+MADW CLI: $SCRIPT_DIR/madw
+Lead target: $lead
+
+Wait for Lead handoffs. Read STATUS first. Perform exactly the requested Plan/Implementation/Rework action, preserve role boundaries, write the required immutable artifact, then signal the exact completion channel from Lead with "$SCRIPT_DIR/madw signal impl <TASK-ID> <ROUND>". Do not transition STATUS and do not dispatch Review.
+EOF
+      ;;
+    review)
+      cat <<EOF
+Use multi-agent-development-workflow.
+Role: Review.
+Mode: tmux-native.
+Project Root: $root
+MADW CLI: $SCRIPT_DIR/madw
+Lead target: $lead
+
+Wait for Lead handoffs. This pane must be a fresh Review context for the current round. Read STATUS first, verify the exact frozen clean Code Head, create exactly one REVIEW artifact, then signal the exact completion channel from Lead with "$SCRIPT_DIR/madw signal review <TASK-ID> <ROUND>". Do not modify implementation code and do not transition STATUS.
+EOF
+      ;;
+  esac
+}
+
+bootstrap_team() {
+  local lead="$1" impl="$2" review="$3"
+  send_to_pane "$lead" "$(role_prompt leader "$lead" "$impl" "$review")"
+  send_to_pane "$impl" "$(role_prompt impl "$lead" "$impl" "$review")"
+  send_to_pane "$review" "$(role_prompt review "$lead" "$impl" "$review")"
+}
+
+create_team() {
+  local runtime="$1" boot_timeout="$2"
+  local root session cmd lead impl review
+  root="$(project_root)"
+  session="$(team_session)"
+  cmd="$(runtime_command "$runtime")"
+
+  tmux new-session -d -s "$session" -n team -c "$root" "$cmd"
+  tmux set-option -t "$session:team" remain-on-exit on
+  lead="$(tmux display-message -p -t "$session:team.0" '#{pane_id}')"
+  impl="$(tmux split-window -v -p 45 -P -F '#{pane_id}' -t "$lead" -c "$root" "$cmd")"
+  review="$(tmux split-window -h -p 50 -P -F '#{pane_id}' -t "$impl" -c "$root" "$cmd")"
+
+  tmux select-pane -t "$lead" -T "Lead"
+  tmux select-pane -t "$impl" -T "Impl"
+  tmux select-pane -t "$review" -T "Review"
+  tmux select-pane -t "$lead"
+
+  tmux set-option -t "$session" @madw_project_root "$root"
+  tmux set-option -t "$session" @madw_runtime "$runtime"
+  tmux set-option -t "$session" @madw_agent_cmd "$cmd"
+  tmux set-option -t "$session" @madw_skill_root "$SKILL_ROOT"
+  tmux set-option -t "$session" @madw_pane_leader "$lead"
+  tmux set-option -t "$session" @madw_pane_impl "$impl"
+  tmux set-option -t "$session" @madw_pane_review "$review"
+  tmux set-option -p -t "$lead" @madw_role leader
+  tmux set-option -p -t "$impl" @madw_role impl
+  tmux set-option -p -t "$review" @madw_role review
+
+  if ! wait_pane_started "$lead" "$boot_timeout" ||
+     ! wait_pane_started "$impl" "$boot_timeout" ||
+     ! wait_pane_started "$review" "$boot_timeout"; then
+    tmux kill-session -t "$session" 2>/dev/null || true
+    die "team startup failed; partial tmux session removed"
+  fi
+
+  bootstrap_team "$lead" "$impl" "$review"
+  printf 'Project: %s
+' "$root"
+  printf 'Team:    %s
+' "$session"
+  printf 'Runtime: %s
+' "$runtime"
+}
+
+attach_team() {
+  local focus="${1:-leader}" session pane
+  session="$(team_session)"
+  session_exists "$session" || die "team is not running: $session"
+  validate_existing_team "$session"
+  pane="$(pane_for_role "$focus")"
+  tmux select-window -t "$session:team"
+  tmux select-pane -t "$pane"
+  if [ -n "${TMUX:-}" ]; then
+    tmux switch-client -t "$session"
+  else
+    tmux attach-session -t "$session"
+  fi
+}
+
+parse_section_value() {
+  local file="$1" section="$2" field="$3"
+  awk -v section="$section" -v field="$field" '
+    $0 == "## " section {inside=1; next}
+    inside && /^## / {exit}
+    inside && index($0, field ":") == 1 {
+      sub("^" field ":[[:space:]]*", "", $0)
+      print
+      exit
+    }
+  ' "$file"
+}
+
+status_state() {
+  local file="$1"
+  awk '
+    $0 == "## Current State" {inside=1; next}
+    inside && NF {print; exit}
+  ' "$file"
+}
+
+print_task_summary() {
+  local root tasks_dir status_file state count task_id head impl review candidate candidate_state
+  root="$(project_root)"
+  tasks_dir="$root/.agent-team/tasks"
+  count=0
+  task_id=""
+  state=""
+  status_file=""
+
+  if [ -d "$tasks_dir" ]; then
+    for candidate in "$tasks_dir"/*/STATUS.md; do
+      [ -f "$candidate" ] || continue
+      candidate_state="$(status_state "$candidate")"
+      case "$candidate_state" in ACCEPTED|CANCELLED) continue ;; esac
+      count=$((count + 1))
+      if [ "$count" -eq 1 ]; then
+        status_file="$candidate"
+        task_id="$(basename "$(dirname "$candidate")")"
+        state="$candidate_state"
+      fi
+    done
+  fi
+
+  if [ "$count" -eq 0 ]; then
+    echo "Task:    no active task"
+    return
+  fi
+  if [ "$count" -gt 1 ]; then
+    echo "Task:    $count active tasks (Lead must select explicitly)"
+    for candidate in "$tasks_dir"/*/STATUS.md; do
+      [ -f "$candidate" ] || continue
+      candidate_state="$(status_state "$candidate")"
+      case "$candidate_state" in ACCEPTED|CANCELLED) continue ;; esac
+      printf '  - %s  %s
+' "$(basename "$(dirname "$candidate")")" "$candidate_state"
+    done
+    return
+  fi
+
+  head="$(parse_section_value "$status_file" "Current Implementation" "Code Head SHA")"
+  impl="$(parse_section_value "$status_file" "Current Implementation" "Artifact")"
+  review="$(parse_section_value "$status_file" "Current Review" "Artifact")"
+  printf 'Task:    %s
+' "$task_id"
+  printf 'State:   %s
+' "${state:-UNKNOWN}"
+  [ -n "$head" ] && [ "$head" != "N/A" ] && printf 'HEAD:    %s
+' "$head"
+  [ -n "$impl" ] && [ "$impl" != "N/A" ] && printf 'Impl:    %s
+' "$impl"
+  [ -n "$review" ] && [ "$review" != "N/A" ] && printf 'Review:  %s
+' "$review"
+  case "$state" in
+    PLANNING|PLAN_REWORK|IMPLEMENTING) echo "Expected next actor: Impl" ;;
+    REVIEWING) echo "Expected next actor: Review" ;;
+    *) echo "Expected next actor: Lead" ;;
+  esac
+}
+
+status_team() {
+  local root session runtime role pane cmd pid dead health
+  root="$(project_root)"
+  session="$(team_session)"
+  echo "Project: $root"
+  echo "Team:    $session"
+  if ! session_exists "$session"; then
+    echo "Runtime: N/A"
+    echo "Team status: NOT RUNNING"
+    print_task_summary
+    return 1
+  fi
+
+  validate_existing_team "$session"
+  runtime="$(session_option "$session" "@madw_runtime")"
+  echo "Runtime: $runtime"
+  print_task_summary
+  echo
+  printf '%-8s %-8s %-18s %-8s %s
+' "ROLE" "PANE" "COMMAND" "HEALTH" "PID"
+  for role in leader impl review; do
+    pane="$(pane_for_role "$role")"
+    cmd="$(tmux display-message -p -t "$pane" '#{pane_current_command}')"
+    pid="$(tmux display-message -p -t "$pane" '#{pane_pid}')"
+    dead="$(tmux display-message -p -t "$pane" '#{pane_dead}')"
+    if [ "$dead" = "1" ] || ! kill -0 "$pid" 2>/dev/null; then health="dead"; else health="alive"; fi
+    printf '%-8s %-8s %-18s %-8s %s
+' "$role" "$pane" "$cmd" "$health" "$pid"
+  done
+}
+
+restart_role() {
+  local role="$1" requested_runtime="${2:-}"
+  local session pane runtime cmd root stored_runtime lead impl review
+  session="$(team_session)"
+  session_exists "$session" || die "team is not running: $session"
+  validate_existing_team "$session"
+  pane="$(pane_for_role "$role")"
+  root="$(project_root)"
+  stored_runtime="$(session_option "$session" "@madw_runtime")"
+
+  if [ -n "$requested_runtime" ]; then
+    runtime="$(resolve_runtime "$requested_runtime")"
+    preflight_runtime "$runtime"
+    cmd="$(runtime_command "$runtime")"
+  else
+    runtime="$stored_runtime"
+    cmd="$(session_option "$session" "@madw_agent_cmd")"
+    [ -n "$cmd" ] || die "team metadata is missing Agent command"
+  fi
+
+  tmux respawn-pane -k -t "$pane" -c "$root" "$cmd"
+  case "$role" in leader) title="Lead" ;; impl) title="Impl" ;; review) title="Review" ;; esac
+  tmux select-pane -t "$pane" -T "$title"
+  wait_pane_started "$pane" "$DEFAULT_BOOT_TIMEOUT"
+
+  lead="$(pane_for_role leader)"
+  impl="$(pane_for_role impl)"
+  review="$(pane_for_role review)"
+  send_to_pane "$pane" "$(role_prompt "$role" "$lead" "$impl" "$review")"
+
+  if [ -n "$requested_runtime" ]; then
+    tmux set-option -t "$session" @madw_runtime "$runtime"
+    tmux set-option -t "$session" @madw_agent_cmd "$cmd"
+  fi
+  echo "restarted $role in $pane"
+}
+
+stop_team() {
+  local session
+  session="$(team_session)"
+  if session_exists "$session"; then
+    validate_existing_team "$session"
+    tmux kill-session -t "$session"
+    echo "stopped $session"
+  else
+    echo "team is not running: $session"
+  fi
+}
+
+handoff_channel() {
+  local role="$1" task_id="$2" round="$3"
+  case "$role" in impl|review) ;; *) die "completion role must be impl or review" ;; esac
+  case "$round" in [0-9][0-9][0-9]) ;; *) die "ROUND must be three digits, for example 001" ;; esac
+  printf 'madw:%s:%s:%s
+' "$task_id" "$role" "$round"
+}
+
+expected_artifact() {
+  local role="$1" task_id="$2" round="$3" root status state
+  root="$(project_root)"
+  status="$root/.agent-team/tasks/$task_id/STATUS.md"
+  [ -f "$status" ] || die "STATUS not found for $task_id"
+  state="$(status_state "$status")"
+  if [ "$role" = "review" ]; then
+    printf '%s/.agent-team/tasks/%s/reviews/REVIEW-%s.md
+' "$root" "$task_id" "$round"
+  else
+    case "$state" in
+      PLANNING|PLAN_REWORK) printf '%s/.agent-team/tasks/%s/plans/PLAN-v%s.md
+' "$root" "$task_id" "$round" ;;
+      *) printf '%s/.agent-team/tasks/%s/implementations/IMPL-%s.md
+' "$root" "$task_id" "$round" ;;
+    esac
+  fi
+}
+
+wait_handoff() {
+  local role="$1" task_id="$2" round="$3" timeout="${4:-$DEFAULT_WAIT_TIMEOUT}"
+  local channel pane waiter started now dead pid artifact
+  channel="$(handoff_channel "$role" "$task_id" "$round")"
+  pane="$(pane_for_role "$role")"
+  artifact="$(expected_artifact "$role" "$task_id" "$round")"
+
+  tmux wait-for "$channel" &
+  waiter=$!
+  started="$(date +%s)"
+  while kill -0 "$waiter" 2>/dev/null; do
+    if ! pane_exists "$pane"; then
+      kill "$waiter" 2>/dev/null || true; wait "$waiter" 2>/dev/null || true
+      die "$role pane disappeared while waiting for $channel"
+    fi
+    dead="$(tmux display-message -p -t "$pane" '#{pane_dead}')"
+    pid="$(tmux display-message -p -t "$pane" '#{pane_pid}')"
+    if [ "$dead" = "1" ] || ! kill -0 "$pid" 2>/dev/null; then
+      kill "$waiter" 2>/dev/null || true; wait "$waiter" 2>/dev/null || true
+      echo "madw: $role Agent exited while waiting for $channel" >&2
+      tmux capture-pane -p -t "$pane" -S -80 >&2 2>/dev/null || true
+      return 2
+    fi
+    now="$(date +%s)"
+    if [ $((now - started)) -ge "$timeout" ]; then
+      kill "$waiter" 2>/dev/null || true; wait "$waiter" 2>/dev/null || true
+      echo "madw: timeout waiting ${timeout}s for $channel" >&2
+      tmux capture-pane -p -t "$pane" -S -80 >&2 2>/dev/null || true
+      return 124
+    fi
+    sleep 0.25
+  done
+  wait "$waiter"
+
+  [ -f "$artifact" ] || die "completion was signaled but expected artifact is missing: $artifact"
+  echo "completed: $channel"
+  echo "artifact:  $artifact"
+}
+
+signal_handoff() {
+  local channel
+  channel="$(handoff_channel "$1" "$2" "$3")"
+  tmux wait-for -S "$channel"
+  echo "signaled: $channel"
+}
+
+send_role() {
+  local role="$1" message="$2" pane
+  pane="$(pane_for_role "$role")"
+  send_to_pane "$pane" "$message"
+  echo "sent to $role ($pane)"
+}
+
+doctor() {
+  local requested="${1:-}" runtime cmd session
+  preflight_base
+  runtime="$(resolve_runtime "$requested")"
+  preflight_runtime "$runtime"
+  cmd="$(runtime_command "$runtime")"
+  session="$(team_session)"
+  echo "Project Root: $(project_root)"
+  echo "Skill Root:   $SKILL_ROOT"
+  echo "tmux:         $(command -v tmux)"
+  echo "Runtime:      $runtime"
+  echo "Agent Command:$cmd"
+  echo "Team:         $session"
+  if session_exists "$session"; then validate_existing_team "$session"; echo "Existing Team: valid"; else echo "Existing Team: none"; fi
+}
+
+start_command() {
+  local requested="" boot_timeout="$DEFAULT_BOOT_TIMEOUT"
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      pi|codex) requested="$1"; shift ;;
+      --boot-timeout) [ "$#" -ge 2 ] || die "--boot-timeout requires seconds"; boot_timeout="$2"; shift 2 ;;
+      *) die "unknown start argument: $1" ;;
+    esac
+  done
+
+  preflight_base
+  local session root stored_runtime runtime
+  session="$(team_session)"
+  root="$(project_root)"
+
+  if session_exists "$session"; then
+    validate_existing_team "$session"
+    if [ -n "$requested" ]; then
+      stored_runtime="$(session_option "$session" "@madw_runtime")"
+      [ "$stored_runtime" = "$requested" ] ||
+        die "team already runs runtime '$stored_runtime'; use 'madw restart <role> $requested' or stop first"
+    fi
+    echo "Project: $root"
+    echo "Team:    $session"
+    echo "Team status: existing"
+  else
+    runtime="$(resolve_runtime "$requested")"
+    preflight_runtime "$runtime"
+    create_team "$runtime" "$boot_timeout"
+  fi
+
+  if [ "${MADW_NO_ATTACH:-0}" != "1" ]; then attach_team leader; fi
+}
+
+command="${1:-start}"
+[ "$#" -gt 0 ] && shift || true
+
+case "$command" in
+  start) start_command "$@" ;;
+  status) preflight_base; status_team ;;
+  watch) preflight_base; attach_team leader ;;
+  attach) preflight_base; attach_team "${1:-leader}" ;;
+  send)
+    preflight_base
+    [ "$#" -ge 2 ] || { usage >&2; exit 2; }
+    role="$1"; shift
+    send_role "$role" "$*"
+    ;;
+  wait)
+    preflight_base
+    [ "$#" -ge 3 ] || { usage >&2; exit 2; }
+    wait_handoff "$1" "$2" "$3" "${4:-$DEFAULT_WAIT_TIMEOUT}"
+    ;;
+  signal)
+    preflight_base
+    [ "$#" -eq 3 ] || { usage >&2; exit 2; }
+    signal_handoff "$1" "$2" "$3"
+    ;;
+  restart)
+    preflight_base
+    [ "$#" -ge 1 ] || { usage >&2; exit 2; }
+    restart_role "$1" "${2:-}"
+    ;;
+  stop) preflight_base; stop_team ;;
+  doctor) doctor "${1:-}" ;;
+  id) require_command git; project_root >/dev/null; printf '%s
+' "$(team_session)" ;;
+  -h|--help|help) usage ;;
+  *) usage >&2; exit 2 ;;
+esac
