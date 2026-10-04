@@ -38,6 +38,7 @@ Defaults:
 Environment:
   MADW_AGENT_CMD       Override the interactive Agent command.
   MADW_RUNTIME         Default runtime: pi or codex.
+  MADW_CODEX_NETWORK_ACCESS=1  Opt in to network access for Codex tmux socket use.
   MADW_SESSION         Override the project-scoped tmux session name.
   MADW_BOOT_TIMEOUT    Agent startup timeout (default: 15).
   MADW_WAIT_TIMEOUT    Handoff completion timeout (default: 3600).
@@ -157,8 +158,15 @@ runtime_command() {
   case "$runtime" in
     pi) printf '%s
 ' "pi" ;;
-    codex) printf '%s
-' "codex" ;;
+    codex)
+      if [ "${MADW_CODEX_NETWORK_ACCESS:-0}" = "1" ]; then
+        printf '%s
+' "codex -s workspace-write -c 'sandbox_workspace_write.network_access=true'"
+      else
+        printf '%s
+' "codex"
+      fi
+      ;;
     custom) die "MADW_AGENT_CMD is required for custom runtime" ;;
     *) die "unsupported runtime: $runtime" ;;
   esac
@@ -182,6 +190,14 @@ command_head() {
 preflight_base() {
   require_command git
   require_command tmux
+  local tmux_error
+  if ! tmux_error="$(tmux list-sessions -F '#S' 2>&1)"; then
+    case "$tmux_error" in
+      *"Operation not permitted"*|*"Permission denied"*)
+        die "tmux socket access denied by this sandbox. Approve this madw command with elevated permissions, or explicitly start a new Codex team with MADW_CODEX_NETWORK_ACCESS=1 (also grants network access)."
+        ;;
+    esac
+  fi
   project_root >/dev/null
   [ -f "$SKILL_ROOT/SKILL.md" ] ||
     die "Skill installation is incomplete: $SKILL_ROOT/SKILL.md not found"
@@ -193,6 +209,20 @@ preflight_runtime() {
   head="$(command_head "$cmd")"
   command -v "$head" >/dev/null 2>&1 ||
     die "Agent command not found: $head"
+}
+
+prepare_control_plane() {
+  local root exclude
+  root="$(project_root)"
+  if [ -n "$(git -C "$root" ls-files -- .agent-team)" ]; then
+    die ".agent-team is tracked by Git; move it out of the Code Plane before starting the team"
+  fi
+  if ! git -C "$root" check-ignore -q .agent-team/; then
+    exclude="$(git -C "$root" rev-parse --git-path info/exclude)"
+    mkdir -p "$(dirname "$exclude")"
+    printf '\n.agent-team/\n' >> "$exclude"
+  fi
+  mkdir -p "$root/.agent-team/tasks"
 }
 
 validate_existing_team() {
@@ -255,11 +285,12 @@ role_prompt() {
 
 【收到开发需求后】
 1. 你是唯一与用户交流、管理任务状态和最终验收的 Lead。
-2. 将计划、实现和返工交给 Impl；将独立验证交给 Review。
-3. 使用 "\$MADW_CLI" send / wait 交接并等待完成。
-4. 每轮正式评审前，先运行 "\$MADW_CLI" restart review。
-5. 以 STATUS 和不可变工件为准，完成实现、评审、返工和验收闭环。
-6. 用户尚未提出需求时，保持待命。
+2. 控制面固定在项目的 .agent-team/；启动器已确认它不进入 Git 代码快照。
+3. 将计划、实现和返工交给 Impl；将独立验证交给 Review。
+4. 使用 "\$MADW_CLI" send / wait 交接并等待完成。
+5. 每轮正式评审前，先运行 "\$MADW_CLI" restart review。
+6. 以 STATUS 和不可变工件为准，完成实现、评审、返工和验收闭环。
+7. 用户尚未提出需求时，保持待命。
 EOF
       ;;
     impl)
@@ -695,6 +726,7 @@ start_command() {
   root="$(project_root)"
   git -C "$root" rev-parse --verify HEAD >/dev/null 2>&1 ||
     die "Git repository has no commit yet. Create an initial commit before 'madw start' so the Task Baseline SHA can be frozen."
+  prepare_control_plane
 
   if session_exists "$session"; then
     validate_existing_team "$session"

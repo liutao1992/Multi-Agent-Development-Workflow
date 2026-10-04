@@ -36,7 +36,8 @@ madw start
 
 项目须先有至少一个提交，Lead 才能记录 Task Baseline SHA。仅执行
 `git init` 的空仓库会在创建面板前得到明确错误；先提交项目初始文件，再运行
-`madw start`。
+`madw start`。启动器会创建项目内的 `.agent-team/tasks/`，并将
+`.agent-team/` 加入当前仓库的 Git 本地排除规则，使控制面不进入代码提交。
 
 启动后，左侧 **Lead** 会提示你输入开发需求。点击左侧输入框，直接描述任务并
 按 `Enter`；右上 Impl 和右下 Review 启动后保持待命，无须手动输入初始化指令。
@@ -56,6 +57,18 @@ madw start
 
 选择顺序：`MADW_RUNTIME` → 已安装的 `pi` → 已安装的 `codex` → 报错。
 也可以显式使用 `madw start pi` 或 `madw start codex`。
+
+Codex 的默认工作区沙箱在 macOS 上可能拒绝连接 tmux 的本地 socket，
+使 `madw send`、`wait` 和 `signal` 失败。可**明确选择**为这个团队的
+Codex 进程启用工作区沙箱网络访问：
+
+```bash
+MADW_CODEX_NETWORK_ACCESS=1 madw start codex
+```
+
+该设置也允许 Agent 执行的命令访问网络。它只影响这次创建的团队；
+已有团队需要在没有进行中的工作时停止并重建，或逐个重启角色。
+若需要自行控制 Codex 启动参数，可设置 `MADW_AGENT_CMD`。
 
 ## 一个项目一个 tmux session
 

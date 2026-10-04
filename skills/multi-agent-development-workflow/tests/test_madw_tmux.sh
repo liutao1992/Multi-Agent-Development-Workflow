@@ -63,6 +63,44 @@ if tmux list-sessions -F '#S' 2>/dev/null | grep -Fqx "$EMPTY_SESSION"; then
   echo "start created tmux panes before checking the Git baseline" >&2
   exit 1
 fi
+[ ! -e "$EMPTY_REPO/.agent-team" ]
+
+# Codex needs local socket access for madw send/wait/signal in its shell sandbox.
+mkdir -p "$TMP/bin"
+printf '#!/bin/sh\nexit 0\n' > "$TMP/bin/codex"
+chmod +x "$TMP/bin/codex"
+DOCTOR_OUTPUT="$(cd "$REPO_A" && PATH="$TMP/bin:$PATH" MADW_AGENT_CMD= "$MADW" doctor codex)"
+printf '%s\n' "$DOCTOR_OUTPUT" | grep -Fq 'Agent Command:codex'
+if printf '%s\n' "$DOCTOR_OUTPUT" | grep -Fq 'network_access=true'; then
+  echo "Codex network access was enabled without an explicit opt-in" >&2
+  exit 1
+fi
+OPT_IN_DOCTOR="$(cd "$REPO_A" && PATH="$TMP/bin:$PATH" MADW_AGENT_CMD= MADW_CODEX_NETWORK_ACCESS=1 "$MADW" doctor codex)"
+printf '%s\n' "$OPT_IN_DOCTOR" | grep -Fq "codex -s workspace-write -c 'sandbox_workspace_write.network_access=true'"
+
+# A denied socket must not be reported as a missing team.
+cat > "$TMP/bin/tmux" <<'EOF'
+#!/bin/sh
+echo 'error connecting to /private/tmp/tmux-501/default (Operation not permitted)' >&2
+exit 1
+EOF
+chmod +x "$TMP/bin/tmux"
+if (cd "$REPO_A" && PATH="$TMP/bin:$PATH" "$MADW" status) >"$TMP/denied-socket.log" 2>&1; then
+  echo "status accepted a denied tmux socket" >&2
+  exit 1
+fi
+grep -Fq 'tmux socket access denied by this sandbox' "$TMP/denied-socket.log"
+rm "$TMP/bin/tmux"
+
+# Exercise the actual Codex command path with a fake interactive executable.
+cp "$FAKE" "$TMP/bin/codex"
+CODEX_REPO="$TMP/codex-project"
+init_repo "$CODEX_REPO"
+(cd "$CODEX_REPO" && PATH="$TMP/bin:$PATH" MADW_AGENT_CMD= MADW_CODEX_NETWORK_ACCESS=1 MADW_NO_ATTACH=1 "$MADW" start codex) >/dev/null
+CODEX_SESSION="$(cd "$CODEX_REPO" && "$MADW" id)"
+[ "$(tmux show-options -v -t "$CODEX_SESSION" @madw_agent_cmd)" = "codex -s workspace-write -c 'sandbox_workspace_write.network_access=true'" ]
+[ "$(tmux list-panes -t "$CODEX_SESSION:team" -F '#{pane_id}' | wc -l | tr -d ' ')" = "3" ]
+(cd "$CODEX_REPO" && "$MADW" stop) >/dev/null
 
 # Default install goes to the shared Agent Skills directory and removes an old
 # Codex-specific copy from the discovery path.
@@ -87,6 +125,9 @@ rm -rf "$STALE_CWD"
 
 start_for "$REPO_A"
 SESSION_A="$(session_for "$REPO_A")"
+[ -d "$REPO_A/.agent-team/tasks" ]
+(cd "$REPO_A" && git check-ignore -q .agent-team/)
+[ -z "$(git -C "$REPO_A" status --porcelain)" ]
 [ "$(tmux list-panes -t "$SESSION_A:team" -F '#{pane_id}' | wc -l | tr -d ' ')" = "3" ]
 [ "$(tmux show-options -v -t "$SESSION_A" @madw_runtime)" = "custom" ]
 [ "$(tmux show-options -v -t "$SESSION_A" mouse)" = "on" ]
