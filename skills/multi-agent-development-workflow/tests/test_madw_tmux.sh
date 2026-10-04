@@ -47,8 +47,8 @@ REPO_B="$TMP/other/project"
 init_repo "$REPO_A"
 init_repo "$REPO_B"
 
-# Default install goes to the shared Agent Skills directory and migrates an old
-# Codex-specific copy out of the discovery path.
+# Default install goes to the shared Agent Skills directory and removes an old
+# Codex-specific copy from the discovery path.
 INSTALL_HOME="$TMP/install-home"
 INSTALL_BIN="$TMP/install-bin"
 mkdir -p "$INSTALL_HOME/.codex/skills/multi-agent-development-workflow"
@@ -56,7 +56,7 @@ printf 'legacy\n' > "$INSTALL_HOME/.codex/skills/multi-agent-development-workflo
 HOME="$INSTALL_HOME" MADW_BIN_DIR="$INSTALL_BIN" "$INSTALL" >/dev/null
 [ -f "$INSTALL_HOME/.agents/skills/multi-agent-development-workflow/SKILL.md" ]
 [ ! -e "$INSTALL_HOME/.codex/skills/multi-agent-development-workflow" ]
-find "$INSTALL_HOME/.local/share/madw/backups" -maxdepth 1 -type d -name 'codex-skill-*' | grep -q .
+[ ! -e "$INSTALL_HOME/.local/share/madw/backups" ]
 [ -L "$INSTALL_BIN/madw" ]
 [ -L "$INSTALL_BIN/agent-team" ]
 (cd "$REPO_A" && MADW_AGENT_CMD="$FAKE" "$INSTALL_BIN/madw" id) >/dev/null

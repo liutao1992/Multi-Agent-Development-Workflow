@@ -216,11 +216,10 @@ agent-team → ~/.local/bin/agent-team
 因此 `./install.sh` 与 `madw start` 的 runtime 自动选择保持一致，不需要
 为两个 runtime 复制两份 Skill。
 
-升级旧版本时，安装器会把旧的 `~/.codex/skills/...` 或
-`~/.pi/agent/skills/...` 同名 Skill 移到
-`~/.local/share/madw/backups/`，避免重复发现，同时保留可恢复备份。
+升级旧版本时，安装器会删除旧的 `~/.codex/skills/...` 或
+`~/.pi/agent/skills/...` 同名 Skill，再安装共享目录中的新版本，避免重复发现。
 
-可通过 `MADW_SKILL_DIR`、`MADW_BIN_DIR`、`MADW_BACKUP_DIR` 覆盖路径。
+可通过 `MADW_SKILL_DIR`、`MADW_BIN_DIR` 覆盖路径。
 
 一个 MADW team 只使用一个 runtime。角色重启只允许：
 

@@ -5,36 +5,37 @@ ROOT="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 SOURCE="$ROOT/skills/multi-agent-development-workflow"
 SKILL_DIR="${MADW_SKILL_DIR:-$HOME/.agents/skills/multi-agent-development-workflow}"
 BIN_DIR="${MADW_BIN_DIR:-$HOME/.local/bin}"
-BACKUP_DIR="${MADW_BACKUP_DIR:-$HOME/.local/share/madw/backups}"
 
 [ -f "$SOURCE/SKILL.md" ] || {
   echo "install: Skill source not found: $SOURCE" >&2
   exit 1
 }
 
-backup_existing() {
-  local path="$1" label="$2" target
+remove_existing() {
+  local path="$1"
+  case "$path" in
+    */multi-agent-development-workflow) ;;
+    *) echo "install: refusing to remove unexpected Skill path: $path" >&2; exit 1 ;;
+  esac
   [ -e "$path" ] || [ -L "$path" ] || return 0
-  mkdir -p "$BACKUP_DIR"
-  target="$BACKUP_DIR/${label}-$(date +%Y%m%d%H%M%S)-$$"
-  mv "$path" "$target"
-  echo "Previous install moved to: $target"
+  rm -rf -- "$path"
+  echo "Previous install removed: $path"
 }
-
-# ~/.agents/skills is shared by Pi and Codex. With the default install path,
-# move old runtime-specific copies out of discovery paths to avoid duplicates.
-if [ -z "${MADW_SKILL_DIR:-}" ]; then
-  backup_existing "${CODEX_HOME:-$HOME/.codex}/skills/multi-agent-development-workflow" "codex-skill"
-  backup_existing "$HOME/.pi/agent/skills/multi-agent-development-workflow" "pi-skill"
-fi
-
-backup_existing "$SKILL_DIR" "shared-skill"
 
 mkdir -p "$(dirname "$SKILL_DIR")" "$BIN_DIR"
 TMP="${SKILL_DIR}.tmp.$$"
 rm -rf "$TMP"
 mkdir -p "$TMP"
 cp -R "$SOURCE/." "$TMP/"
+
+# ~/.agents/skills is shared by Pi and Codex. With the default install path,
+# remove old runtime-specific copies to avoid duplicates.
+if [ -z "${MADW_SKILL_DIR:-}" ]; then
+  remove_existing "${CODEX_HOME:-$HOME/.codex}/skills/multi-agent-development-workflow"
+  remove_existing "$HOME/.pi/agent/skills/multi-agent-development-workflow"
+fi
+
+remove_existing "$SKILL_DIR"
 mv "$TMP" "$SKILL_DIR"
 
 ln -sfn "$SKILL_DIR/scripts/madw" "$BIN_DIR/madw"
