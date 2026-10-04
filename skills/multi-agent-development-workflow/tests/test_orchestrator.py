@@ -115,6 +115,11 @@ class RoleSelectionTests(unittest.TestCase):
         self.assertEqual(core.select_role(self.task, s3), "Review")
         (self.task / "reviews" / "REVIEW-001.md").write_text("review", encoding="utf-8")
         self.assertEqual(core.select_role(self.task, s3), "Lead")
+        next_round = status("REVIEWING", review="REVIEW-002.md")
+        self.assertEqual(core.select_role(self.task, next_round), "Review")
+        (self.task / "reviews" / "REVIEW-002.md").write_text("review", encoding="utf-8")
+        next_round = next_round.replace("Artifact: REVIEW-002.md", "Artifact: REVIEW-002.md\nResult: PENDING")
+        self.assertEqual(core.select_role(self.task, next_round), "Lead")
         self.assertIsNone(core.select_role(self.task, status("BLOCKED")))
 
 

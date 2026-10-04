@@ -178,7 +178,13 @@ def artifact_pending(task: Path, status: str, kind: str) -> bool:
     section_name, subdir, pattern = mapping[kind]
     recorded = section_field(status, section_name, "Artifact")
     latest = latest_artifact(task / subdir, pattern)
-    return latest is not None and latest != recorded
+    if latest is None:
+        return False
+    if kind == "review" and latest == recorded:
+        return section_field(status, "Current Review", "Result") == "PENDING"
+    if recorded in {"", "N/A", "None"}:
+        return True
+    return latest > recorded
 
 
 def select_role(task: Path, status: str) -> str | None:
