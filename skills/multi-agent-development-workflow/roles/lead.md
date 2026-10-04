@@ -141,7 +141,7 @@ result, not a lifecycle completion flag.
 
 Support Plan Gate SKIPPED by recording Plan Reference/Version N/A.
 
-Only after ACCEPTANCE.md exists may STATUS → ACCEPTED.
+Only after ACCEPTANCE.md exists may STATUS → ACCEPTED. Set STATUS `Current Review` `Result: PASS` from the reviewed PASS artifact; keep its `Protocol Status: READY_FOR_REVIEW` as target verification evidence.
 
 ## Short interaction behavior
 

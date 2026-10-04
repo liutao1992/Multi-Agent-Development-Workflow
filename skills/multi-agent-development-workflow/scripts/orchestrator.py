@@ -180,7 +180,9 @@ Accepted Review: <current REVIEW filename>, and Accepted Code Head SHA: <full Gi
 Before accepting, verify the REVIEW artifact has every machine-readable target field.
 For a PASS review, STATUS Current Review Protocol Status MUST remain READY_FOR_REVIEW
 even when Current State becomes ACCEPTED; this field records target verification,
-not lifecycle completion. Copy it exactly from the REVIEW artifact."""
+not lifecycle completion. Copy it exactly from the REVIEW artifact.
+When consuming a PASS Review, set STATUS Current Review Result to PASS before
+transitioning to ACCEPTED; do not leave the previous PENDING value."""
         if state == "REVIEWING":
             schema_hint += """
 If Review FAIL requires REVIEWING → REWORK, put confirmed RW-NNN remediation only
