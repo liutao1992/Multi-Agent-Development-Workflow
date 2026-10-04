@@ -418,8 +418,8 @@ print_task_summary() {
   [ -n "$review" ] && [ "$review" != "N/A" ] && printf 'Review:  %s
 ' "$review"
   case "$state" in
-    PLANNING|PLAN_REWORK|IMPLEMENTING) echo "Expected next actor: Impl" ;;
-    REVIEWING) echo "Expected next actor: Review" ;;
+    PLANNING|PLAN_REWORK|IMPLEMENTING) echo "Next: Impl, then Lead after new artifact" ;;
+    REVIEWING) echo "Next: Review, then Lead after new artifact" ;;
     *) echo "Expected next actor: Lead" ;;
   esac
 }
