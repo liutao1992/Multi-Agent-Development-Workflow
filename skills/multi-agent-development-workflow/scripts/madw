@@ -299,6 +299,7 @@ create_team() {
   pane_cmd="$(pane_command "$root" "$cmd")"
 
   tmux new-session -d -s "$session" -n team -c "$root" "$pane_cmd"
+  tmux set-option -t "$session" mouse on
   tmux set-option -t "$session:team" remain-on-exit on
   lead="$(tmux display-message -p -t "$session:team.0" '#{pane_id}')"
   impl="$(tmux split-window -h -l 50% -P -F '#{pane_id}' -t "$lead" -c "$root" "$pane_cmd")"
@@ -341,6 +342,7 @@ attach_team() {
   session="$(team_session)"
   session_exists "$session" || die "team is not running: $session"
   validate_existing_team "$session"
+  tmux set-option -t "$session" mouse on
   pane="$(pane_for_role "$focus")"
   tmux select-window -t "$session:team"
   tmux select-pane -t "$pane"
@@ -680,6 +682,7 @@ start_command() {
       [ "$stored_runtime" = "$requested" ] ||
         die "team already runs runtime '$stored_runtime'; use 'madw restart <role> $requested' or stop first"
     fi
+    tmux set-option -t "$session" mouse on
     echo "Project: $root"
     echo "Team:    $session"
     echo "Team status: existing"

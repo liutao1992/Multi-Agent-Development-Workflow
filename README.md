@@ -77,6 +77,10 @@ Git 根目录短 hash 隔离。
 └──────────────────┴──────────────────┘
 ```
 
+在 tmux 面板内点击 Lead、Impl 或 Review，即可将键盘焦点切到对应 Agent；
+再按 `Enter` 可确认该 Agent 当前的提示（例如 Codex 的目录信任确认）。
+`madw start` 和 `madw watch` 会为当前团队启用鼠标操作，不修改其他 tmux 会话。
+
 ## 常用命令
 
 ```bash

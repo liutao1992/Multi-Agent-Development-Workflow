@@ -88,6 +88,13 @@ start_for "$REPO_A"
 SESSION_A="$(session_for "$REPO_A")"
 [ "$(tmux list-panes -t "$SESSION_A:team" -F '#{pane_id}' | wc -l | tr -d ' ')" = "3" ]
 [ "$(tmux show-options -v -t "$SESSION_A" @madw_runtime)" = "custom" ]
+[ "$(tmux show-options -v -t "$SESSION_A" mouse)" = "on" ]
+
+# Reusing an older team repairs its session-local mouse setting.
+tmux set-option -t "$SESSION_A" mouse off
+start_for "$REPO_A" >/dev/null
+[ "$(tmux show-options -v -t "$SESSION_A" mouse)" = "on" ]
+[ "$(tmux show-options -v -g mouse)" = "off" ]
 
 LEAD_PANE="$(tmux show-options -v -t "$SESSION_A" @madw_pane_leader)"
 IMPL_PANE="$(tmux show-options -v -t "$SESSION_A" @madw_pane_impl)"

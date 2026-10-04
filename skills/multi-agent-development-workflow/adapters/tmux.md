@@ -126,6 +126,9 @@ madw attach review
 available, the expected next actor, and pane process health.
 
 `watch` attaches to the full three-pane team UI.
+Click a pane to focus its Agent, then use the keyboard to respond to prompts.
+The launcher enables tmux mouse mode for this team session on creation and
+when attaching or reusing an existing team; other sessions are unaffected.
 
 Terminal scrollback is observational only. Never use it as lifecycle truth.
 
