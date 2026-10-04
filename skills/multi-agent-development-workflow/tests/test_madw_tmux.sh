@@ -70,18 +70,31 @@ if tmux list-sessions -F '#S' 2>/dev/null | grep -Fqx "$EMPTY_SESSION"; then
 fi
 [ ! -e "$EMPTY_REPO/.agent-team" ]
 
-# Codex needs local socket access for madw send/wait/signal in its shell sandbox.
+# MADW's Codex command enables network access for tmux socket transport by
+# default, while an explicit zero forces the restrictive policy.
 mkdir -p "$TMP/bin"
 printf '#!/bin/sh\nexit 0\n' > "$TMP/bin/codex"
 chmod +x "$TMP/bin/codex"
 DOCTOR_OUTPUT="$(cd "$REPO_A" && PATH="$TMP/bin:$PATH" MADW_AGENT_CMD= "$MADW" doctor codex)"
-printf '%s\n' "$DOCTOR_OUTPUT" | grep -Fq 'Agent Command:codex'
-if printf '%s\n' "$DOCTOR_OUTPUT" | grep -Fq 'network_access=true'; then
-  echo "Codex network access was enabled without an explicit opt-in" >&2
+printf '%s\n' "$DOCTOR_OUTPUT" | grep -Fq "codex -s workspace-write -c 'sandbox_workspace_write.network_access=true'"
+RESTRICTED_DOCTOR="$(cd "$REPO_A" && PATH="$TMP/bin:$PATH" MADW_AGENT_CMD= MADW_CODEX_NETWORK_ACCESS=0 "$MADW" doctor codex)"
+printf '%s\n' "$RESTRICTED_DOCTOR" | grep -Fq "codex -s workspace-write -c 'sandbox_workspace_write.network_access=false'"
+if (cd "$REPO_A" && PATH="$TMP/bin:$PATH" MADW_AGENT_CMD= MADW_CODEX_NETWORK_ACCESS=invalid "$MADW" doctor codex) >"$TMP/invalid-codex-policy.log" 2>&1; then
+  echo "doctor accepted an unsupported Codex network policy" >&2
   exit 1
 fi
-OPT_IN_DOCTOR="$(cd "$REPO_A" && PATH="$TMP/bin:$PATH" MADW_AGENT_CMD= MADW_CODEX_NETWORK_ACCESS=1 "$MADW" doctor codex)"
-printf '%s\n' "$OPT_IN_DOCTOR" | grep -Fq "codex -s workspace-write -c 'sandbox_workspace_write.network_access=true'"
+grep -Fq 'MADW_CODEX_NETWORK_ACCESS must be 0 or 1' "$TMP/invalid-codex-policy.log"
+if (cd "$REPO_A" && PATH="$TMP/bin:$PATH" MADW_AGENT_CMD= MADW_CODEX_NETWORK_ACCESS= "$MADW" doctor codex) >"$TMP/empty-codex-policy.log" 2>&1; then
+  echo "doctor accepted an empty Codex network policy" >&2
+  exit 1
+fi
+grep -Fq 'MADW_CODEX_NETWORK_ACCESS must be 0 or 1' "$TMP/empty-codex-policy.log"
+CUSTOM_DOCTOR="$(cd "$REPO_A" && PATH="$TMP/bin:$PATH" MADW_AGENT_CMD="$FAKE" MADW_CODEX_NETWORK_ACCESS=0 "$MADW" doctor codex)"
+printf '%s\n' "$CUSTOM_DOCTOR" | grep -Fq "Agent Command:$FAKE"
+printf '#!/bin/sh\nexit 0\n' > "$TMP/bin/pi"
+chmod +x "$TMP/bin/pi"
+PI_DOCTOR="$(cd "$REPO_A" && PATH="$TMP/bin:$PATH" MADW_AGENT_CMD= MADW_CODEX_NETWORK_ACCESS=0 "$MADW" doctor pi)"
+printf '%s\n' "$PI_DOCTOR" | grep -Fq 'Agent Command:pi'
 
 # A denied socket must not be reported as a missing team.
 cat > "$TMP/bin/tmux" <<'EOF'
@@ -101,19 +114,40 @@ rm "$TMP/bin/tmux"
 cp "$FAKE" "$TMP/bin/codex"
 CODEX_REPO="$TMP/codex-project"
 init_repo "$CODEX_REPO"
-(cd "$CODEX_REPO" && PATH="$TMP/bin:$PATH" MADW_AGENT_CMD= MADW_CODEX_NETWORK_ACCESS=1 MADW_NO_ATTACH=1 "$MADW" start codex) >/dev/null
+(cd "$CODEX_REPO" && PATH="$TMP/bin:$PATH" MADW_AGENT_CMD= MADW_NO_ATTACH=1 "$MADW" start codex) >/dev/null
 CODEX_SESSION="$(cd "$CODEX_REPO" && "$MADW" id)"
 [ "$(tmux show-options -v -t "$CODEX_SESSION" @madw_agent_cmd)" = "codex -s workspace-write -c 'sandbox_workspace_write.network_access=true'" ]
 [ "$(tmux list-panes -t "$CODEX_SESSION:team" -F '#{pane_id}' | wc -l | tr -d ' ')" = "3" ]
 (cd "$CODEX_REPO" && "$MADW" stop) >/dev/null
 
-# Explicit opt-in on an existing team changes only future respawns.
-(cd "$CODEX_REPO" && PATH="$TMP/bin:$PATH" MADW_AGENT_CMD= MADW_NO_ATTACH=1 "$MADW" start codex) >/dev/null
+# An existing team changes its stored policy only on explicit request, and
+# running panes adopt it only when restarted.
+(cd "$CODEX_REPO" && PATH="$TMP/bin:$PATH" MADW_AGENT_CMD= MADW_CODEX_NETWORK_ACCESS=0 MADW_NO_ATTACH=1 "$MADW" start codex) >/dev/null
+[ "$(tmux show-options -v -t "$CODEX_SESSION" @madw_agent_cmd)" = "codex -s workspace-write -c 'sandbox_workspace_write.network_access=false'" ]
 CODEX_LEAD="$(tmux show-options -v -t "$CODEX_SESSION" @madw_pane_leader)"
 OLD_CODEX_PID="$(tmux display-message -p -t "$CODEX_LEAD" '#{pane_pid}')"
+(cd "$CODEX_REPO" && PATH="$TMP/bin:$PATH" MADW_AGENT_CMD= MADW_NO_ATTACH=1 "$MADW" start codex) >/dev/null
+[ "$(tmux show-options -v -t "$CODEX_SESSION" @madw_agent_cmd)" = "codex -s workspace-write -c 'sandbox_workspace_write.network_access=false'" ]
+mkdir -p "$CODEX_REPO/.agent-team/tasks/TASK-TEST-TRANSPORT"
+printf 'durable evidence\n' > "$CODEX_REPO/.agent-team/tasks/TASK-TEST-TRANSPORT/evidence.txt"
 (cd "$CODEX_REPO" && PATH="$TMP/bin:$PATH" MADW_AGENT_CMD= MADW_CODEX_NETWORK_ACCESS=1 MADW_NO_ATTACH=1 "$MADW" start codex) >/dev/null
 [ "$(tmux show-options -v -t "$CODEX_SESSION" @madw_agent_cmd)" = "codex -s workspace-write -c 'sandbox_workspace_write.network_access=true'" ]
 [ "$(tmux display-message -p -t "$CODEX_LEAD" '#{pane_pid}')" = "$OLD_CODEX_PID" ]
+[ "$(cat "$CODEX_REPO/.agent-team/tasks/TASK-TEST-TRANSPORT/evidence.txt")" = "durable evidence" ]
+CODEX_REVIEW="$(tmux show-options -v -t "$CODEX_SESSION" @madw_pane_review)"
+OLD_CODEX_REVIEW_PID="$(tmux display-message -p -t "$CODEX_REVIEW" '#{pane_pid}')"
+(cd "$CODEX_REPO" && "$MADW" restart review) >/dev/null
+[ "$(tmux display-message -p -t "$CODEX_REVIEW" '#{pane_pid}')" != "$OLD_CODEX_REVIEW_PID" ]
+tmux display-message -p -t "$CODEX_REVIEW" '#{pane_start_command}' | grep -Fq 'sandbox_workspace_write.network_access=true'
+(cd "$CODEX_REPO" && PATH="$TMP/bin:$PATH" MADW_AGENT_CMD= MADW_CODEX_NETWORK_ACCESS=0 MADW_NO_ATTACH=1 "$MADW" start codex) >/dev/null
+[ "$(tmux show-options -v -t "$CODEX_SESSION" @madw_agent_cmd)" = "codex -s workspace-write -c 'sandbox_workspace_write.network_access=false'" ]
+tmux set-option -t "$CODEX_SESSION" @madw_agent_cmd 'codex --custom-policy'
+if (cd "$CODEX_REPO" && PATH="$TMP/bin:$PATH" MADW_AGENT_CMD= MADW_CODEX_NETWORK_ACCESS=1 MADW_NO_ATTACH=1 "$MADW" start codex) >"$TMP/custom-codex-policy.log" 2>&1; then
+  echo "start replaced a custom stored Codex command" >&2
+  exit 1
+fi
+grep -Fq 'stored Codex Agent command is custom' "$TMP/custom-codex-policy.log"
+[ "$(tmux show-options -v -t "$CODEX_SESSION" @madw_agent_cmd)" = 'codex --custom-policy' ]
 (cd "$CODEX_REPO" && "$MADW" stop) >/dev/null
 
 # Default install goes to the shared Agent Skills directory and removes an old

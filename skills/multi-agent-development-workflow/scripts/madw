@@ -39,7 +39,8 @@ Defaults:
 Environment:
   MADW_AGENT_CMD       Override the interactive Agent command.
   MADW_RUNTIME         Default runtime: pi or codex.
-  MADW_CODEX_NETWORK_ACCESS=1  Opt in to network access for Codex tmux socket use.
+  MADW_CODEX_NETWORK_ACCESS=0|1  Codex workspace-write network policy (default: 1).
+                                 1 also allows outbound network access; 0 is restrictive.
   MADW_SESSION         Override the project-scoped tmux session name.
   MADW_BOOT_TIMEOUT    Agent startup timeout (default: 15).
   MADW_WAIT_TIMEOUT    Handoff completion timeout (default: 3600).
@@ -160,13 +161,11 @@ runtime_command() {
     pi) printf '%s
 ' "pi" ;;
     codex)
-      if [ "${MADW_CODEX_NETWORK_ACCESS:-0}" = "1" ]; then
-        printf '%s
-' "codex -s workspace-write -c 'sandbox_workspace_write.network_access=true'"
-      else
-        printf '%s
-' "codex"
-      fi
+      case "${MADW_CODEX_NETWORK_ACCESS-1}" in
+        1) printf '%s\n' "codex -s workspace-write -c 'sandbox_workspace_write.network_access=true'" ;;
+        0) printf '%s\n' "codex -s workspace-write -c 'sandbox_workspace_write.network_access=false'" ;;
+        *) die "MADW_CODEX_NETWORK_ACCESS must be 0 or 1" ;;
+      esac
       ;;
     custom) die "MADW_AGENT_CMD is required for custom runtime" ;;
     *) die "unsupported runtime: $runtime" ;;
@@ -195,7 +194,7 @@ preflight_base() {
   if ! tmux_error="$(tmux list-sessions -F '#S' 2>&1)"; then
     case "$tmux_error" in
       *"Operation not permitted"*|*"Permission denied"*)
-        die "tmux socket access denied by this sandbox. Approve this madw command with elevated permissions, or explicitly start a new Codex team with MADW_CODEX_NETWORK_ACCESS=1 (also grants network access)."
+        die "tmux socket access denied by this sandbox. Retry only this madw command with elevated permission; an existing restrictive Codex team can migrate with MADW_CODEX_NETWORK_ACCESS=1 and role restarts (also enables outbound network access)."
         ;;
     esac
   fi
@@ -296,8 +295,9 @@ role_prompt() {
 4. 使用 ./.agent-team/madw send / wait 交接并等待完成。
 5. 每轮正式评审前，先运行 ./.agent-team/madw restart review。
 6. 以 STATUS 和不可变工件为准，完成实现、评审、返工和验收闭环。
-7. 若 madw 报 tmux socket access denied，只对该条 madw 命令申请提升权限并重试；不要判断为团队已停止。
-8. 用户尚未提出需求时，保持待命。
+7. MADW 的 Codex 角色默认使用 workspace-write 并允许网络，以连接 tmux；角色命令也可访问外部网络。MADW_CODEX_NETWORK_ACCESS=0 可选择限制模式。
+8. 若 madw 仍报 tmux socket access denied，只对该条 madw 命令申请提升权限并重试；不要判断为团队已停止。
+9. 用户尚未提出需求时，保持待命。
 EOF
       ;;
     impl)
@@ -310,7 +310,8 @@ EOF
 2. 只修改该角色允许的内容，写入本轮不可变工件。
 3. 完成后运行 ./.agent-team/madw signal impl <TASK-ID> <ROUND>。
 4. 不修改 STATUS，不自行派发 Review。
-5. 若 madw 报 tmux socket access denied，只对该条命令申请提升权限并重试。
+5. MADW 的 Codex 角色默认使用 workspace-write 并允许网络，以连接 tmux；角色命令也可访问外部网络。MADW_CODEX_NETWORK_ACCESS=0 可选择限制模式。
+6. 若 madw 仍报 tmux socket access denied，只对该条命令申请提升权限并重试。
 EOF
       ;;
     review)
@@ -322,7 +323,8 @@ EOF
 1. 先读取指定任务的 STATUS，独立核验冻结且干净的 Code Head。
 2. 只写入一份本轮 REVIEW 工件，不修改实现代码和 STATUS。
 3. 完成后运行 ./.agent-team/madw signal review <TASK-ID> <ROUND>。
-4. 若 madw 报 tmux socket access denied，只对该条命令申请提升权限并重试。
+4. MADW 的 Codex 角色默认使用 workspace-write 并允许网络，以连接 tmux；角色命令也可访问外部网络。MADW_CODEX_NETWORK_ACCESS=0 可选择限制模式。
+5. 若 madw 仍报 tmux socket access denied，只对该条命令申请提升权限并重试。
 EOF
       ;;
   esac
@@ -891,7 +893,7 @@ start_command() {
   case "$layout" in balanced|columns) ;; *) die "unknown layout '$layout' (choose balanced or columns)" ;; esac
 
   preflight_base
-  local session root stored_runtime runtime cmd
+  local session root stored_runtime stored_cmd runtime cmd
   session="$(team_session)"
   root="$(project_root)"
   git -C "$root" rev-parse --verify HEAD >/dev/null 2>&1 ||
@@ -900,17 +902,23 @@ start_command() {
 
   if session_exists "$session"; then
     validate_existing_team "$session"
+    stored_runtime="$(session_option "$session" "@madw_runtime")"
     if [ -n "$requested" ]; then
-      stored_runtime="$(session_option "$session" "@madw_runtime")"
       [ "$stored_runtime" = "$requested" ] ||
-        die "team already runs runtime '$stored_runtime'; use 'madw restart <role> $requested' or stop first"
+        die "team already runs runtime '$stored_runtime'; stop the team before changing runtime"
     fi
-    if [ "$requested" = "codex" ] &&
-       [ "${MADW_CODEX_NETWORK_ACCESS:-0}" = "1" ] &&
+    if [ "${MADW_CODEX_NETWORK_ACCESS+x}" = "x" ] &&
        [ -z "${MADW_AGENT_CMD:-}" ]; then
+      [ "$stored_runtime" = "codex" ] ||
+        die "MADW_CODEX_NETWORK_ACCESS can update only an existing Codex team"
+      stored_cmd="$(session_option "$session" "@madw_agent_cmd")"
+      case "$stored_cmd" in
+        "codex"|"codex -s workspace-write -c 'sandbox_workspace_write.network_access=true'"|"codex -s workspace-write -c 'sandbox_workspace_write.network_access=false'") ;;
+        *) die "stored Codex Agent command is custom; refusing to replace it with MADW_CODEX_NETWORK_ACCESS" ;;
+      esac
       cmd="$(runtime_command codex)"
       tmux set-option -t "$session" @madw_agent_cmd "$cmd"
-      echo "Codex socket opt-in saved for future role restarts; running Agents were not interrupted."
+      echo "Codex network policy saved for future role restarts; running Agents were not interrupted."
     fi
     tmux set-option -t "$session" mouse on
     configure_team_labels

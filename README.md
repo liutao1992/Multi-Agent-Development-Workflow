@@ -59,25 +59,31 @@ madw start
 选择顺序：`MADW_RUNTIME` → 已安装的 `pi` → 已安装的 `codex` → 报错。
 也可以显式使用 `madw start pi` 或 `madw start codex`。
 
-截图中手动建立的三个 session 使用 Pi Agent；该运行方式没有触发下面的
-Codex socket 沙箱拒绝。`madw start pi` 同样使用 Pi，角色是否分成 session
-或 pane 不决定这一权限差异。
+截图中手动建立的三个 session 使用 Pi Agent；`madw start pi` 同样使用 Pi。
+下面的沙箱设置只适用于 MADW 启动的 Codex 团队。
 
-Codex 的默认工作区沙箱在 macOS 上可能拒绝连接 tmux 的本地 socket，
-使 `madw send`、`wait` 和 `signal` 失败。默认模式会提示 Agent 仅对失败的
-`madw` 命令申请提升权限并重试；该错误不表示团队已经退出。
-也可**明确选择**为这个团队的
-Codex 进程启用工作区沙箱网络访问：
+MADW 启动的 Codex 团队默认使用 `workspace-write` 沙箱并启用网络访问，
+使 `madw send`、`wait` 和 `signal` 可连接 macOS 上的 tmux socket。
+这也允许该团队 Agent 执行的命令访问外部网络；不会修改全局 Codex 配置。
+如果希望保持网络限制，可在创建团队时显式选择：
 
 ```bash
-MADW_CODEX_NETWORK_ACCESS=1 madw start codex
+MADW_CODEX_NETWORK_ACCESS=0 madw start codex
 ```
 
-该设置也允许 Agent 执行的命令访问网络。已有团队可用
-`MADW_CODEX_NETWORK_ACCESS=1 MADW_NO_ATTACH=1 madw start codex`
-保存新启动命令；**运行中的 Agent 不会被打断**。当前回合结束后，
-用 `madw restart leader|impl|review` 逐个重启需要连接 tmux 的角色。
-若需要自行控制 Codex 启动参数，可设置 `MADW_AGENT_CMD`。
+升级已有 Codex 团队时，代码通过评审后，先在项目仓库运行 `./install.sh`
+更新已安装的 Skill，然后在普通终端执行：
+
+```bash
+MADW_CODEX_NETWORK_ACCESS=1 MADW_NO_ATTACH=1 madw start codex
+```
+
+这只更新团队保存的启动命令；运行中的 Agent 不会被打断，任务证据和面板排列
+也会保留。待各角色完成当前交接后，分别运行 `madw restart review`、
+`madw restart impl`，再从安全的外部终端重启 `leader`。重启后的角色才会使用
+新策略。若选用了限制模式或其他策略仍阻止连接，只对失败的 `madw` 命令申请
+提升权限并重试；socket 拒绝不表示团队已退出。若需自定义 Codex 启动命令，
+可设置 `MADW_AGENT_CMD`。
 
 ## 一个项目一个 tmux session
 
