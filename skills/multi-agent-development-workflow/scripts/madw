@@ -529,22 +529,21 @@ handoff_channel() {
 }
 
 expected_artifact() {
-
-expected_artifact() {
   local role="$1" task_id="$2" round="$3" root status state
   root="$(project_root)"
   status="$root/.agent-team/tasks/$task_id/STATUS.md"
   [ -f "$status" ] || die "STATUS not found for $task_id"
   state="$(status_state "$status")"
   if [ "$role" = "review" ]; then
-    printf '%s/.agent-team/tasks/%s/reviews/REVIEW-%s.md
-' "$root" "$task_id" "$round"
+    printf '%s/.agent-team/tasks/%s/reviews/REVIEW-%s.md\n' "$root" "$task_id" "$round"
   else
     case "$state" in
-      PLANNING|PLAN_REWORK) printf '%s/.agent-team/tasks/%s/plans/PLAN-v%s.md
-' "$root" "$task_id" "$round" ;;
-      *) printf '%s/.agent-team/tasks/%s/implementations/IMPL-%s.md
-' "$root" "$task_id" "$round" ;;
+      PLANNING|PLAN_REWORK)
+        printf '%s/.agent-team/tasks/%s/plans/PLAN-v%s.md\n' "$root" "$task_id" "$round"
+        ;;
+      *)
+        printf '%s/.agent-team/tasks/%s/implementations/IMPL-%s.md\n' "$root" "$task_id" "$round"
+        ;;
     esac
   fi
 }
