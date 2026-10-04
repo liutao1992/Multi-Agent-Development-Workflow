@@ -31,6 +31,22 @@ reviews/<prior REVIEW-NNN.md>       # only when re-review context is needed
 
 Use the exact references recorded in STATUS and IMPL. Do not review an arbitrary "latest" artifact.
 
+In the Review report, `Reviewed Implementation` may be the round ID
+(`IMPL-001`) or the exact `STATUS → Current Implementation → Artifact` filename
+(`IMPL-001.md`). Do not use a directory path or a different round.
+
+## Task Contract binding
+
+Review the exact requirement snapshot as well as the exact Code snapshot.
+
+Before substantive Review:
+
+1. verify TASK.md and STATUS Task Contract Revision/Hash match;
+2. verify the current Plan/IMPL evidence is bound to that same contract when applicable;
+3. copy the same Revision/Hash into REVIEW-NNN.
+
+Do not review an implementation against a newer or older Task Contract.
+
 ## Independence
 
 Prefer a fresh execution context.
@@ -68,11 +84,23 @@ For IMPL-001 these ranges are equivalent.
 
 Create a new immutable REVIEW-NNN using new task-global REV/TEST IDs as needed.
 
+Use `templates/reviews/REVIEW-001.md` for the machine-readable target block:
+`Declared Code Head SHA`, `Observed Code Head SHA`, all four cleanliness fields,
+and `Protocol Status` must appear as exact field labels on separate lines.
+Place the result under `## Review Result`. Narrative checks may supplement these
+fields but cannot replace them.
+
 Never overwrite previous rounds.
 
 ## Result
 
 Only PASS or FAIL after target verification succeeds. Never ACCEPTED.
+
+Evidence rules:
+
+- PASS: exact current IMPL/head, protocol READY_FOR_REVIEW, clean checks YES.
+- FAIL: same target/protocol/clean verification plus at least one blocking REV issue.
+- REVIEW_TARGET_MISMATCH: Result N/A, not PASS/FAIL, and record Declared vs Observed Code Head evidence.
 
 ## Short interaction behavior
 
@@ -87,3 +115,28 @@ Read STATUS first, locate the current IMPL artifact, verify the exact clean Code
 Do not ask the user to restate snapshot SHAs, Plan reference, Review round, or protocol rules when recoverable from STATUS and artifacts.
 
 Stop after Review evidence is produced and return the concise handoff summary defined in SKILL.md.
+
+## Orchestrated Worker behavior
+
+When \`Invocation Mode: Orchestrated Worker\` is present:
+
+- perform exactly one independent Review round;
+- verify the exact clean Review Target before substantive review;
+- create the immutable REVIEW-NNN artifact;
+- do not transition lifecycle state;
+- do not rewrite STATUS to consume your own Review;
+- stop after Review evidence is complete;
+- never invoke \`agent-team\` recursively.
+
+The Orchestrator detects the new Review artifact and automatically dispatches Lead next.
+
+
+## Native SubAgent freshness
+
+In native orchestration you MUST be a fresh child for the current Review round.
+
+Do not assume context from an earlier Review child.
+Do not request Impl private conversation history.
+Do not continue into implementation fixes.
+
+After creating REVIEW-NNN, return the result to Lead and end this Review context.

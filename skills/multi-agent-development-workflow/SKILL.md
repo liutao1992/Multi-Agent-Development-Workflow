@@ -41,6 +41,10 @@ task artifacts required by current state
 
 Do not perform role-specific task work before loading the matching role file.
 
+For `Invocation Mode: Orchestrated Worker`, the bounded startup path is this
+entry map, the matching role file, `automation/worker-brief.md`, and STATUS.
+Open further sections of this Skill only for the current state's requirements.
+
 ### Where each role finds the current task material
 
 Given:
@@ -61,6 +65,11 @@ TASK_ROOT/ACCEPTANCE.md            ← final closure
 ```
 
 Lead chooses the exact Plan / IMPL / Review artifact from references recorded in `STATUS.md`; do not guess the latest file by filename alone.
+
+In `STATUS.md`, each `Artifact:` field under Current Plan, Current Implementation,
+Current Review, or Final Acceptance contains only the filename, such as
+`IMPL-001.md`. The artifact directory is determined by the section; do not put
+`implementations/`, `plans/`, or `reviews/` in the field value.
 
 **Impl reads:**
 
@@ -118,6 +127,420 @@ For a new task:
 6. Create Task ID and task workspace.
 7. Create TASK.md and STATUS.md with the selected workflow and baseline.
 8. Continue according to the Lifecycle Transition Table.
+
+## Automatic Orchestration
+
+This Skill can run in **manual handoff mode** or **automatic orchestration mode**. Native SubAgent orchestration is the preferred automatic mode when supported by the parent runtime.
+
+Automatic orchestration does not change lifecycle authority:
+
+- Lead remains the only role allowed to transition \`STATUS.md\`;
+- Impl creates Plan / implementation evidence but does not transition lifecycle state;
+- Review creates independent Review evidence but does not transition lifecycle state;
+- the Orchestrator only selects and invokes the next role. It is not a fourth decision-making role.
+
+The executable entry point is:
+
+\`\`\`text
+scripts/agent-team
+\`\`\`
+
+It delegates to \`scripts/orchestrator.py\`.
+
+### Preferred transport: native SubAgents
+
+When the current parent runtime exposes native multi-agent/subagent primitives, **Lead MUST prefer native SubAgent orchestration** over launching separate worker processes.
+
+In native mode:
+
+\`\`\`text
+User
+ ↓
+Lead = Parent / Root Agent
+ ├─ Impl SubAgent       ← reusable within the same Task
+ └─ Review SubAgent     ← fresh for every Review round
+\`\`\`
+
+Lead remains the lifecycle authority and directly drives the state machine.
+
+#### Impl lifecycle
+
+For one Task, Lead should normally create one Impl SubAgent and reuse it:
+
+\`\`\`text
+spawn Impl
+  ↓
+PLAN-v001
+  ↓
+Lead Plan Gate
+  ↓
+follow up same Impl
+  ↓
+implementation + tests + IMPL-001
+  ↓
+Review FAIL
+  ↓
+follow up same Impl with confirmed RW IDs
+  ↓
+IMPL-002
+\`\`\`
+
+Reusing Impl preserves useful codebase context.
+
+If the parent session is lost, a replacement Impl MAY be spawned. It must reconstruct state from STATUS and immutable artifacts rather than conversation history.
+
+#### Review lifecycle
+
+Every Review round MUST use a newly spawned Review SubAgent:
+
+\`\`\`text
+IMPL-001 → spawn fresh Review-1 → REVIEW-001
+IMPL-002 → spawn fresh Review-2 → REVIEW-002
+\`\`\`
+
+Do not reuse a prior Review SubAgent for a new round.
+
+Do not fork or pass Impl private conversation/reasoning into Review.
+
+Review receives only bounded evidence:
+
+- TASK.md;
+- approved Plan or Plan Gate SKIPPED marker;
+- exact IMPL-NNN;
+- Task Baseline SHA;
+- Previous Head SHA;
+- Code Head SHA;
+- relevant Git diffs and repository/test evidence;
+- prior REVIEW only when re-review context requires it.
+
+#### Parent / child coordination
+
+Use the runtime's native collaboration primitives when available:
+
+\`\`\`text
+spawn Impl
+wait for Impl
+Lead evaluates artifact
+follow up Impl
+wait for Impl
+Lead freezes Review target
+spawn fresh Review
+wait for Review
+Lead evaluates PASS / FAIL
+\`\`\`
+
+Do not run Impl and Review concurrently against the same mutable Code Plane.
+
+SubAgents do not gain lifecycle authority. Impl/Review still MUST NOT transition STATUS.
+
+#### Transport priority
+
+Automatic execution chooses transports in this order:
+
+\`\`\`text
+1. native-subagent  ← preferred when current parent runtime exposes it
+2. process          ← standalone codex exec / Pi RPC fallback
+3. queue            ← Warp visible worker fallback
+4. manual           ← only if automation is unavailable
+\`\`\`
+
+The standalone \`scripts/agent-team\` CLI cannot attach to the native SubAgent tools of an already-running parent conversation. Therefore it implements only the fallback execution transports. Native SubAgent orchestration happens **inside the Lead parent session**.
+
+### Code Plane concurrency invariant
+
+Automatic orchestration MUST serialize mutable work by working tree:
+
+```text
+one Git working tree = at most one automated Task at a time
+```
+
+A Task-level lock is not sufficient because HEAD, index, and working tree are shared resources.
+
+Standalone Process/Queue orchestration MUST hold a Code Plane lock for the full Task run, including Task creation. Native SubAgent orchestration MUST obey the same invariant at the parent-agent level.
+
+Parallel automated Tasks require separate Git worktrees.
+
+### Programmatic role postconditions
+
+Executable fallback transports MUST validate role boundaries after every worker action.
+
+- **Planning Impl:** Code Plane unchanged; STATUS/TASK unchanged; existing immutable artifacts unchanged; exactly one new PLAN.
+- **Implementation Impl:** STATUS/TASK unchanged; existing immutable artifacts unchanged; exactly one new IMPL; Code Plane clean after commit; IMPL Code Head matches observed HEAD.
+- **Review:** Code Plane HEAD/index/worktree unchanged; STATUS/TASK unchanged; existing immutable artifacts unchanged; exactly one new REVIEW.
+- **Lead:** Code Plane unchanged; existing IMPL/REVIEW immutable; no role-owned artifacts created.
+
+A postcondition violation is a protocol failure. Stop orchestration rather than advancing STATUS.
+
+### Executable lifecycle state machine
+
+For Process/Queue orchestration, the Lifecycle Transition Table is a programmatic invariant, not prompt-only guidance.
+
+After each Lead action the runtime MUST validate:
+
+1. `before_state → after_state` is an allowed transition;
+2. transition-specific evidence exists;
+3. artifact references resolve to real files;
+4. Code Head references use the full 40-character SHA where required.
+
+Required evidence includes at least:
+
+- Plan Gate skip reason for the fast path;
+- PENDING Plan before entering PLAN_REVIEW;
+- APPROVED / REWORK recorded consistently in STATUS and Plan artifact;
+- approved Plan before implementation when Plan Gate is REQUIRED;
+- frozen implementation target and exact STATUS/IMPL/observed Code Head match before Review;
+- Review PASS before READY_FOR_FINAL_ACCEPTANCE, with machine-verifiable Review target evidence and matching Task Contract;
+- the current observed Git HEAD still equal to the reviewed implementation head at READY_FOR_FINAL_ACCEPTANCE and ACCEPTED;
+- Review FAIL before REWORK only when STATUS and REVIEW both declare FAIL, the Review targets the current IMPL/Code Head, and at least one blocking REV issue exists;
+- REVIEW_TARGET_MISMATCH only when STATUS and REVIEW both declare protocol mismatch with Result N/A and declared/observed heads match submitted/current Git state;
+- confirmed RW IDs before rework implementation;
+- ACCEPTANCE.md, PASS Review, matching Accepted Code Head, and current observed Git HEAD before ACCEPTED;
+- Resume State equal to the prior state when entering BLOCKED.
+
+Illegal jumps such as `CREATED → ACCEPTED` MUST fail with a protocol violation.
+
+### Task Contract revision and hash
+
+`TASK.md` is the Requirement Source of Truth, but executable evidence MUST bind a specific immutable requirement snapshot.
+
+The Task Contract consists of:
+
+- Objective;
+- Requirements;
+- Acceptance Criteria;
+- Constraints;
+- Dependencies;
+- Out of Scope.
+
+TASK MUST record:
+
+```text
+Task Contract Revision: <integer >= 1>
+Task Contract Hash: <64-char SHA-256>
+```
+
+STATUS MUST record the same revision/hash.
+
+Every active Plan, IMPL, REVIEW and ACCEPTANCE artifact MUST carry the same Task Contract Revision/Hash.
+
+When Lead changes any Task Contract section:
+
+1. increment Revision exactly once;
+2. recompute and record the new Hash;
+3. append Requirement Change Log evidence with Revision, Previous Hash and New Hash;
+4. if a prior Plan / IMPL / REVIEW exists, transition to `PLAN_REWORK`;
+5. do not reuse evidence bound to the old Task Contract.
+
+A Task Contract amendment invalidates old planning, implementation review, and acceptance evidence.
+
+During `PLAN_REVIEW`, an amendment moves to `PLAN_REWORK` while the pending old Plan remains unchanged and referenced for history. The next Impl Plan version must bind the new contract; the invalidated Plan does not receive a REWORK approval decision.
+
+`Rework Requirements` contains Review remediation instructions and is excluded from the requirement hash. Lead may update only that TASK section during `REVIEWING -> REWORK`, with valid FAIL or MISMATCH evidence. Contract revision/hash and all other TASK content remain unchanged. Product requirement changes still require a contract amendment and `PLAN_REWORK`.
+
+### Plan content immutability
+
+For existing `PLAN-vNNN.md` artifacts:
+
+- Impl owns Plan content;
+- Lead owns only the `## Approval` block.
+
+Executable fallback runtimes MUST hash/compare Plan content with the Approval block excluded.
+
+Lead approval MUST NOT change Scope, Implementation Steps, Testing Plan, Risks, Open Questions, or other Plan content.
+
+Only the current Plan in `PLAN_REVIEW` may change its Approval block, and only from:
+
+```text
+PENDING → APPROVED
+PENDING → REWORK
+```
+
+After the decision, the whole Plan version is immutable, including the Approval block.
+
+Before `PLANNING / PLAN_REWORK → PLAN_REVIEW`, both STATUS and the Plan artifact MUST record `PENDING`. This prevents Impl from self-approving its own Plan.
+
+### Whole Control Plane write boundary
+
+Role postconditions cover the whole project Control Plane, excluding `runtime/`.
+
+Allowed durable writes:
+
+- **Lead:** current Task Lead-owned projections/artifacts plus `INDEX.md`;
+- **Planning Impl:** exactly the new Plan artifact for the current Task;
+- **Implementation Impl:** exactly the new IMPL artifact for the current Task, plus permitted Code Plane implementation changes;
+- **Review:** exactly the new REVIEW artifact for the current Task.
+
+No role may modify another Task namespace.
+
+Task bootstrap may create only the new Task's `TASK.md` / `STATUS.md` and update/create `INDEX.md`.
+
+### Automatic lifecycle driver
+
+The Orchestrator repeatedly reads:
+
+\`\`\`text
+<project-root>/.agent-team/tasks/<TASK-ID>/STATUS.md
+\`\`\`
+
+and dispatches one role action at a time.
+
+Core selection rules:
+
+| Lifecycle state | Condition | Dispatch |
+|---|---|---|
+| CREATED | always | Lead |
+| PLANNING | no unrecorded new Plan artifact | Impl |
+| PLANNING | a new Plan exists but STATUS has not consumed it | Lead |
+| PLAN_REVIEW | always | Lead |
+| PLAN_REWORK | no unrecorded next Plan | Impl |
+| PLAN_REWORK | next Plan exists | Lead |
+| READY_FOR_IMPLEMENTATION | always | Lead |
+| IMPLEMENTING | no unrecorded new IMPL artifact | Impl |
+| IMPLEMENTING | new IMPL exists | Lead |
+| READY_FOR_REVIEW | always | Lead |
+| REVIEWING | no unrecorded new REVIEW artifact | Review |
+| REVIEWING | new REVIEW exists | Lead |
+| REWORK | always | Lead |
+| READY_FOR_FINAL_ACCEPTANCE | always | Lead |
+| ACCEPTED / CANCELLED / BLOCKED | terminal for current run | stop |
+
+Filename scanning is used only as a **handoff readiness signal**. It does not replace STATUS as lifecycle truth and does not authorize an agent to guess which artifact should be executed against. Lead still records the authoritative artifact reference in STATUS.
+
+### Orchestrated Worker contract
+
+Workers invoked by the Orchestrator receive:
+
+\`\`\`text
+Invocation Mode: Orchestrated Worker
+\`\`\`
+
+An orchestrated worker MUST:
+
+1. execute exactly one legal role action;
+2. read STATUS first;
+3. use the role file and referenced artifacts;
+4. stop at the next handoff boundary;
+5. never start another Orchestrator recursively;
+6. preserve role boundaries.
+
+Lead may use the direct `IMPLEMENTING → REVIEWING` and `REVIEWING → ACCEPTED`
+transitions to combine adjacent decisions in one invocation. The executable
+validator checks all evidence required by both original gates. The original
+intermediate states remain valid when a separate decision is needed.
+
+Impl and Review MUST NOT rewrite lifecycle state in STATUS. Their newly created immutable artifact is the signal that Lead should run next.
+
+### Commands
+
+Create a Task and automatically run it:
+
+\`\`\`bash
+agent-team --runtime codex start "Add persistent AI chat history"
+\`\`\`
+
+Continue an existing Task:
+
+\`\`\`bash
+agent-team --runtime codex run TASK-YYYYMMDD-NNN-short-name
+\`\`\`
+
+Use Pi instead:
+
+\`\`\`bash
+agent-team --runtime pi run TASK-YYYYMMDD-NNN-short-name
+\`\`\`
+
+Validate the environment:
+
+\`\`\`bash
+agent-team --runtime codex doctor
+\`\`\`
+
+Inspect invocation counts, elapsed time, validation failures, and available
+Codex token totals for one Task:
+
+```bash
+agent-team metrics TASK-YYYYMMDD-NNN-short-name
+```
+
+### BLOCKED resume entry
+
+`BLOCKED` intentionally stops ordinary standalone `run`.
+
+Resume requires an explicit Lead entry:
+
+```bash
+agent-team --runtime codex resume <TASK-ID> "<human decision>"
+```
+
+The resume worker MUST:
+
+1. read BLOCKED STATUS and recorded Resume State;
+2. consume the human resolution;
+3. persist the human decision in STATUS → `Blocked Resolution` with resolution metadata;
+4. modify no Code Plane content;
+5. transition exactly `BLOCKED → <Resume State>`, or CANCELLED when explicitly requested;
+6. pass the normal Lead write-boundary, Task Contract and transition validators;
+7. then continue the automatic lifecycle.
+
+This makes BLOCKED recovery explicit and auditable.
+
+### Process fallback transport
+
+Default transport:
+
+\`\`\`bash
+agent-team --runtime codex --transport process run <TASK-ID>
+\`\`\`
+
+The standalone Orchestrator starts headless role workers itself. Use this only when native SubAgent orchestration is unavailable.
+
+### Warp three-pane queue transport
+
+For a visible three-pane workflow, use queue transport.
+
+Lead pane:
+
+\`\`\`bash
+agent-team --runtime codex --transport queue run <TASK-ID>
+\`\`\`
+
+Impl pane:
+
+\`\`\`bash
+agent-team --runtime codex worker Impl
+\`\`\`
+
+Review pane:
+
+\`\`\`bash
+agent-team --runtime codex worker Review
+\`\`\`
+
+Lead stays in the left pane. Impl and Review jobs are placed in the project-local Control Plane runtime queue and are automatically consumed by the right-side workers.
+
+No user prompt is required between lifecycle stages.
+
+The runtime queue under \`.agent-team/runtime/\` is execution metadata only. It is not lifecycle truth and must not be committed into the Code Plane.
+
+### Important Warp limitation
+
+Warp split panes are independent terminal sessions. The protocol does not simulate keystrokes into an already-running interactive Codex/Pi conversation.
+
+In queue transport, the right panes run the \`agent-team worker\` process, which launches the configured coding runtime when the Orchestrator sends work. Existing manually opened interactive agent sessions must therefore be replaced by worker commands once when switching to automatic mode.
+
+### Stop conditions
+
+Automatic execution stops instead of guessing when:
+
+- STATUS becomes BLOCKED;
+- a worker completes without producing protocol progress;
+- a required runtime is unavailable;
+- a pane worker disappears while a queue job is pending;
+- a genuine human/product decision is required;
+- maximum orchestration steps are exceeded.
+
+This preserves human authority at ambiguity boundaries while removing routine handoff work.
 
 ## Short Interaction Protocol
 
@@ -454,11 +877,13 @@ Lead is the lifecycle transition authority. Impl and Review create evidence/arti
 | READY_FOR_IMPLEMENTATION | Lead | hand off approved/fast-path task | IMPLEMENTING |
 | IMPLEMENTING | Impl | create committed IMPL-NNN evidence | IMPLEMENTING |
 | IMPLEMENTING | Lead | validate snapshot/evidence | READY_FOR_REVIEW |
+| IMPLEMENTING | Lead | validate and freeze implementation target; start independent Review immediately | REVIEWING |
 | IMPLEMENTING | Lead | accept material-deviation signal | PLAN_REWORK |
 | READY_FOR_REVIEW | Lead | start independent Review | REVIEWING |
 | REVIEWING | Review | create REVIEW-NNN evidence | REVIEWING |
 | REVIEWING | Lead | validate Review FAIL | REWORK |
 | REVIEWING | Lead | validate Review PASS | READY_FOR_FINAL_ACCEPTANCE |
+| REVIEWING | Lead | validate Review PASS and final acceptance; create ACCEPTANCE.md | ACCEPTED |
 | REVIEWING | Lead | reviewer environment mismatch only; reset Review environment | READY_FOR_REVIEW |
 | REVIEWING | Lead | frozen Code Target was mutated / invalidated | REWORK |
 | REWORK | Lead | hand confirmed RW items to Impl | IMPLEMENTING |

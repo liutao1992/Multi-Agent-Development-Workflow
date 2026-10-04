@@ -43,6 +43,55 @@ From there:
 
 Do not ask the user to paste the Plan when it already exists under the task namespace.
 
+## Automatic three-pane mode
+
+Warp itself does not provide the workflow with a role-addressed input bus between arbitrary interactive panes. For automatic operation, use the filesystem queue transport supplied by this Skill.
+
+Recommended panes:
+
+\`\`\`text
+┌──────────────────────────────┬──────────────────────────────┐
+│ Lead / Orchestrator          │ Impl Worker                  │
+│                              │ agent-team ... worker Impl   │
+│ Reads STATUS                 │ automatically consumes jobs  │
+│ Dispatches next role         ├──────────────────────────────┤
+│ Final acceptance             │ Review Worker                │
+│                              │ agent-team ... worker Review │
+└──────────────────────────────┴──────────────────────────────┘
+\`\`\`
+
+Start the two right-side workers once:
+
+\`\`\`bash
+# right-top pane
+agent-team --runtime codex worker Impl
+
+# right-bottom pane
+agent-team --runtime codex worker Review
+\`\`\`
+
+Then the Lead pane can run:
+
+\`\`\`bash
+agent-team --runtime codex --transport queue run <TASK-ID>
+\`\`\`
+
+or create and run a new Task:
+
+\`\`\`bash
+agent-team --runtime codex --transport queue start "<requirement>"
+\`\`\`
+
+After that, Plan → Lead approval → implementation → Review → rework → re-review → acceptance proceeds automatically until ACCEPTED, CANCELLED, BLOCKED, a no-progress condition, or a required human decision.
+
+The queue is stored under:
+
+\`\`\`text
+<project-root>/.agent-team/runtime/
+\`\`\`
+
+and is Control Plane runtime metadata, not Code Plane content.
+
 ## One-time pane binding
 
 When opening a new Warp tab/session, bind each pane once:
@@ -124,6 +173,12 @@ git check-ignore -q .agent-team/
 ```
 
 Do not force-add it.
+
+### Automated Task concurrency
+
+Within one working tree, run at most one automated Task at a time. The standalone Orchestrator enforces this with a Code Plane lock.
+
+To run multiple automated Tasks in parallel, use separate Git worktrees.
 
 ### Multiple worktrees / concurrent agents
 

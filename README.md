@@ -1,16 +1,148 @@
 # Multi-Agent Development Workflow
 
-A runtime-independent, artifact-driven development protocol for coordinating the three roles:
+A runtime-independent software-development workflow built around three roles:
 
-- **Lead** — task definition, lifecycle control, plan approval, rework decisions, final acceptance
-- **Impl** — investigation, planning, implementation, testing, immutable implementation evidence
+- **Lead** — requirement definition, lifecycle control, Plan approval, rework decisions, final acceptance
+- **Impl** — investigation, Plan creation, implementation, tests, implementation evidence
 - **Review** — fresh-context independent verification of an exact Code Plane snapshot
 
-Only **Lead** can declare a task `ACCEPTED`.
+Only **Lead** may transition lifecycle state and declare a task `ACCEPTED`.
 
-## Installable Skill
+> The `feature/agent-orchestrator` branch adds experimental automatic orchestration.  
+> `main` remains the stable manual-handoff version.
 
-The repository root is the package repository. The actual installable Skill lives at:
+---
+
+## Quick start
+
+Use the Skill from the **project you want to change**. Lead owns the task and
+the final decision; Impl plans and changes code; a fresh Review agent checks
+the committed result. The task is done only when Lead records `ACCEPTED`.
+
+### 1. Install or load the Skill
+
+Install `skills/multi-agent-development-workflow/` in your coding agent, or
+open this repository and load that Skill from the workspace. See
+[Install the Skill](#2-install-the-skill) for the Codex install command.
+
+### 2. Start in your coding agent
+
+When the parent agent supports native SubAgents, give the request to Lead:
+
+```text
+Use multi-agent-development-workflow.
+Role: Lead.
+Mode: Automatic.
+Transport: native-subagent.
+
+Implement <describe the change and expected behavior>.
+```
+
+Lead creates the task, runs the Plan / implementation / independent Review
+cycle, handles any rework, and records final acceptance. To continue later,
+send:
+
+```text
+Use multi-agent-development-workflow.
+Role: Lead.
+Mode: Automatic.
+Transport: native-subagent.
+
+Continue TASK-YYYYMMDD-NNN-short-name.
+```
+
+Native SubAgents run inside the parent-agent session. Do not ask the standalone
+`agent-team` CLI to create native SubAgents; it supports process and queue
+workers only. If native SubAgents are unavailable, use the CLI below.
+
+### 3. Or run with the standalone CLI
+
+The CLI supports Codex and Pi process workers. Set its path after installing
+the Skill:
+
+```bash
+AGENT_TEAM="$HOME/.codex/skills/multi-agent-development-workflow/scripts/agent-team"
+```
+
+Check the runtime, start a task from a requirement, and inspect its state:
+
+```bash
+"$AGENT_TEAM" --runtime codex doctor
+"$AGENT_TEAM" --runtime codex --transport process start "<describe the change>"
+"$AGENT_TEAM" status TASK-YYYYMMDD-NNN-short-name
+```
+
+Use `--runtime pi` in place of `--runtime codex` for Pi. `start` prints the
+created Task ID; use that ID with `run` to continue a task:
+
+```bash
+"$AGENT_TEAM" --runtime codex --transport process run TASK-YYYYMMDD-NNN-short-name
+```
+
+Use `--transport queue` when Impl and Review should run in dedicated Warp
+panes. The full setup is in [Process fallback](#5-process-fallback) and
+[Warp three-pane Queue fallback](#6-warp-three-pane-queue-fallback).
+
+### 4. Find the task and its result
+
+By default, task records are kept in the target project's
+`.agent-team/tasks/<TASK-ID>/`. `STATUS.md` is the lifecycle source of truth;
+`TASK.md` contains the requirements. `ACCEPTANCE.md` records Lead's final
+decision. Keep `.agent-team/` out of Git commits.
+
+If the workflow reaches `BLOCKED`, provide the requested product decision to
+Lead. In standalone CLI mode, resume explicitly with:
+
+```bash
+"$AGENT_TEAM" --runtime codex resume TASK-YYYYMMDD-NNN-short-name "<your decision>"
+```
+
+Do not start another automated task in the same Git working tree while one is
+running. Use a separate worktree for parallel tasks.
+
+---
+
+## 1. Which mode should I use?
+
+| Mode | Recommended for | Human handoff | Warp panes |
+|---|---|---:|---:|
+| **Native SubAgent** | Normal interactive development | No | 1 is enough |
+| **Process fallback** | CI / unattended local execution | No | Not required |
+| **Queue fallback** | Watching Impl and Review in separate Warp panes | No | 3 |
+| Manual | Runtime without automation support | Yes | Any |
+
+Recommended order:
+
+```text
+native-subagent
+      ↓ unavailable
+process
+      ↓ need visible Warp workers
+queue
+      ↓ automation unavailable
+manual
+```
+
+For normal use, **start with Native SubAgent mode**.
+
+### Concurrency rule
+
+A single Git working tree is one mutable Code Plane. Do not run two automated Tasks against the same working tree at the same time.
+
+```text
+one working tree
+→ one automated Task at a time
+```
+
+The standalone Process/Queue runtime enforces this with a Code Plane lock. The lock is fail-closed: a stale lock is not automatically stolen because an orphan worker may still be changing the Code Plane. For true parallel Tasks, create a separate Git worktree per Task. Native SubAgent mode must follow the same rule even though its scheduling happens inside the parent Agent.
+
+The automated lock is stored in the worktree's Git directory and is shared across Control Root settings. Interrupted or rejected worker steps leave a `pending-validation.json` marker in the Task runtime directory. Inspect and reconcile the Task before clearing that marker and retrying.
+
+---
+
+## 2. Install the Skill
+
+The installable Skill directory is:
 
 ```text
 skills/multi-agent-development-workflow/
@@ -19,48 +151,27 @@ skills/multi-agent-development-workflow/
 ├── workflows/
 ├── templates/
 ├── adapters/
-└── runtimes/
+├── runtimes/
+├── automation/
+└── scripts/
 ```
 
-This layout lets installers treat `skills/multi-agent-development-workflow/` as a complete Skill directory instead of trying to install a root-level `SKILL.md` file.
+### Codex — manual install
 
-## Repository structure
-
-```text
-Multi-Agent-Development-Workflow/
-├── README.md
-└── skills/
-    └── multi-agent-development-workflow/
-        ├── SKILL.md
-        ├── roles/
-        │   ├── lead.md
-        │   ├── impl.md
-        │   └── review.md
-        ├── workflows/
-        │   ├── standard.md
-        │   ├── complex.md
-        │   └── bugfix.md
-        ├── templates/
-        ├── adapters/
-        │   └── warp.md
-        └── runtimes/
-            ├── codex.md
-            ├── pi.md
-            └── generic.md
-```
-
-## Manual Codex install
-
-If your installer does not support selecting the Skill subdirectory automatically, clone the repository and copy/link the Skill directory:
+For the automatic-orchestration branch:
 
 ```bash
-git clone https://github.com/liutao1992/Multi-Agent-Development-Workflow.git
+git clone -b feature/agent-orchestrator \
+  https://github.com/liutao1992/Multi-Agent-Development-Workflow.git
+
 mkdir -p ~/.codex/skills
-cp -R Multi-Agent-Development-Workflow/skills/multi-agent-development-workflow \
+
+cp -R \
+  Multi-Agent-Development-Workflow/skills/multi-agent-development-workflow \
   ~/.codex/skills/multi-agent-development-workflow
 ```
 
-The installed result should be:
+Installed layout:
 
 ```text
 ~/.codex/skills/
@@ -70,78 +181,424 @@ The installed result should be:
     ├── workflows/
     ├── templates/
     ├── adapters/
-    └── runtimes/
+    ├── runtimes/
+    ├── automation/
+    └── scripts/
 ```
 
-## Warp quick use
-
-Bind each pane once:
+If your Skill installer can install a repository subdirectory directly, install:
 
 ```text
-Lead pane:
-Use multi-agent-development-workflow. Role: Lead.
-
-Impl pane:
-Use multi-agent-development-workflow. Role: Impl.
-
-Review pane:
-Use multi-agent-development-workflow. Role: Review.
+skills/multi-agent-development-workflow/
 ```
 
-Then normal use can stay short:
+---
+
+## 3. Recommended usage: Native SubAgent
+
+### What this mode does
+
+Native mode uses the runtime's real parent/child Agent capability:
 
 ```text
-Lead:
-新建任务：<requirement>
-
-Impl:
-继续 <TASK-ID>
-
-Lead:
-继续 <TASK-ID>
-
-Impl:
-继续 <TASK-ID>
-
-Review:
-Review <TASK-ID>
-
-Lead:
-继续 <TASK-ID>
+You
+ ↓
+Lead = Parent / Root Agent
+ ├── Impl SubAgent       ← reused within the same Task
+ └── Review SubAgent     ← NEW for every Review round
 ```
 
-See [the Skill definition](./skills/multi-agent-development-workflow/SKILL.md) for the full protocol.
+Lead automatically drives:
 
+```text
+Task
+ ↓
+Impl creates Plan
+ ↓
+Lead approves Plan
+ ↓
+same Impl implements + tests
+ ↓
+Lead freezes Review target
+ ↓
+fresh Review SubAgent
+ ├── FAIL → Lead → same Impl rework → fresh Review
+ └── PASS → Lead final acceptance
+ ↓
+ACCEPTED
+```
 
-## Project-local Agent Team data
+You do **not** need to manually type `继续` into Impl or `Review` into Review.
 
-For normal use, task coordination data is stored in the current project's Git root:
+### Start a new Task
+
+Open the target project in your coding Agent and talk only to **Lead**:
+
+```text
+Use multi-agent-development-workflow.
+Role: Lead.
+Mode: Automatic.
+Transport: native-subagent.
+
+新建任务：
+增加 iOS 系统词典释义功能。
+```
+
+After that, Lead should automatically:
+
+1. create `.agent-team/tasks/<TASK-ID>/`;
+2. create `TASK.md` and `STATUS.md`;
+3. spawn/reuse Impl for Plan and implementation;
+4. perform Plan Gate itself;
+5. spawn a fresh Review SubAgent for each Review round;
+6. drive rework automatically when Review fails;
+7. create `ACCEPTANCE.md` and finish at `ACCEPTED`.
+
+### Continue an existing Task
+
+```text
+Use multi-agent-development-workflow.
+Role: Lead.
+Mode: Automatic.
+Transport: native-subagent.
+
+继续 TASK-20261003-001-ios-system-dictionary-meaning
+```
+
+Lead reads `STATUS.md` and resumes from the current lifecycle state.
+
+### Short form after Lead is already bound
+
+If the current Lead session already knows the Skill and the Task:
+
+```text
+继续
+```
+
+That is enough.
+
+### Impl reuse rule
+
+For one Task:
+
+```text
+Impl-1
+  ├── Plan
+  ├── Implementation
+  └── Rework
+```
+
+Lead should reuse the same Impl child when possible so implementation context is preserved.
+
+### Review freshness rule
+
+Every Review round gets a new child:
+
+```text
+IMPL-001 → Review-1 → REVIEW-001
+IMPL-002 → Review-2 → REVIEW-002
+IMPL-003 → Review-3 → REVIEW-003
+```
+
+A Review SubAgent must not inherit Impl private reasoning.
+
+> A separate `codex exec` process or Pi RPC process is a **worker process**, not a native SubAgent.
+
+Native SubAgent orchestration is **Skill-level orchestration**: Lead uses the host runtime's native child-agent tools. The bundled `agent-team` CLI implements only Process and Queue fallback transports.
+
+---
+
+## 4. Do I still need three Warp panes?
+
+### Native SubAgent mode
+
+No.
+
+One Lead pane is enough:
+
+```text
+┌──────────────────────────────────────┐
+│ Lead / Parent Agent                  │
+│                                      │
+│ automatically spawns Impl / Review   │
+│ automatically drives STATUS          │
+│ automatically handles rework         │
+│ automatically accepts the Task       │
+└──────────────────────────────────────┘
+```
+
+You can keep extra panes for logs or Git inspection, but they are not required for orchestration.
+
+### If you want visible Impl / Review panes
+
+Use **Queue fallback** instead. See section 6.
+
+---
+
+## 5. Process fallback
+
+Use this when the current runtime does not expose native SubAgent collaboration.
+
+The bundled CLI launches separate Codex/Pi worker processes and drives the same lifecycle automatically.
+
+Define the CLI path after installing the Skill:
+
+```bash
+AGENT_TEAM="$HOME/.codex/skills/multi-agent-development-workflow/scripts/agent-team"
+```
+
+### Check the environment
+
+```bash
+"$AGENT_TEAM" --runtime codex doctor
+```
+
+### Start from a requirement
+
+```bash
+"$AGENT_TEAM" \
+  --runtime codex \
+  --transport process \
+  start "增加 iOS 系统词典释义功能"
+```
+
+### Continue an existing Task
+
+```bash
+"$AGENT_TEAM" \
+  --runtime codex \
+  --transport process \
+  run TASK-20261003-001-ios-system-dictionary-meaning
+```
+
+### Pi
+
+```bash
+"$AGENT_TEAM" \
+  --runtime pi \
+  --transport process \
+  run TASK-20261003-001-ios-system-dictionary-meaning
+```
+
+Process mode also enforces runtime safety:
+
+- one automated Task per working tree through a Code Plane lock;
+- clean Code Plane before every dispatch;
+- real per-worker timeout for Codex and Pi;
+- process-group termination on timeout/cancel;
+- executable lifecycle transition validation after every Lead action;
+- evidence gates for Plan approval, Review PASS/FAIL, Review Target, BLOCKED resume, and final ACCEPTED;
+- role postconditions after every worker;
+- whole-project Control Plane write-boundary validation (runtime metadata excluded);
+- immutable existing Plan / IMPL / REVIEW artifacts;
+- Review cannot change HEAD/index/worktree or STATUS;
+- Planning Impl cannot change Code Plane or STATUS;
+- Implementation Impl must leave a clean committed Code Plane and create exactly one IMPL artifact;
+- Lead cannot modify Code Plane.
+
+---
+
+## 6. Warp three-pane Queue fallback
+
+Use this mode when you want to **see Impl and Review running in dedicated Warp panes**.
+
+Layout:
+
+```text
+┌──────────────────────────────┬──────────────────────────────┐
+│ Lead / Orchestrator          │ Impl Worker                  │
+│                              │                              │
+│ controls STATUS              │ consumes Impl jobs           │
+│ dispatches automatically     ├──────────────────────────────┤
+│ final acceptance             │ Review Worker                │
+│                              │ consumes Review jobs         │
+└──────────────────────────────┴──────────────────────────────┘
+```
+
+Do not enable Warp synchronized input.
+
+Set:
+
+```bash
+AGENT_TEAM="$HOME/.codex/skills/multi-agent-development-workflow/scripts/agent-team"
+```
+
+### Right-top pane — Impl
+
+Run once:
+
+```bash
+"$AGENT_TEAM" --runtime codex worker Impl
+```
+
+Leave this process running.
+
+### Right-bottom pane — Review
+
+Run once:
+
+```bash
+"$AGENT_TEAM" --runtime codex worker Review
+```
+
+Leave this process running.
+
+### Left pane — Lead / Orchestrator
+
+Start a new Task:
+
+```bash
+"$AGENT_TEAM" \
+  --runtime codex \
+  --transport queue \
+  start "增加 iOS 系统词典释义功能"
+```
+
+Or continue an existing Task:
+
+```bash
+"$AGENT_TEAM" \
+  --runtime codex \
+  --transport queue \
+  run TASK-20261003-001-ios-system-dictionary-meaning
+```
+
+After that, no manual pane switching is required.
+
+The Orchestrator automatically performs:
+
+```text
+Lead
+ ↓
+queue → Impl pane
+ ↓
+Lead
+ ↓
+queue → Impl pane
+ ↓
+Lead
+ ↓
+queue → Review pane
+ ↓
+Lead
+ ├── rework loop
+ └── acceptance
+```
+
+### Important
+
+Queue mode does **not** inject prompts into arbitrary interactive Codex/Pi sessions already open in those panes.
+
+The right-side panes must run:
+
+```text
+agent-team worker Impl
+agent-team worker Review
+```
+
+Those worker processes launch the configured runtime when a job arrives.
+
+Queue jobs are project-scoped. When multiple projects share an external `AGENT_TEAM_DIR`, each project gets a fingerprint namespace. Workers reject jobs whose project root/fingerprint does not match.
+
+Queue jobs use lease + cancellation semantics:
+
+```text
+QUEUED
+  ↓
+CLAIMED / RUNNING + lease
+  ↓
+SUCCEEDED / FAILED / CANCELLED
+                    └─ or QUARANTINED when orphan safety is uncertain
+```
+
+Expired claims are requeued only when the previous child process identity is known and confirmed unable to execute.
+
+For a live stale PID, the runtime also verifies recorded process identity (PID + process group/start-time/command where available) before terminating anything. A live PID that cannot be proven to be the original child is never killed; the claim is quarantined as `UNKNOWN_PROCESS_IDENTITY`.
+
+If an expired/malformed claim has no trustworthy `child_pid`, or a child cannot be confirmed quiesced, the claim moves to `quarantined/` as `UNKNOWN_ORPHAN_RISK`. New automatic runs/workers fail closed until the quarantine is inspected.
+
+A timed-out orchestrator cancels the job and attempts to quiesce any claimed child process before returning; a running worker also observes cancellation and terminates its child runtime instead of continuing to make ghost changes.
+
+---
+
+## 7. Where task data is stored
+
+By default, Agent Team data lives inside the target project:
 
 ```text
 <project-root>/
 ├── .agent-team/
 │   ├── INDEX.md
+│   ├── runtime/
 │   └── tasks/
-└── ...
+│       └── TASK-YYYYMMDD-NNN-short-name/
+│           ├── TASK.md
+│           ├── STATUS.md
+│           ├── plans/
+│           ├── implementations/
+│           ├── reviews/
+│           └── ACCEPTANCE.md
+└── project source...
 ```
 
-The Skill should **not** automatically put task data in `/private/tmp` or `/tmp`.
+The Skill must not automatically use:
 
-Initialize it with:
+```text
+/private/tmp/...
+/tmp/...
+~/.agent-team/...
+```
+
+unless you explicitly configure an external Control Root.
+
+If `AGENT_TEAM_DIR` is external and shared by multiple projects, storage becomes project-scoped:
+
+```text
+<AGENT_TEAM_DIR>/
+└── projects/
+    └── <project-fingerprint>/
+        ├── tasks/
+        └── runtime/
+```
+
+If a custom Control Root is still inside the Git working tree, the CLI verifies that it is untracked and adds that path to `.git/info/exclude`. A tracked Control Root is rejected.
+
+The default root is resolved from:
 
 ```bash
-PROJECT_ROOT="$(git rev-parse --show-toplevel)"
-mkdir -p "$PROJECT_ROOT/.agent-team/tasks"
-grep -qxF ".agent-team/" "$PROJECT_ROOT/.git/info/exclude" 2>/dev/null \
-  || printf "\n.agent-team/\n" >> "$PROJECT_ROOT/.git/info/exclude"
+git rev-parse --show-toplevel
 ```
 
-An external Control Root is only used when explicitly configured.
+and becomes:
 
+```text
+<project-root>/.agent-team/
+```
 
-## Role entry and task lookup
+### Git rule
 
-Each role has a fixed entry file inside the installed Skill:
+`.agent-team/` is Control Plane data and must not enter the Code Plane commit history.
+
+The Skill normally adds it to:
+
+```text
+.git/info/exclude
+```
+
+Verify:
+
+```bash
+git ls-files .agent-team
+git check-ignore -q .agent-team/
+```
+
+`git ls-files .agent-team` should return nothing.
+
+---
+
+## 8. Role files and task lookup
+
+Role definitions:
 
 ```text
 Lead   → roles/lead.md
@@ -149,10 +606,376 @@ Impl   → roles/impl.md
 Review → roles/review.md
 ```
 
-For task `<TASK-ID>`, task artifacts are located under:
+For a Task:
 
 ```text
 <project-root>/.agent-team/tasks/<TASK-ID>/
 ```
 
-Every role reads `STATUS.md` first and follows the artifact references recorded there. The user should not need to manually paste Plan or Review content between Warp panes.
+Every role reads:
+
+```text
+STATUS.md
+```
+
+first.
+
+Then it follows the exact artifact references recorded there.
+
+### Lead
+
+Reads:
+
+```text
+STATUS.md
+TASK.md
+plans/PLAN-vNNN.md
+implementations/IMPL-NNN.md
+reviews/REVIEW-NNN.md
+ACCEPTANCE.md
+```
+
+### Impl
+
+Reads:
+
+```text
+STATUS.md
+TASK.md
+approved Plan
+failed Review / confirmed RW items when reworking
+```
+
+### Review
+
+Reads:
+
+```text
+STATUS.md
+TASK.md
+approved Plan or fast-path marker
+exact IMPL-NNN
+exact Code Head SHA
+Git diffs
+test evidence
+```
+
+Agents must not guess an artifact merely because it has the highest filename number.
+
+---
+
+## 9. Useful commands
+
+Using:
+
+```bash
+AGENT_TEAM="$HOME/.codex/skills/multi-agent-development-workflow/scripts/agent-team"
+```
+
+Environment check:
+
+```bash
+"$AGENT_TEAM" doctor
+```
+
+`doctor` does not require Codex/Pi to be installed. It reports missing runtimes instead of failing and does not create Control Plane directories.
+
+Current Task state:
+
+```bash
+"$AGENT_TEAM" status TASK-20261003-001-ios-system-dictionary-meaning
+```
+
+`status` is read-only: it does not resolve a runtime, create directories, or modify `.git/info/exclude`.
+
+Resume a BLOCKED Task after a human decision:
+
+```bash
+"$AGENT_TEAM" \
+  --runtime codex \
+  resume TASK-20261003-001-ios-system-dictionary-meaning \
+  "Use a backward-compatible migration"
+```
+
+`run` intentionally stops at `BLOCKED`. Only `resume` asks Lead to consume the human resolution, transition exactly to the recorded Resume State, validate that transition, and then continue automation.
+
+Automatic process fallback:
+
+```bash
+"$AGENT_TEAM" --runtime codex --transport process run TASK-...
+```
+
+Warp queue fallback:
+
+```bash
+"$AGENT_TEAM" --runtime codex --transport queue run TASK-...
+```
+
+The standalone CLI intentionally rejects:
+
+```bash
+"$AGENT_TEAM" --transport subagent ...
+```
+
+because native SubAgents belong to the already-running Lead parent session. The CLI must not pretend that a child OS process is a native SubAgent.
+
+---
+
+### Requirement Contract is snapshot-bound
+
+`TASK.md` is the requirement source of truth, and its executable contract is versioned.
+
+The contract hash covers:
+
+```text
+Objective
+Requirements
+Acceptance Criteria
+Constraints
+Dependencies
+Out of Scope
+```
+
+TASK records:
+
+```text
+Task Contract Revision: N
+Task Contract Hash: <SHA-256>
+```
+
+The active PLAN, IMPL, REVIEW, STATUS and ACCEPTANCE evidence must bind the same revision/hash.
+
+When Lead changes contract content:
+
+```text
+Revision N
+   ↓ amendment
+Revision N+1
+   ↓
+Requirement Change Log records:
+- Revision
+- Previous Hash
+- New Hash
+   ↓
+existing Plan / IMPL / REVIEW evidence becomes stale
+   ↓
+PLAN_REWORK
+```
+
+A changed Task Contract therefore cannot silently reuse an old Plan, Review or Acceptance path.
+
+`Rework Requirements` contains Review remediation instructions and is excluded from the requirement hash. Lead may update only that TASK section during `REVIEWING -> REWORK`, with valid FAIL or MISMATCH evidence. Contract revision/hash and all other TASK content remain unchanged. Product requirement changes still require a contract amendment and `PLAN_REWORK`.
+
+Tasks created with the earlier hash definition (which included Rework Requirements) require regenerated contract bindings and evidence; existing immutable artifacts must not be edited to substitute the new hash.
+
+### Plan ownership is mechanically enforced
+
+Plan content and Plan approval have different owners:
+
+```text
+Impl
+  owns every section except ## Approval
+
+Lead
+  may change only ## Approval
+```
+
+The runtime hashes each Plan after removing the `## Approval` block. Existing Plan content hashes must not change.
+
+Approval is a one-time decision. Only the current PENDING Plan may change during `PLAN_REVIEW`:
+
+```text
+PENDING → APPROVED
+or
+PENDING → REWORK
+```
+
+After that decision, the entire Plan version—including the Approval block—is frozen. Older approval history cannot be rewritten.
+
+When a Plan enters `PLAN_REVIEW`, both STATUS and the Plan file must say:
+
+```text
+PENDING
+```
+
+so Impl cannot self-approve a Plan.
+
+## 10. Executable lifecycle enforcement
+
+The Markdown Transition Table is also enforced by Python.
+
+After every Lead action the runtime validates:
+
+```text
+before state
++
+after state
++
+required evidence
++
+allowed transition
+```
+
+Examples:
+
+```text
+CREATED → ACCEPTED
+= rejected
+
+PLAN_REVIEW → READY_FOR_IMPLEMENTATION
+= requires APPROVED in STATUS + Plan artifact
+
+IMPLEMENTING → READY_FOR_REVIEW
+= requires frozen IMPL target + exact full 40-char Code Head SHA
+
+REVIEWING → READY_FOR_FINAL_ACCEPTANCE
+= requires REVIEW Result PASS
+
+READY_FOR_FINAL_ACCEPTANCE → ACCEPTED
+= requires ACCEPTANCE.md + current PASS Review
++ matching accepted Code Head
++ current real Git HEAD still equals the reviewed Code Head
+
+<any> → BLOCKED
+= requires Resume State = previous lifecycle state
+```
+
+This turns the Transition Table from prompt guidance into an executable protocol.
+
+Review evidence is machine-validated for all three exits.
+
+For PASS or FAIL, the Review must bind:
+
+```text
+Reviewed Implementation
+=
+STATUS Current Implementation
+
+Declared Code Head
+=
+Observed Review Head
+=
+STATUS Code Head
+=
+current Git HEAD
+
+Protocol Status = READY_FOR_REVIEW
+
+Unstaged Diff Clean = YES
+Staged Diff Clean = YES
+Status Porcelain Clean = YES
+Control Plane Excluded = YES
+```
+
+For FAIL, STATUS and REVIEW must both say `FAIL`, the same implementation/head checks apply, and at least one blocking `REV-NNN` issue must exist.
+
+For target mismatch:
+
+```text
+Protocol Status = REVIEW_TARGET_MISMATCH
+Review Result = N/A
+Declared Code Head = submitted STATUS Code Head
+Observed Code Head = current Git HEAD
+```
+
+Final Acceptance repeats both the reviewed Code Head check and Task Contract check to close Code and Requirement TOCTOU gaps.
+
+## 11. When automation stops
+
+Automatic execution stops rather than guessing when:
+
+- `STATUS = BLOCKED`;
+- a genuine product or requirement decision needs a human;
+- a worker/runtime fails;
+- no protocol progress is produced;
+- the Review target is invalid;
+- a required worker disappears;
+- a worker violates its role postconditions;
+- the Code Plane is dirty before dispatch;
+- another automated Task already owns the same working tree;
+- the maximum orchestration step limit is reached.
+
+Example:
+
+```text
+Need human decision:
+Should this database migration be destructive or backward-compatible?
+```
+
+At that point Lead should ask the user.
+
+After the decision:
+
+- Native SubAgent / interactive Lead: provide the decision to Lead and continue;
+- standalone Process/Queue mode: use the explicit `resume` command.
+
+```bash
+"$AGENT_TEAM" --runtime codex resume TASK-... "human decision"
+```
+
+The decision must be persisted in STATUS → Blocked Resolution before the workflow resumes.
+
+---
+
+## 12. Lifecycle overview
+
+```text
+User requirement
+      ↓
+Lead
+      ↓
+Impl → PLAN
+      ↓
+Lead Plan Gate
+      ↓
+Impl → Code + Tests + IMPL
+      ↓
+Lead freezes Review target
+      ↓
+fresh Review
+   ┌───────┴────────┐
+   │                │
+ FAIL              PASS
+   │                │
+ Lead → Rework      Lead
+   │                │
+ Impl               ACCEPTANCE.md
+   │                │
+ fresh Review       ACCEPTED
+   └──── loop
+```
+
+Lifecycle source of truth:
+
+```text
+STATUS.md
+```
+
+Requirement source of truth:
+
+```text
+TASK.md
+```
+
+Implementation source of truth:
+
+```text
+Code Head SHA
+```
+
+Verification evidence:
+
+```text
+REVIEW-NNN.md
+```
+
+---
+
+## 13. Documentation
+
+- [Skill protocol](./skills/multi-agent-development-workflow/SKILL.md)
+- [Native SubAgent orchestration](./skills/multi-agent-development-workflow/automation/subagent.md)
+- [Standalone Orchestrator fallback](./skills/multi-agent-development-workflow/automation/orchestrator.md)
+- [Warp adapter](./skills/multi-agent-development-workflow/adapters/warp.md)
+- [Codex runtime](./skills/multi-agent-development-workflow/runtimes/codex.md)
+- [Pi runtime](./skills/multi-agent-development-workflow/runtimes/pi.md)

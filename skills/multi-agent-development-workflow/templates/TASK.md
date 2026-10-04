@@ -4,6 +4,8 @@ Task ID: TASK-YYYYMMDD-NNN-short-name
 Task Name: <human-readable name>
 Created: YYYY-MM-DD
 Requirement Owner: Lead
+Task Contract Revision: 1
+Task Contract Hash: <sha256 of contract sections>
 
 > TASK.md is the requirement source of truth. Lifecycle state belongs only in STATUS.md.
 
@@ -52,6 +54,14 @@ Expected observable behavior:
 ## Requirement Change Log
 
 None
+
+<!-- For every contract amendment append:
+### CHANGE-001
+Revision: 2
+Previous Hash: <sha256>
+New Hash: <sha256>
+Reason: <human decision / requirement clarification>
+-->
 
 ## Rework Requirements
 
