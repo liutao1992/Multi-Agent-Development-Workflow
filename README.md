@@ -17,6 +17,8 @@
 
 **并发规则：** 同一个 Git 工作树同一时间只能运行一个自动化 Task。Process/Queue 使用 Code Plane 锁；Native 模式由 Lead 遵守同样约束。要并行开发多个 Task，请为每个 Task 创建独立的 Git worktree。不要自行清除疑似陈旧的锁：仍可能有工作者在改代码。若发生中断或校验失败，先检查 Task 运行目录中的 `pending-validation.json` 并核对状态。
 
+**Process/Queue 启动前：** 在目标项目目录执行 `git status --short`。输出必须为空；未跟踪文件也会阻止自动编排。如果文件应纳入项目，先提交；如果只是临时产物，先移到项目目录之外，或用 `git stash push -u -- <文件路径>` 暂存，任务结束后再恢复。不要为通过检查而删除尚需保留的文件。
+
 ## 安装
 
 可安装的 Skill 是仓库中的 `skills/multi-agent-development-workflow/` 目录，包含 `SKILL.md`、角色、工作流、模板、运行时适配器和 `scripts/agent-team`。
