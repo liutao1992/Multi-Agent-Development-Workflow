@@ -59,6 +59,10 @@ madw start
 选择顺序：`MADW_RUNTIME` → 已安装的 `pi` → 已安装的 `codex` → 报错。
 也可以显式使用 `madw start pi` 或 `madw start codex`。
 
+截图中手动建立的三个 session 使用 Pi Agent；该运行方式没有触发下面的
+Codex socket 沙箱拒绝。`madw start pi` 同样使用 Pi，角色是否分成 session
+或 pane 不决定这一权限差异。
+
 Codex 的默认工作区沙箱在 macOS 上可能拒绝连接 tmux 的本地 socket，
 使 `madw send`、`wait` 和 `signal` 失败。默认模式会提示 Agent 仅对失败的
 `madw` 命令申请提升权限并重试；该错误不表示团队已经退出。
@@ -99,6 +103,10 @@ Git 根目录短 hash 隔离。
 │                  │ Review           │
 └──────────────────┴──────────────────┘
 ```
+
+每个 pane 顶部固定显示角色：`Leader · 输入任务`、
+`Impl · 实现与测试`、`Review · 独立评审`。Agent 自己更新终端标题时，
+这些角色标识也不会被覆盖。界面上的 Leader 对应流程中的 Lead 角色。
 
 在 tmux 面板内点击 Lead、Impl 或 Review，即可将键盘焦点切到对应 Agent；
 再按 `Enter` 可确认该 Agent 当前的提示（例如 Codex 的目录信任确认）。

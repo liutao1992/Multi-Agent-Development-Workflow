@@ -332,6 +332,19 @@ bootstrap_team() {
   send_to_pane "$lead" "$(role_prompt leader)"
 }
 
+configure_team_labels() {
+  local session lead impl review
+  session="$(team_session)"
+  lead="$(pane_for_role leader)"
+  impl="$(pane_for_role impl)"
+  review="$(pane_for_role review)"
+  tmux set-window-option -t "$session:team" pane-border-status top
+  tmux set-window-option -t "$session:team" pane-border-format ' [#{@madw_label}] '
+  tmux set-option -p -t "$lead" @madw_label "Leader · 输入任务"
+  tmux set-option -p -t "$impl" @madw_label "Impl · 实现与测试"
+  tmux set-option -p -t "$review" @madw_label "Review · 独立评审"
+}
+
 create_team() {
   local runtime="$1" boot_timeout="$2"
   local root session cmd pane_cmd lead impl review
@@ -362,6 +375,7 @@ create_team() {
   tmux set-option -p -t "$lead" @madw_role leader
   tmux set-option -p -t "$impl" @madw_role impl
   tmux set-option -p -t "$review" @madw_role review
+  configure_team_labels
 
   if ! wait_pane_alive "$lead" "$boot_timeout" ||
      ! wait_pane_alive "$impl" "$boot_timeout" ||
@@ -385,6 +399,7 @@ attach_team() {
   session_exists "$session" || die "team is not running: $session"
   validate_existing_team "$session"
   tmux set-option -t "$session" mouse on
+  configure_team_labels
   repair_dead_panes
   pane="$(pane_for_role "$focus")"
   tmux select-window -t "$session:team"
@@ -530,6 +545,7 @@ restart_role() {
     *) die "unknown role: $role" ;;
   esac
   tmux select-pane -t "$pane" -T "$title"
+  configure_team_labels
   wait_pane_alive "$pane" "$DEFAULT_BOOT_TIMEOUT"
 
   if [ "$role" = "leader" ]; then
@@ -751,6 +767,7 @@ start_command() {
       echo "Codex socket opt-in saved for future role restarts; running Agents were not interrupted."
     fi
     tmux set-option -t "$session" mouse on
+    configure_team_labels
     repair_dead_panes
     echo "Project: $root"
     echo "Team:    $session"
