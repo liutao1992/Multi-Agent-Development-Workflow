@@ -113,6 +113,10 @@ Worker 在工件写完后使用 `madw signal ...`。等待封装增加 timeout�
 `madw start` 先检查 Git、Skill、tmux、runtime 和已有项目 team，再创建
 pane。不会先创建坏 pane 再发现 runtime 不存在。
 
+每个 Agent pane 启动或重启时都会显式进入当前项目路径，避免长期运行的
+tmux server 仍指向已删除的旧目录，导致 Codex/Pi 报 `No such file or directory`
+或 `uv_cwd ENOENT`。
+
 当前启动检查确认的是 **Agent 进程已经存活**，不是 runtime-specific 的
 “交互界面已经 Ready”。Pi/Codex 的 PTY 通常会保留提前输入；如果后续实测
 出现启动 prompt 被吞的问题，再在各 runtime adapter 中增加专门的 readiness

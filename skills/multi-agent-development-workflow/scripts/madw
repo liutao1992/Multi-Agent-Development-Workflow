@@ -164,6 +164,12 @@ runtime_command() {
   esac
 }
 
+pane_command() {
+  local root="$1" cmd="$2" quoted_root
+  printf -v quoted_root '%q' "$root"
+  printf 'cd -- %s && exec %s\n' "$quoted_root" "$cmd"
+}
+
 command_head() {
   local cmd="$1"
   set -- $cmd
@@ -286,16 +292,17 @@ bootstrap_team() {
 
 create_team() {
   local runtime="$1" boot_timeout="$2"
-  local root session cmd lead impl review
+  local root session cmd pane_cmd lead impl review
   root="$(project_root)"
   session="$(team_session)"
   cmd="$(runtime_command "$runtime")"
+  pane_cmd="$(pane_command "$root" "$cmd")"
 
-  tmux new-session -d -s "$session" -n team -c "$root" "$cmd"
+  tmux new-session -d -s "$session" -n team -c "$root" "$pane_cmd"
   tmux set-option -t "$session:team" remain-on-exit on
   lead="$(tmux display-message -p -t "$session:team.0" '#{pane_id}')"
-  impl="$(tmux split-window -h -l 50% -P -F '#{pane_id}' -t "$lead" -c "$root" "$cmd")"
-  review="$(tmux split-window -v -l 50% -P -F '#{pane_id}' -t "$impl" -c "$root" "$cmd")"
+  impl="$(tmux split-window -h -l 50% -P -F '#{pane_id}' -t "$lead" -c "$root" "$pane_cmd")"
+  review="$(tmux split-window -v -l 50% -P -F '#{pane_id}' -t "$impl" -c "$root" "$pane_cmd")"
 
   tmux select-pane -t "$lead" -T "Lead"
   tmux select-pane -t "$impl" -T "Impl"
@@ -457,7 +464,7 @@ status_team() {
 
 restart_role() {
   local role="$1"
-  local session pane runtime cmd root lead impl review title
+  local session pane runtime cmd pane_cmd root lead impl review title
   session="$(team_session)"
   session_exists "$session" || die "team is not running: $session"
   validate_existing_team "$session"
@@ -469,7 +476,8 @@ restart_role() {
   [ -n "$runtime" ] || die "team metadata is missing runtime"
   [ -n "$cmd" ] || die "team metadata is missing Agent command"
 
-  tmux respawn-pane -k -t "$pane" -c "$root" "$cmd"
+  pane_cmd="$(pane_command "$root" "$cmd")"
+  tmux respawn-pane -k -t "$pane" -c "$root" "$pane_cmd"
   case "$role" in
     leader) title="Lead" ;;
     impl) title="Impl" ;;

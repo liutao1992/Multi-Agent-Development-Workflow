@@ -21,6 +21,8 @@ FAKE="$TMP/fake-agent.sh"
 cat >"$FAKE" <<'EOF'
 #!/usr/bin/env bash
 trap 'exit 0' TERM INT
+CWD="$(/bin/pwd -P)" || exit 17
+printf 'CWD_OK:%s\n' "$(basename "$CWD")"
 while IFS= read -r line; do
   printf 'FAKE:%s\n' "$line"
 done
@@ -76,6 +78,12 @@ HOME="$INSTALL_HOME" MADW_BIN_DIR="$INSTALL_BIN" "$INSTALL" >/dev/null
 (cd "$REPO_A" && MADW_AGENT_CMD="$FAKE" "$INSTALL_BIN/madw" id) >/dev/null
 (cd "$REPO_A" && "$INSTALL_BIN/agent-team" --help) >/dev/null
 
+# Exercise a tmux server whose original working directory has been removed.
+STALE_CWD="$TMP/stale-server-cwd"
+mkdir -p "$STALE_CWD"
+(cd "$STALE_CWD" && tmux new-session -d -s madw-stale-server 'sleep 60')
+rm -rf "$STALE_CWD"
+
 start_for "$REPO_A"
 SESSION_A="$(session_for "$REPO_A")"
 [ "$(tmux list-panes -t "$SESSION_A:team" -F '#{pane_id}' | wc -l | tr -d ' ')" = "3" ]
@@ -100,6 +108,7 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do
   sleep 0.1
 done
 tmux capture-pane -p -t "$LEAD_PANE" -S -100 | grep -q 'Role: Lead'
+tmux capture-pane -p -t "$LEAD_PANE" -S -100 | grep -Fq 'CWD_OK:project'
 
 start_for "$REPO_B"
 SESSION_B="$(session_for "$REPO_B")"

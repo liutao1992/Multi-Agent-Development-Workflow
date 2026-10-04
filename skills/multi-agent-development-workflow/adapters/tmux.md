@@ -45,6 +45,8 @@ Runtime selection:
 
 `start` also verifies Git, tmux, the installed Skill, and the selected runtime.
 It creates the three panes only after preflight succeeds.
+Each pane command explicitly changes to the canonical project path, including
+on role restart, because a long-lived tmux server may retain a deleted cwd.
 
 The launcher does not rely on a fixed one-second sleep. It verifies that each
 pane/Agent process is alive, up to `MADW_BOOT_TIMEOUT` (default 15 seconds), and
