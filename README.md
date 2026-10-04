@@ -66,8 +66,10 @@ Codex 进程启用工作区沙箱网络访问：
 MADW_CODEX_NETWORK_ACCESS=1 madw start codex
 ```
 
-该设置也允许 Agent 执行的命令访问网络。它只影响这次创建的团队；
-已有团队需要在没有进行中的工作时停止并重建，或逐个重启角色。
+该设置也允许 Agent 执行的命令访问网络。已有团队可用
+`MADW_CODEX_NETWORK_ACCESS=1 MADW_NO_ATTACH=1 madw start codex`
+保存新启动命令；**运行中的 Agent 不会被打断**。当前回合结束后，
+用 `madw restart leader|impl|review` 逐个重启需要连接 tmux 的角色。
 若需要自行控制 Codex 启动参数，可设置 `MADW_AGENT_CMD`。
 
 ## 一个项目一个 tmux session

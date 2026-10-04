@@ -721,7 +721,7 @@ start_command() {
   done
 
   preflight_base
-  local session root stored_runtime runtime
+  local session root stored_runtime runtime cmd
   session="$(team_session)"
   root="$(project_root)"
   git -C "$root" rev-parse --verify HEAD >/dev/null 2>&1 ||
@@ -734,6 +734,13 @@ start_command() {
       stored_runtime="$(session_option "$session" "@madw_runtime")"
       [ "$stored_runtime" = "$requested" ] ||
         die "team already runs runtime '$stored_runtime'; use 'madw restart <role> $requested' or stop first"
+    fi
+    if [ "$requested" = "codex" ] &&
+       [ "${MADW_CODEX_NETWORK_ACCESS:-0}" = "1" ] &&
+       [ -z "${MADW_AGENT_CMD:-}" ]; then
+      cmd="$(runtime_command codex)"
+      tmux set-option -t "$session" @madw_agent_cmd "$cmd"
+      echo "Codex socket opt-in saved for future role restarts; running Agents were not interrupted."
     fi
     tmux set-option -t "$session" mouse on
     repair_dead_panes

@@ -102,6 +102,15 @@ CODEX_SESSION="$(cd "$CODEX_REPO" && "$MADW" id)"
 [ "$(tmux list-panes -t "$CODEX_SESSION:team" -F '#{pane_id}' | wc -l | tr -d ' ')" = "3" ]
 (cd "$CODEX_REPO" && "$MADW" stop) >/dev/null
 
+# Explicit opt-in on an existing team changes only future respawns.
+(cd "$CODEX_REPO" && PATH="$TMP/bin:$PATH" MADW_AGENT_CMD= MADW_NO_ATTACH=1 "$MADW" start codex) >/dev/null
+CODEX_LEAD="$(tmux show-options -v -t "$CODEX_SESSION" @madw_pane_leader)"
+OLD_CODEX_PID="$(tmux display-message -p -t "$CODEX_LEAD" '#{pane_pid}')"
+(cd "$CODEX_REPO" && PATH="$TMP/bin:$PATH" MADW_AGENT_CMD= MADW_CODEX_NETWORK_ACCESS=1 MADW_NO_ATTACH=1 "$MADW" start codex) >/dev/null
+[ "$(tmux show-options -v -t "$CODEX_SESSION" @madw_agent_cmd)" = "codex -s workspace-write -c 'sandbox_workspace_write.network_access=true'" ]
+[ "$(tmux display-message -p -t "$CODEX_LEAD" '#{pane_pid}')" = "$OLD_CODEX_PID" ]
+(cd "$CODEX_REPO" && "$MADW" stop) >/dev/null
+
 # Default install goes to the shared Agent Skills directory and removes an old
 # Codex-specific copy from the discovery path.
 INSTALL_HOME="$TMP/install-home"
