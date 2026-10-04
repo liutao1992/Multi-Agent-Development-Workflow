@@ -94,8 +94,18 @@ team_session() {
 }
 
 session_exists() {
-  local session="$1"
-  tmux list-sessions -F '#S' 2>/dev/null | grep -Fqx "$session"
+  local session="$1" tmux_output
+  if tmux_output="$(tmux list-sessions -F '#S' 2>&1)"; then
+    printf '%s\n' "$tmux_output" | grep -Fqx "$session"
+    return
+  fi
+  case "$tmux_output" in
+    *"Operation not permitted"*|*"Permission denied"*)
+      die "tmux socket access denied by this sandbox. Retry only this madw command with elevated permission; an existing restrictive Codex team can migrate with MADW_CODEX_NETWORK_ACCESS=1 and role restarts (also enables outbound network access)."
+      ;;
+    *"no server running on "*|*"error connecting to "*" (No such file or directory)"*|"no sessions") return 1 ;;
+    *) die "cannot inspect tmux sessions: $tmux_output" ;;
+  esac
 }
 
 pane_exists() {
@@ -196,6 +206,8 @@ preflight_base() {
       *"Operation not permitted"*|*"Permission denied"*)
         die "tmux socket access denied by this sandbox. Retry only this madw command with elevated permission; an existing restrictive Codex team can migrate with MADW_CODEX_NETWORK_ACCESS=1 and role restarts (also enables outbound network access)."
         ;;
+      *"no server running on "*|*"error connecting to "*" (No such file or directory)"*|"no sessions") ;;
+      *) die "cannot inspect tmux sessions: $tmux_error" ;;
     esac
   fi
   project_root >/dev/null
@@ -296,7 +308,7 @@ role_prompt() {
 5. 每轮正式评审前，先运行 ./.agent-team/madw restart review。
 6. 以 STATUS 和不可变工件为准，完成实现、评审、返工和验收闭环。
 7. MADW 的 Codex 角色默认使用 workspace-write 并允许网络，以连接 tmux；角色命令也可访问外部网络。MADW_CODEX_NETWORK_ACCESS=0 可选择限制模式。
-8. 若 madw 仍报 tmux socket access denied，只对该条 madw 命令申请提升权限并重试；不要判断为团队已停止。
+8. 任何 tmux/madw 会话查询失败都只表示状态未知，绝不能解释为“没有团队”，也不要启动或重建 session；保留原错误并对失败命令重试或申请提升权限。
 9. 用户尚未提出需求时，保持待命。
 EOF
       ;;

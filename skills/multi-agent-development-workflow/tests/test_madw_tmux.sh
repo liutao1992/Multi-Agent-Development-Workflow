@@ -108,6 +108,34 @@ if (cd "$REPO_A" && PATH="$TMP/bin:$PATH" "$MADW" status) >"$TMP/denied-socket.l
   exit 1
 fi
 grep -Fq 'tmux socket access denied by this sandbox' "$TMP/denied-socket.log"
+
+# An unexpected failure after preflight must fail closed. Treating it as "no
+# sessions" can make a running Leader create or repair a team and discard its
+# current pane context.
+export FAKE_TMUX_STATE="$TMP/fake-tmux-state"
+export FAKE_TMUX_NEW_SESSION="$TMP/fake-tmux-new-session"
+cat > "$TMP/bin/tmux" <<'EOF'
+#!/bin/sh
+if [ "$1" = "list-sessions" ]; then
+  if [ ! -e "$FAKE_TMUX_STATE" ]; then
+    : > "$FAKE_TMUX_STATE"
+    exit 0
+  fi
+  echo 'failed to connect to tmux server' >&2
+  exit 1
+fi
+if [ "$1" = "new-session" ]; then
+  : > "$FAKE_TMUX_NEW_SESSION"
+fi
+exit 99
+EOF
+chmod +x "$TMP/bin/tmux"
+if (cd "$REPO_A" && PATH="$TMP/bin:$PATH" MADW_AGENT_CMD="$FAKE" MADW_NO_ATTACH=1 "$MADW" start) >"$TMP/unknown-tmux-error.log" 2>&1; then
+  echo "start treated an unexpected tmux error as no running team" >&2
+  exit 1
+fi
+grep -Fq 'cannot inspect tmux sessions: failed to connect to tmux server' "$TMP/unknown-tmux-error.log"
+[ ! -e "$FAKE_TMUX_NEW_SESSION" ]
 rm "$TMP/bin/tmux"
 
 # Exercise the actual Codex command path with a fake interactive executable.
@@ -289,6 +317,7 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do
 done
 tmux capture-pane -p -t "$LEAD_PANE" -S -100 | grep -Fq '队长，团队已就绪。'
 tmux capture-pane -p -t "$LEAD_PANE" -S -100 | grep -Fq '【收到开发需求后】'
+tmux capture-pane -p -t "$LEAD_PANE" -S -100 | grep -Fq '绝不能解释为“没有团队”'
 [ "$(tmux display-message -p -t "$LEAD_PANE" '#{pane_current_path}')" = "$(cd "$REPO_A" && pwd -P)" ]
 if tmux capture-pane -p -t "$IMPL_PANE" -S -100 | grep -Fq 'Impl 角色'; then
   echo "Impl received a task before Lead dispatched one" >&2
