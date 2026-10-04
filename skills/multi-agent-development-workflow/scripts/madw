@@ -183,10 +183,11 @@ runtime_command() {
 }
 
 pane_command() {
-  local root="$1" cmd="$2" quoted_root quoted_cli
+  local root="$1" cmd="$2" agent_path="${3:-$PATH}" quoted_root quoted_cli quoted_path
   printf -v quoted_root '%q' "$root"
   printf -v quoted_cli '%q' "$SCRIPT_DIR/madw"
-  printf 'cd -- %s && export MADW_CLI=%s && exec %s\n' "$quoted_root" "$quoted_cli" "$cmd"
+  printf -v quoted_path '%q' "$agent_path"
+  printf 'cd -- %s && export MADW_CLI=%s PATH=%s && exec %s\n' "$quoted_root" "$quoted_cli" "$quoted_path" "$cmd"
 }
 
 command_head() {
@@ -510,6 +511,7 @@ create_team() {
   tmux set-option -t "$session" @madw_runtime "$runtime"
   tmux set-option -t "$session" @madw_layout "$layout"
   tmux set-option -t "$session" @madw_agent_cmd "$cmd"
+  tmux set-option -t "$session" @madw_agent_path "$PATH"
   tmux set-option -t "$session" @madw_skill_root "$SKILL_ROOT"
   tmux set-option -t "$session" @madw_pane_leader "$lead"
   tmux set-option -t "$session" @madw_pane_impl "$impl"
@@ -670,7 +672,7 @@ status_team() {
 
 restart_role() {
   local role="$1"
-  local session pane runtime cmd pane_cmd root title
+  local session pane runtime cmd pane_cmd root title agent_path
   session="$(team_session)"
   session_exists "$session" || die "team is not running: $session"
   validate_existing_team "$session"
@@ -682,7 +684,13 @@ restart_role() {
   [ -n "$runtime" ] || die "team metadata is missing runtime"
   [ -n "$cmd" ] || die "team metadata is missing Agent command"
 
-  pane_cmd="$(pane_command "$root" "$cmd")"
+  agent_path="$(session_option "$session" "@madw_agent_path")"
+  if [ -z "$agent_path" ]; then
+    # Older teams did not record PATH; adopt this caller's path once.
+    agent_path="$PATH"
+    tmux set-option -t "$session" @madw_agent_path "$agent_path"
+  fi
+  pane_cmd="$(pane_command "$root" "$cmd" "$agent_path")"
   tmux respawn-pane -k -t "$pane" -c "$root" "$pane_cmd"
   case "$role" in
     leader) title="Lead" ;;

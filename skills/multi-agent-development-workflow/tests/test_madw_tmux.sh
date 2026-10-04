@@ -58,6 +58,21 @@ deny_agent_process_probes() {
   export -f kill
 }
 
+assert_fake_agent() {
+  local pane="$1" output attempt
+  for attempt in $(seq 1 50); do
+    output="$(tmux capture-pane -p -t "$pane" -S -100)"
+    if printf '%s\n' "$output" | grep -Fq 'CWD_OK:codex-project' &&
+       printf '%s\n' "$output" | grep -Fq 'MADW_CLI_OK:'; then
+      return 0
+    fi
+    sleep 0.1
+  done
+  echo "pane $pane did not run the fake Codex executable:" >&2
+  printf '%s\n' "$output" >&2
+  return 1
+}
+
 REPO_A="$TMP/project"
 REPO_B="$TMP/other/project"
 REPO_C="$TMP/layout-precedence"
@@ -151,13 +166,22 @@ grep -Fq 'cannot inspect tmux sessions: failed to connect to tmux server' "$TMP/
 rm "$TMP/bin/tmux"
 
 # Exercise the actual Codex command path with a fake interactive executable.
+# Reproduce a tmux server started before the caller added Codex to PATH. Its
+# panes must use the caller's PATH rather than accidentally run a host Codex.
+tmux new-session -d -s madw-path-server 'sleep 120'
+tmux set-environment -g PATH /usr/bin:/bin
+tmux set-option -g default-shell /bin/bash
 cp "$FAKE" "$TMP/bin/codex"
 CODEX_REPO="$TMP/codex-project"
 init_repo "$CODEX_REPO"
 (cd "$CODEX_REPO" && PATH="$TMP/bin:$PATH" MADW_AGENT_CMD= MADW_NO_ATTACH=1 "$MADW" start codex) >/dev/null
 CODEX_SESSION="$(cd "$CODEX_REPO" && "$MADW" id)"
 [ "$(tmux show-options -v -t "$CODEX_SESSION" @madw_agent_cmd)" = "codex -s workspace-write -c 'sandbox_workspace_write.network_access=true'" ]
+[ "$(tmux show-options -v -t "$CODEX_SESSION" @madw_agent_path)" = "$TMP/bin:$PATH" ]
 [ "$(tmux list-panes -t "$CODEX_SESSION:team" -F '#{pane_id}' | wc -l | tr -d ' ')" = "3" ]
+for role in leader impl review; do
+  assert_fake_agent "$(tmux show-options -v -t "$CODEX_SESSION" "@madw_pane_$role")"
+done
 (cd "$CODEX_REPO" && "$MADW" stop) >/dev/null
 
 # An existing team changes its stored policy only on explicit request, and
@@ -179,8 +203,16 @@ OLD_CODEX_REVIEW_PID="$(tmux display-message -p -t "$CODEX_REVIEW" '#{pane_pid}'
 (cd "$CODEX_REPO" && "$MADW" restart review) >/dev/null
 [ "$(tmux display-message -p -t "$CODEX_REVIEW" '#{pane_pid}')" != "$OLD_CODEX_REVIEW_PID" ]
 tmux display-message -p -t "$CODEX_REVIEW" '#{pane_start_command}' | grep -Fq 'sandbox_workspace_write.network_access=true'
+assert_fake_agent "$CODEX_REVIEW"
 (cd "$CODEX_REPO" && PATH="$TMP/bin:$PATH" MADW_AGENT_CMD= MADW_CODEX_NETWORK_ACCESS=0 MADW_NO_ATTACH=1 "$MADW" start codex) >/dev/null
 [ "$(tmux show-options -v -t "$CODEX_SESSION" @madw_agent_cmd)" = "codex -s workspace-write -c 'sandbox_workspace_write.network_access=false'" ]
+# Legacy teams adopt the restart caller's PATH once and reuse it afterwards.
+tmux set-option -u -t "$CODEX_SESSION" @madw_agent_path
+(cd "$CODEX_REPO" && PATH="$TMP/bin:$PATH" "$MADW" restart review) >/dev/null
+assert_fake_agent "$CODEX_REVIEW"
+[ "$(tmux show-options -v -t "$CODEX_SESSION" @madw_agent_path)" = "$TMP/bin:$PATH" ]
+(cd "$CODEX_REPO" && "$MADW" restart review) >/dev/null
+assert_fake_agent "$CODEX_REVIEW"
 tmux set-option -t "$CODEX_SESSION" @madw_agent_cmd 'codex --custom-policy'
 if (cd "$CODEX_REPO" && PATH="$TMP/bin:$PATH" MADW_AGENT_CMD= MADW_CODEX_NETWORK_ACCESS=1 MADW_NO_ATTACH=1 "$MADW" start codex) >"$TMP/custom-codex-policy.log" 2>&1; then
   echo "start replaced a custom stored Codex command" >&2

@@ -64,6 +64,10 @@ until Lead sends the next review request.
 Reusing or attaching to an existing team revives panes whose Agent exited.
 Each pane command explicitly changes to the canonical project path, including
 on role restart, because a long-lived tmux server may retain a deleted cwd.
+The pane command also exports the launcher's `PATH`, and the team records it
+for role restarts. This keeps runtime lookup consistent even when the tmux
+server started with a different environment. Older teams without a recorded
+`PATH` adopt the restart caller's path on their first role restart.
 
 The launcher does not rely on a fixed one-second sleep. It verifies that each
 pane/Agent process is alive, up to `MADW_BOOT_TIMEOUT` (default 15 seconds), and
