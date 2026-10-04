@@ -212,7 +212,7 @@ preflight_runtime() {
 }
 
 prepare_control_plane() {
-  local root exclude
+  local root exclude cli_link
   root="$(project_root)"
   if [ -n "$(git -C "$root" ls-files -- .agent-team)" ]; then
     die ".agent-team is tracked by Git; move it out of the Code Plane before starting the team"
@@ -223,6 +223,11 @@ prepare_control_plane() {
     printf '\n.agent-team/\n' >> "$exclude"
   fi
   mkdir -p "$root/.agent-team/tasks"
+  cli_link="$root/.agent-team/madw"
+  if [ -e "$cli_link" ] && [ ! -L "$cli_link" ]; then
+    die "cannot install project CLI link; path already exists: $cli_link"
+  fi
+  ln -sfn "$SCRIPT_DIR/madw" "$cli_link"
 }
 
 validate_existing_team() {
@@ -287,8 +292,8 @@ role_prompt() {
 1. 你是唯一与用户交流、管理任务状态和最终验收的 Lead。
 2. 控制面固定在项目的 .agent-team/；启动器已确认它不进入 Git 代码快照。
 3. 将计划、实现和返工交给 Impl；将独立验证交给 Review。
-4. 使用 "\$MADW_CLI" send / wait 交接并等待完成。
-5. 每轮正式评审前，先运行 "\$MADW_CLI" restart review。
+4. 使用 ./.agent-team/madw send / wait 交接并等待完成。
+5. 每轮正式评审前，先运行 ./.agent-team/madw restart review。
 6. 以 STATUS 和不可变工件为准，完成实现、评审、返工和验收闭环。
 7. 若 madw 报 tmux socket access denied，只对该条 madw 命令申请提升权限并重试；不要判断为团队已停止。
 8. 用户尚未提出需求时，保持待命。
@@ -302,7 +307,7 @@ EOF
 【收到 Lead 交接后】
 1. 先读取指定任务的 STATUS，再执行下方交接的计划、实现或返工工作。
 2. 只修改该角色允许的内容，写入本轮不可变工件。
-3. 完成后运行 "\$MADW_CLI" signal impl <TASK-ID> <ROUND>。
+3. 完成后运行 ./.agent-team/madw signal impl <TASK-ID> <ROUND>。
 4. 不修改 STATUS，不自行派发 Review。
 5. 若 madw 报 tmux socket access denied，只对该条命令申请提升权限并重试。
 EOF
@@ -315,7 +320,7 @@ EOF
 【收到 Lead 交接后】
 1. 先读取指定任务的 STATUS，独立核验冻结且干净的 Code Head。
 2. 只写入一份本轮 REVIEW 工件，不修改实现代码和 STATUS。
-3. 完成后运行 "\$MADW_CLI" signal review <TASK-ID> <ROUND>。
+3. 完成后运行 ./.agent-team/madw signal review <TASK-ID> <ROUND>。
 4. 若 madw 报 tmux socket access denied，只对该条命令申请提升权限并重试。
 EOF
       ;;

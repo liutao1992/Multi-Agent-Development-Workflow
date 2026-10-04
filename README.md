@@ -38,6 +38,7 @@ madw start
 `git init` 的空仓库会在创建面板前得到明确错误；先提交项目初始文件，再运行
 `madw start`。启动器会创建项目内的 `.agent-team/tasks/`，并将
 `.agent-team/` 加入当前仓库的 Git 本地排除规则，使控制面不进入代码提交。
+Agent 在项目内通过 `./.agent-team/madw` 调用 CLI，无需依赖终端环境变量。
 
 启动后，左侧 **Lead** 会提示你输入开发需求。点击左侧输入框，直接描述任务并
 按 `Enter`；右上 Impl 和右下 Review 启动后保持待命，无须手动输入初始化指令。

@@ -135,6 +135,8 @@ rm -rf "$STALE_CWD"
 start_for "$REPO_A"
 SESSION_A="$(session_for "$REPO_A")"
 [ -d "$REPO_A/.agent-team/tasks" ]
+[ -L "$REPO_A/.agent-team/madw" ]
+(cd "$REPO_A" && ./.agent-team/madw id) | grep -Fqx "$SESSION_A"
 (cd "$REPO_A" && git check-ignore -q .agent-team/)
 [ -z "$(git -C "$REPO_A" status --porcelain)" ]
 [ "$(tmux list-panes -t "$SESSION_A:team" -F '#{pane_id}' | wc -l | tr -d ' ')" = "3" ]
