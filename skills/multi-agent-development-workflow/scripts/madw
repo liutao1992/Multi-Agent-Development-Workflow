@@ -231,6 +231,9 @@ send_to_pane() {
   local buffer="madw-$PPID-$$-$(date +%s)"
   printf '%s' "$message" | tmux load-buffer -b "$buffer" -
   tmux paste-buffer -b "$buffer" -t "$pane" -d
+  # Interactive TUIs process bracketed paste asynchronously; an immediate
+  # Enter may arrive before the pasted text and leave it in the input box.
+  sleep 0.3
   tmux send-keys -t "$pane" Enter
 }
 
