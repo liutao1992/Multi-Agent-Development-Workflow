@@ -113,9 +113,10 @@ Git 根目录短 hash 隔离。
 突出显示当前阶段和任务编号；通信行用 `Leader → Impl`、
 `Impl → Leader`、`Leader → Review` 等箭头显示
 **谁正与谁交接、当前在等待谁、哪一轮已完成**。这些提示由 `madw send`、
-`wait` 和 `signal` 更新，放在 tmux 状态栏中；它们不会写入 Agent 的对话或
-增加模型上下文。状态栏显示的是最近一次已记录的交接进度，不是 Agent
-内部思考的实时内容。
+`wait` 和 `signal` 更新。状态栏每 5 秒读取当前任务的 `STATUS.md`，因此
+任务进入 `ACCEPTED` 后会自动显示“已验收”和“等待新需求”，不必等待下一条
+交接命令。所有提示都在 tmux 状态栏中，不会写入 Agent 的对话或增加模型
+上下文；它显示协议状态，不显示 Agent 的内部思考。
 
 在 tmux 面板内点击 Lead、Impl 或 Review，即可将键盘焦点切到对应 Agent；
 再按 `Enter` 可确认该 Agent 当前的提示（例如 Codex 的目录信任确认）。

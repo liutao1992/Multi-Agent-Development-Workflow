@@ -346,19 +346,17 @@ configure_team_labels() {
 }
 
 configure_team_progress() {
-  local session root branch
+  local session context_command progress_command communication_command
   session="$(team_session)"
-  root="$(project_root)"
-  branch="$(git -C "$root" branch --show-current)"
-  if [ -z "$branch" ]; then
-    branch="HEAD $(git -C "$root" rev-parse --short HEAD)"
-  fi
+  printf -v context_command '%q statusline context %q' "$SCRIPT_DIR/madw" "$session"
+  printf -v progress_command '%q statusline progress %q' "$SCRIPT_DIR/madw" "$session"
+  printf -v communication_command '%q statusline communication %q' "$SCRIPT_DIR/madw" "$session"
   tmux set-option -t "$session" status 5
-  tmux set-option -t "$session" @madw_context_display "分支 $branch  ·  目录 $root"
-  tmux set-option -t "$session" 'status-format[1]' '#[bg=colour235,fill=colour235,fg=colour39,bold]  ◈ 工作目录与分支  #[fg=colour252,nobold]#{@madw_context_display}'
-  tmux set-option -t "$session" 'status-format[2]' '#[bg=colour235,fill=colour235,fg=colour51,bold]  ◆ 任务进度   #[fg=colour252,nobold]#{@madw_task_display}'
+  tmux set-option -t "$session" status-interval 5
+  tmux set-option -t "$session" 'status-format[1]' "#[bg=colour235,fill=colour235,fg=colour39,bold]  ◈ 工作目录与分支  #[fg=colour252,nobold]#($context_command)"
+  tmux set-option -t "$session" 'status-format[2]' "#[bg=colour235,fill=colour235,fg=colour51,bold]  ◆ 任务进度   #[fg=colour252,nobold]#($progress_command)"
   tmux set-option -t "$session" 'status-format[3]' '#[bg=colour235,fill=colour235] '
-  tmux set-option -t "$session" 'status-format[4]' '#[bg=colour235,fill=colour235,fg=colour215,bold]  ↔ Agent 通信  #[fg=colour252,nobold]#{@madw_flow_display}'
+  tmux set-option -t "$session" 'status-format[4]' "#[bg=colour235,fill=colour235,fg=colour215,bold]  ↔ Agent 通信  #[fg=colour252,nobold]#($communication_command)"
   if [ -z "$(session_option "$session" @madw_task_display)" ]; then
     tmux set-option -t "$session" @madw_task_display '尚未记录当前任务'
   fi
@@ -383,6 +381,49 @@ state_label() {
     CANCELLED) echo '已取消' ;;
     BLOCKED) echo '已阻塞' ;;
     *) echo "${1:-状态未知}" ;;
+  esac
+}
+
+statusline() {
+  local part="$1" session="$2" root branch task_id status state flow
+  root="$(session_option "$session" @madw_project_root)"
+  [ -n "$root" ] || return 0
+
+  case "$part" in
+    context)
+      branch="$(git -C "$root" branch --show-current 2>/dev/null || true)"
+      if [ -z "$branch" ]; then
+        branch="HEAD $(git -C "$root" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+      fi
+      printf '分支 %s  ·  目录 %s\n' "$branch" "$root"
+      ;;
+    progress)
+      task_id="$(session_option "$session" @madw_flow_task)"
+      status="$root/.agent-team/tasks/$task_id/STATUS.md"
+      state='等待状态文件'
+      [ -z "$task_id" ] || [ ! -f "$status" ] || state="$(status_state "$status")"
+      if [ -n "$task_id" ]; then
+        printf '【%s】 %s\n' "$(state_label "$state")" "$task_id"
+      else
+        printf '尚未记录当前任务\n'
+      fi
+      ;;
+    communication)
+      task_id="$(session_option "$session" @madw_flow_task)"
+      status="$root/.agent-team/tasks/$task_id/STATUS.md"
+      state=''
+      if [ -n "$task_id" ] && [ -f "$status" ]; then
+        state="$(status_state "$status")"
+      fi
+      flow="$(session_option "$session" @madw_flow_display)"
+      case "$state" in
+        ACCEPTED) flow='Leader → 用户  |  任务已验收，等待新需求' ;;
+        CANCELLED) flow='Leader → 用户  |  任务已取消' ;;
+        BLOCKED) flow='Leader → 用户  |  任务已阻塞，等待处理' ;;
+      esac
+      [ -n "$flow" ] && printf '%s\n' "$flow"
+      ;;
+    *) return 2 ;;
   esac
 }
 
@@ -887,6 +928,7 @@ command="${1:-start}"
 case "$command" in
   start) start_command "$@" ;;
   status) preflight_base; status_team ;;
+  statusline) statusline "$@" ;;
   watch) preflight_base; attach_team leader ;;
   attach) preflight_base; attach_team "${1:-leader}" ;;
   send)

@@ -419,7 +419,9 @@ madw watch
 
 tmux 底部状态栏显示项目工作目录、Git 分支、当前任务和 STATUS 阶段，以及
 Lead/Impl/Review 的交接方向。`madw send`、`wait`、`signal` 负责更新它；
-这是 tmux 界面信息，不要把同样的进度横幅重复发送给 Agent 或写入对话上下文。
+状态栏每 5 秒读取当前任务的 STATUS，完成验收后自动显示 `ACCEPTED` 和等待
+新需求的提示。这是 tmux 界面信息，不要把同样的进度横幅发送给 Agent 或写入
+对话上下文。
 
 在 MADW 三面板界面按 `Ctrl+C` 会停止整个项目团队，结束 Leader、Impl、Review
 及其 tmux session。仅需暂时离开时按 `Ctrl+b d`，之后用 `madw watch`
