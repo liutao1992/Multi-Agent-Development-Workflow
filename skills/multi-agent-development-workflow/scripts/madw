@@ -165,9 +165,10 @@ runtime_command() {
 }
 
 pane_command() {
-  local root="$1" cmd="$2" quoted_root
+  local root="$1" cmd="$2" quoted_root quoted_cli
   printf -v quoted_root '%q' "$root"
-  printf 'cd -- %s && exec %s\n' "$quoted_root" "$cmd"
+  printf -v quoted_cli '%q' "$SCRIPT_DIR/madw"
+  printf 'cd -- %s && export MADW_CLI=%s && exec %s\n' "$quoted_root" "$quoted_cli" "$cmd"
 }
 
 command_head() {
@@ -238,57 +239,58 @@ send_to_pane() {
 }
 
 role_prompt() {
-  local role="$1" lead="$2" impl="$3" review="$4"
-  local root session
+  local role="$1" root
   root="$(project_root)"
-  session="$(team_session)"
   case "$role" in
     leader)
       cat <<EOF
-Use multi-agent-development-workflow.
-Role: Lead.
-Mode: tmux-native.
-Project Root: $root
-MADW CLI: $SCRIPT_DIR/madw
-tmux team: $session
-Role targets:
-- leader: $lead (this pane)
-- impl: $impl
-- review: $review
+请使用 multi-agent-development-workflow Skill，并按其中的 Lead 角色工作。
+项目：$root
 
-You are the only user-facing orchestrator. First tell the user briefly in Chinese: "请在左侧输入开发需求；右侧 Impl 和 Review 已启动，等待我分派任务。" Do not create a Task or delegate work until the user supplies a requirement. Delegate Plan/Implementation/Rework to Impl and independent verification to Review. Prefer "$SCRIPT_DIR/madw send" for bounded handoffs, "$SCRIPT_DIR/madw wait" for timeout/death-aware synchronization, and "$SCRIPT_DIR/madw restart review" before each substantive Review round. STATUS and immutable artifacts are durable truth; terminal scrollback is observational only. Continue Impl -> Review -> rework until PASS/ACCEPTED, BLOCKED, CANCELLED, or a genuine human decision is required.
+【先向用户说明】
+请先只回复下面三行，不调用工具，也不创建任务：
+队长，团队已就绪。
+请在左侧输入开发需求，然后按 Enter。
+右上 Impl 和右下 Review 正在待命；我会按需分派任务。
+
+【收到开发需求后】
+1. 你是唯一与用户交流、管理任务状态和最终验收的 Lead。
+2. 将计划、实现和返工交给 Impl；将独立验证交给 Review。
+3. 使用 "\$MADW_CLI" send / wait 交接并等待完成。
+4. 每轮正式评审前，先运行 "\$MADW_CLI" restart review。
+5. 以 STATUS 和不可变工件为准，完成实现、评审、返工和验收闭环。
+6. 用户尚未提出需求时，保持待命。
 EOF
       ;;
     impl)
       cat <<EOF
-Use multi-agent-development-workflow.
-Role: Impl.
-Mode: tmux-native.
-Project Root: $root
-MADW CLI: $SCRIPT_DIR/madw
-Lead target: $lead
+请使用 multi-agent-development-workflow Skill，并按其中的 Impl 角色工作。
+项目：$root
 
-Read STATUS first. Perform exactly the requested Plan/Implementation/Rework action in the handoff below, preserve role boundaries, write the required immutable artifact, then signal the exact completion channel from Lead with "$SCRIPT_DIR/madw signal impl <TASK-ID> <ROUND>". Do not transition STATUS and do not dispatch Review.
+【收到 Lead 交接后】
+1. 先读取指定任务的 STATUS，再执行下方交接的计划、实现或返工工作。
+2. 只修改该角色允许的内容，写入本轮不可变工件。
+3. 完成后运行 "\$MADW_CLI" signal impl <TASK-ID> <ROUND>。
+4. 不修改 STATUS，不自行派发 Review。
 EOF
       ;;
     review)
       cat <<EOF
-Use multi-agent-development-workflow.
-Role: Review.
-Mode: tmux-native.
-Project Root: $root
-MADW CLI: $SCRIPT_DIR/madw
-Lead target: $lead
+请使用 multi-agent-development-workflow Skill，并按其中的 Review 角色工作。
+项目：$root
 
-This pane must be a fresh Review context for the current round. Read STATUS first, verify the exact frozen clean Code Head in the handoff below, create exactly one REVIEW artifact, then signal the exact completion channel from Lead with "$SCRIPT_DIR/madw signal review <TASK-ID> <ROUND>". Do not modify implementation code and do not transition STATUS.
+【收到 Lead 交接后】
+1. 先读取指定任务的 STATUS，独立核验冻结且干净的 Code Head。
+2. 只写入一份本轮 REVIEW 工件，不修改实现代码和 STATUS。
+3. 完成后运行 "\$MADW_CLI" signal review <TASK-ID> <ROUND>。
 EOF
       ;;
   esac
 }
 
 bootstrap_team() {
-  local lead="$1" impl="$2" review="$3"
-  send_to_pane "$lead" "$(role_prompt leader "$lead" "$impl" "$review")"
+  local lead="$1"
+  send_to_pane "$lead" "$(role_prompt leader)"
 }
 
 create_team() {
@@ -329,7 +331,7 @@ create_team() {
     die "team startup failed; partial tmux session removed"
   fi
 
-  bootstrap_team "$lead" "$impl" "$review"
+  bootstrap_team "$lead"
   printf 'Project: %s
 ' "$root"
   printf 'Team:    %s
@@ -468,7 +470,7 @@ status_team() {
 
 restart_role() {
   local role="$1"
-  local session pane runtime cmd pane_cmd root lead impl review title
+  local session pane runtime cmd pane_cmd root title
   session="$(team_session)"
   session_exists "$session" || die "team is not running: $session"
   validate_existing_team "$session"
@@ -491,11 +493,8 @@ restart_role() {
   tmux select-pane -t "$pane" -T "$title"
   wait_pane_alive "$pane" "$DEFAULT_BOOT_TIMEOUT"
 
-  lead="$(pane_for_role leader)"
-  impl="$(pane_for_role impl)"
-  review="$(pane_for_role review)"
   if [ "$role" = "leader" ]; then
-    send_to_pane "$pane" "$(role_prompt "$role" "$lead" "$impl" "$review")"
+    send_to_pane "$pane" "$(role_prompt "$role")"
   fi
 
   echo "restarted $role in $pane using team runtime $runtime"
@@ -652,15 +651,12 @@ signal_handoff() {
 }
 
 send_role() {
-  local role="$1" message="$2" pane lead impl review
+  local role="$1" message="$2" pane
   pane="$(pane_for_role "$role")"
   if [ "$role" = "impl" ] || [ "$role" = "review" ]; then
-    lead="$(pane_for_role leader)"
-    impl="$(pane_for_role impl)"
-    review="$(pane_for_role review)"
-    message="$(role_prompt "$role" "$lead" "$impl" "$review")
+    message="$(role_prompt "$role")
 
-Lead handoff:
+【Lead 交接任务】
 $message"
   fi
   send_to_pane "$pane" "$message"

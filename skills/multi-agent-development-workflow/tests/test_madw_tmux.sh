@@ -23,6 +23,7 @@ cat >"$FAKE" <<'EOF'
 trap 'exit 0' TERM INT
 CWD="$(/bin/pwd -P)" || exit 17
 printf 'CWD_OK:%s\n' "$(basename "$CWD")"
+printf 'MADW_CLI_OK:%s\n' "$MADW_CLI"
 while IFS= read -r line; do
   printf 'FAKE:%s\n' "$line"
 done
@@ -111,16 +112,17 @@ REVIEW_TOP="$(tmux display-message -p -t "$REVIEW_PANE" '#{pane_top}')"
 [ "$IMPL_TOP" -lt "$REVIEW_TOP" ]
 [ "$LEAD_HEIGHT" -gt "$IMPL_HEIGHT" ]
 for _ in 1 2 3 4 5 6 7 8 9 10; do
-  if tmux capture-pane -p -t "$LEAD_PANE" -S -100 | grep -q 'Role: Lead'; then break; fi
+  if tmux capture-pane -p -t "$LEAD_PANE" -S -100 | grep -Fq '队长，团队已就绪。'; then break; fi
   sleep 0.1
 done
-tmux capture-pane -p -t "$LEAD_PANE" -S -100 | grep -q 'Role: Lead'
+tmux capture-pane -p -t "$LEAD_PANE" -S -100 | grep -Fq '队长，团队已就绪。'
+tmux capture-pane -p -t "$LEAD_PANE" -S -100 | grep -Fq '【收到开发需求后】'
 [ "$(tmux display-message -p -t "$LEAD_PANE" '#{pane_current_path}')" = "$(cd "$REPO_A" && pwd -P)" ]
-if tmux capture-pane -p -t "$IMPL_PANE" -S -100 | grep -Fq 'Role: Impl'; then
+if tmux capture-pane -p -t "$IMPL_PANE" -S -100 | grep -Fq 'Impl 角色'; then
   echo "Impl received a task before Lead dispatched one" >&2
   exit 1
 fi
-if tmux capture-pane -p -t "$REVIEW_PANE" -S -100 | grep -Fq 'Role: Review'; then
+if tmux capture-pane -p -t "$REVIEW_PANE" -S -100 | grep -Fq 'Review 角色'; then
   echo "Review received a task before Lead dispatched one" >&2
   exit 1
 fi
@@ -129,7 +131,8 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do
   if tmux capture-pane -p -t "$IMPL_PANE" -S -100 | grep -Fq 'TASK-TEST-001: plan the change'; then break; fi
   sleep 0.1
 done
-tmux capture-pane -p -t "$IMPL_PANE" -S -100 | grep -Fq 'Role: Impl'
+tmux capture-pane -p -t "$IMPL_PANE" -S -100 | grep -Fq 'Impl 角色'
+tmux capture-pane -p -t "$IMPL_PANE" -S -100 | grep -Fq '【Lead 交接任务】'
 tmux capture-pane -p -t "$IMPL_PANE" -S -100 | grep -Fq 'TASK-TEST-001: plan the change'
 
 # Re-entering a team repairs a Lead pane that exited without ending the team.
@@ -164,7 +167,7 @@ NEW_PID="$(tmux display-message -p -t "$NEW_REVIEW_PANE" '#{pane_pid}')"
 [ "$REVIEW_PANE" = "$NEW_REVIEW_PANE" ]
 [ "$OLD_PID" != "$NEW_PID" ]
 [ "$(tmux show-options -v -t "$SESSION_A" @madw_runtime)" = "custom" ]
-if tmux capture-pane -p -t "$NEW_REVIEW_PANE" -S -100 | grep -Fq 'Role: Review'; then
+if tmux capture-pane -p -t "$NEW_REVIEW_PANE" -S -100 | grep -Fq 'Review 角色'; then
   echo "Review received a task immediately after a fresh restart" >&2
   exit 1
 fi
@@ -173,7 +176,8 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do
   if tmux capture-pane -p -t "$NEW_REVIEW_PANE" -S -100 | grep -Fq 'TASK-TEST-001: verify the frozen code'; then break; fi
   sleep 0.1
 done
-tmux capture-pane -p -t "$NEW_REVIEW_PANE" -S -100 | grep -Fq 'Role: Review'
+tmux capture-pane -p -t "$NEW_REVIEW_PANE" -S -100 | grep -Fq 'Review 角色'
+tmux capture-pane -p -t "$NEW_REVIEW_PANE" -S -100 | grep -Fq '【Lead 交接任务】'
 tmux capture-pane -p -t "$NEW_REVIEW_PANE" -S -100 | grep -Fq 'TASK-TEST-001: verify the frozen code'
 
 TASK_ROOT="$REPO_A/.agent-team/tasks/TASK-TEST-001"
