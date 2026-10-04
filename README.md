@@ -33,13 +33,13 @@ cp -R Multi-Agent-Development-Workflow/skills/multi-agent-development-workflow \
 
 如果你的 Skill 安装器支持安装仓库子目录，也可以直接安装 `skills/multi-agent-development-workflow/`。安装后，在**要开发的项目目录**启动 Agent 或运行 CLI，而不是在本仓库中替目标项目执行任务。
 
-以下 CLI 示例先设置路径：
+`AGENT_TEAM` 只供终端里的 CLI 命令使用。**只在编码 Agent 对话中使用 Native SubAgent 时，不需要设置它。** 使用 Process、Queue，或执行 `doctor`、`status`、`metrics`、`resume` 等 `agent-team` 命令时，先在该终端设置一次路径：
 
 ```bash
-AGENT_TEAM="$HOME/.codex/skills/multi-agent-development-workflow/scripts/agent-team"
+export AGENT_TEAM="$HOME/.codex/skills/multi-agent-development-workflow/scripts/agent-team"
 ```
 
-使用 Pi 时，请把它改为实际安装 Skill 的路径。
+此设置只对当前终端会话及其子进程生效。新开一个 Warp 面板或终端窗口时，需要在那个面板再执行一次；Queue 三个面板都要设置。也可以把这行加入 `~/.zshrc` 或 `~/.bashrc`，让之后启动的终端自动设置。使用 Pi 时，请把路径改为实际安装 Skill 的位置。
 
 ## 方式一：Native SubAgent
 
