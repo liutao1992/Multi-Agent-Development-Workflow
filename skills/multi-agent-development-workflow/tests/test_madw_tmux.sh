@@ -244,13 +244,18 @@ if tmux capture-pane -p -t "$NEW_REVIEW_PANE" -S -100 | grep -Fq 'Review 角色'
   exit 1
 fi
 (cd "$REPO_A" && "$MADW" send review 'TASK-TEST-001: verify the frozen code') >/dev/null
-for _ in 1 2 3 4 5 6 7 8 9 10; do
+for _ in $(seq 1 50); do
   if tmux capture-pane -p -t "$NEW_REVIEW_PANE" -S -100 | grep -Fq 'TASK-TEST-001: verify the frozen code'; then break; fi
   sleep 0.1
 done
-tmux capture-pane -p -t "$NEW_REVIEW_PANE" -S -100 | grep -Fq 'Review 角色'
-tmux capture-pane -p -t "$NEW_REVIEW_PANE" -S -100 | grep -Fq '【Lead 交接任务】'
-tmux capture-pane -p -t "$NEW_REVIEW_PANE" -S -100 | grep -Fq 'TASK-TEST-001: verify the frozen code'
+REVIEW_CAPTURE="$(tmux capture-pane -p -t "$NEW_REVIEW_PANE" -S -100)"
+if ! printf '%s\n' "$REVIEW_CAPTURE" | grep -Fq 'Review 角色' \
+  || ! printf '%s\n' "$REVIEW_CAPTURE" | grep -Fq '【Lead 交接任务】' \
+  || ! printf '%s\n' "$REVIEW_CAPTURE" | grep -Fq 'TASK-TEST-001: verify the frozen code'; then
+  echo "Review did not display the dispatched task after restart; pane output:" >&2
+  printf '%s\n' "$REVIEW_CAPTURE" >&2
+  exit 1
+fi
 
 TASK_ROOT="$REPO_A/.agent-team/tasks/TASK-TEST-001"
 mkdir -p "$TASK_ROOT/plans"
