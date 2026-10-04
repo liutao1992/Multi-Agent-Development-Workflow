@@ -6,6 +6,7 @@ on:
       - main
       - feature/agent-orchestrator
       - feature/tmux-native-communication
+      - feature/tmux-orchestrator
   pull_request:
     paths:
       - "skills/multi-agent-development-workflow/scripts/**"

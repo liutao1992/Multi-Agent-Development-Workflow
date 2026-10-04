@@ -58,7 +58,9 @@ HOME="$INSTALL_HOME" MADW_BIN_DIR="$INSTALL_BIN" "$INSTALL" >/dev/null
 [ ! -e "$INSTALL_HOME/.codex/skills/multi-agent-development-workflow" ]
 find "$INSTALL_HOME/.local/share/madw/backups" -maxdepth 1 -type d -name 'codex-skill-*' | grep -q .
 [ -L "$INSTALL_BIN/madw" ]
+[ -L "$INSTALL_BIN/agent-team" ]
 (cd "$REPO_A" && MADW_AGENT_CMD="$FAKE" "$INSTALL_BIN/madw" id) >/dev/null
+(cd "$REPO_A" && "$INSTALL_BIN/agent-team" --help) >/dev/null
 
 start_for "$REPO_A"
 SESSION_A="$(session_for "$REPO_A")"
@@ -121,6 +123,21 @@ EOF
   "$MADW" signal impl TASK-TEST-001 001 >/dev/null
 ) &
 (cd "$REPO_A" && "$MADW" wait impl TASK-TEST-001 001 5) | grep -Fq "PLAN-v001.md"
+
+# Completion survives an interrupted/repeated wait and an early signal.
+(cd "$REPO_A" && "$MADW" wait impl TASK-TEST-001 001 1) | grep -Fq "PLAN-v001.md"
+printf 'early evidence\n' > "$TASK_ROOT/plans/PLAN-v004.md"
+(cd "$REPO_A" && "$MADW" signal impl TASK-TEST-001 004) >/dev/null
+(cd "$REPO_A" && "$MADW" wait impl TASK-TEST-001 004 1) | grep -Fq "PLAN-v004.md"
+printf 'changed evidence\n' > "$TASK_ROOT/plans/PLAN-v004.md"
+if (cd "$REPO_A" && "$MADW" wait impl TASK-TEST-001 004 1) >/dev/null 2>&1; then
+  echo "wait accepted an artifact changed after completion" >&2
+  exit 1
+fi
+if (cd "$REPO_A" && "$MADW" signal impl TASK-TEST-001 004) >/dev/null 2>&1; then
+  echo "signal replaced a previously completed artifact" >&2
+  exit 1
+fi
 
 # Timeout must fail closed instead of blocking forever.
 set +e

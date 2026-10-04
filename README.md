@@ -100,7 +100,9 @@ madw wait review TASK-... 001
 ```
 
 Worker 在工件写完后使用 `madw signal ...`。等待封装增加 timeout、Agent
-死亡检测、失败输出抓取和预期工件检查。
+死亡检测、失败输出抓取和预期工件检查。完成记录保存在 tmux session 内，并
+绑定工件内容哈希；Lead 中断后再次执行同一条 `madw wait` 可以核对已完成
+的交接，工件被修改则会报错。
 
 ## 启动安全
 
@@ -144,9 +146,17 @@ tmux 只负责传输和观察。生命周期仍在：
 └── ACCEPTANCE.md
 ```
 
-main 上已有的 correctness 规则继续保留：Lead-only lifecycle、Task Contract
+原有的正确性规则继续保留：Lead-only lifecycle、Task Contract
 Revision/Hash、Plan Gate、稳定 clean Code Head、独立 Review、返工 RW、PASS
 才能验收，以及最终 HEAD 再校验。
+
+**验证边界：**tmux 模式的 `madw wait` 只核对完成信号、工件是否存在及其
+内容哈希，并检查 worker 进程是否存活。Plan 审批、角色写入边界、Git HEAD
+与 Review/Acceptance 证据的语义校验仍由 Lead 按 Skill 执行；tmux 不会
+自动运行 Python 编排器的逐步校验。需要机器强制执行这些检查时，使用下述
+Process 模式。同一工作树同一时间只能有一个可修改代码的任务；并行任务
+请使用不同的 Git worktree。tmux 团队目前不与 Process 模式共用自动锁，
+因此不要在同一工作树同时运行 `madw` 团队任务和 `agent-team run/start`。
 
 代码身份闭环：
 
@@ -174,6 +184,20 @@ agent-team --runtime pi --transport process run <TASK-ID>
 它不是交互式 tmux 团队的通信层。旧 filesystem Queue transport 和
 `agent-team worker Impl/Review` 已移除。
 
+安装脚本会同时把 `madw` 和 `agent-team` 链接到 `~/.local/bin`。如果该目录
+不在 `PATH`，可以直接运行安装目录中的脚本，或在**要执行 Process 命令的
+终端**设置：
+
+```bash
+export AGENT_TEAM="$HOME/.agents/skills/multi-agent-development-workflow/scripts/agent-team"
+"$AGENT_TEAM" --runtime codex --transport process run <TASK-ID>
+```
+
+`AGENT_TEAM` 只用于 `agent-team` CLI；仅使用 `madw start` 的 tmux 模式
+不需要设置。每个新终端面板都有独立的 shell 环境，若使用该变量，需要在
+那个面板重新设置，或写入 shell 启动配置。请在普通 shell 输入命令；Warp
+Agent 输入框会把命令交给 Warp AI，而不会执行本地脚本。
+
 ## 安装
 
 ```bash
@@ -185,6 +209,7 @@ agent-team --runtime pi --transport process run <TASK-ID>
 ```text
 Skill → ~/.agents/skills/multi-agent-development-workflow
 madw  → ~/.local/bin/madw
+agent-team → ~/.local/bin/agent-team
 ```
 
 `~/.agents/skills` 作为共享用户级 Skill 目录，可同时服务 Pi 和 Codex，

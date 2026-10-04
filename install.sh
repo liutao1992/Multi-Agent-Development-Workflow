@@ -38,9 +38,11 @@ cp -R "$SOURCE/." "$TMP/"
 mv "$TMP" "$SKILL_DIR"
 
 ln -sfn "$SKILL_DIR/scripts/madw" "$BIN_DIR/madw"
+ln -sfn "$SKILL_DIR/scripts/agent-team" "$BIN_DIR/agent-team"
 
 echo "Skill installed: $SKILL_DIR"
 echo "madw installed:  $BIN_DIR/madw"
+echo "agent-team installed: $BIN_DIR/agent-team"
 case ":$PATH:" in
   *":$BIN_DIR:"*) ;;
   *) echo "Add $BIN_DIR to PATH." ;;

@@ -203,8 +203,11 @@ madw signal review TASK-... 001
 ```
 
 `madw wait` wraps `tmux wait-for` with timeout, dead-pane detection, recent
-output capture, and expected-artifact verification. A completion signal never
-authorizes a lifecycle transition by itself; Lead must validate the evidence.
+output capture, and expected-artifact hash verification. Completion is recorded
+in the project's tmux session so a repeated wait can verify the same artifact.
+A completion signal never authorizes a lifecycle transition by itself; Lead
+must validate the artifact and Code Plane evidence. The tmux launcher does not
+run the standalone Python Orchestrator's per-transition validators.
 
 Impl may keep its context across Plan, implementation and confirmed rework.
 Before every substantive Review round, Lead MUST refresh Review with
@@ -347,9 +350,9 @@ Task bootstrap may create only the new Task's `TASK.md` / `STATUS.md` and update
 
 Lead in tmux-native mode (or the standalone Orchestrator in process fallback) repeatedly reads:
 
-\`\`\`text
+```text
 <project-root>/.agent-team/tasks/<TASK-ID>/STATUS.md
-\`\`\`
+```
 
 and dispatches one role action at a time.
 
@@ -379,9 +382,9 @@ Filename scanning is used only as a **handoff readiness signal**. It does not re
 
 Workers invoked by the Orchestrator receive:
 
-\`\`\`text
+```text
 Invocation Mode: Orchestrated Worker
-\`\`\`
+```
 
 An orchestrated worker MUST:
 
@@ -465,9 +468,9 @@ This makes BLOCKED recovery explicit and auditable.
 
 Default transport:
 
-\`\`\`bash
+```bash
 agent-team --runtime codex --transport process run <TASK-ID>
-\`\`\`
+```
 
 The standalone Orchestrator starts headless role workers itself. Use this for CI/unattended execution, not as the interactive tmux team's transport.
 
@@ -497,8 +500,6 @@ context.
 
 No project-defined Queue, mailbox, heartbeat, lease, claim, quarantine, or
 `agent-team worker Impl/Review` communication layer is used in tmux-native mode.
-
-### Stop conditions
 
 ### Stop conditions
 

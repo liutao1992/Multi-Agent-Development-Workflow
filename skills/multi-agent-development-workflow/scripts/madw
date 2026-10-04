@@ -520,7 +520,23 @@ handoff_channel() {
   case "$role" in impl|review) ;; *) die "completion role must be impl or review" ;; esac
   case "$round" in [0-9][0-9][0-9]) ;; *) die "ROUND must be three digits, for example 001" ;; esac
   kind="$(handoff_kind "$role" "$task_id")"
-  printf 'madw:%s:%s:%s:%s\n' "$task_id" "$role" "$kind" "$round"
+  printf 'madw:%s:%s:%s:%s:%s\n' "$(team_session)" "$task_id" "$role" "$kind" "$round"
+}
+
+handoff_option() {
+  local channel="$1" digest
+  digest="$(printf '%s' "$channel" | git hash-object --stdin | cut -c1-20)"
+  printf '@madw_done_%s\n' "$digest"
+}
+
+verify_handoff() {
+  local session="$1" option="$2" artifact="$3" expected actual
+  expected="$(session_option "$session" "$option")"
+  [ -n "$expected" ] || die "completion signal has no recorded artifact hash: $option"
+  [ -f "$artifact" ] || die "completion was signaled but expected artifact is missing: $artifact"
+  actual="$(git hash-object -- "$artifact")"
+  [ "$actual" = "$expected" ] ||
+    die "completion artifact changed after signal: $artifact"
 }
 
 expected_artifact() {
@@ -545,10 +561,19 @@ expected_artifact() {
 
 wait_handoff() {
   local role="$1" task_id="$2" round="$3" timeout="${4:-$DEFAULT_WAIT_TIMEOUT}"
-  local channel pane waiter started now dead pid artifact
+  local channel option session pane waiter started now dead pid artifact
   channel="$(handoff_channel "$role" "$task_id" "$round")"
+  option="$(handoff_option "$channel")"
+  session="$(team_session)"
   pane="$(pane_for_role "$role")"
   artifact="$(expected_artifact "$role" "$task_id" "$round")"
+
+  if [ -n "$(session_option "$session" "$option")" ]; then
+    verify_handoff "$session" "$option" "$artifact"
+    echo "completed: $channel"
+    echo "artifact:  $artifact"
+    return 0
+  fi
 
   tmux wait-for "$channel" &
   waiter=$!
@@ -577,14 +602,25 @@ wait_handoff() {
   done
   wait "$waiter"
 
-  [ -f "$artifact" ] || die "completion was signaled but expected artifact is missing: $artifact"
+  verify_handoff "$session" "$option" "$artifact"
   echo "completed: $channel"
   echo "artifact:  $artifact"
 }
 
 signal_handoff() {
-  local channel
+  local channel option artifact session digest prior
   channel="$(handoff_channel "$1" "$2" "$3")"
+  option="$(handoff_option "$channel")"
+  artifact="$(expected_artifact "$1" "$2" "$3")"
+  session="$(team_session)"
+  session_exists "$session" || die "team is not running: $session"
+  [ -f "$artifact" ] || die "cannot signal before writing expected artifact: $artifact"
+  digest="$(git hash-object -- "$artifact")"
+  prior="$(session_option "$session" "$option")"
+  if [ -n "$prior" ] && [ "$prior" != "$digest" ]; then
+    die "completion was already recorded for a different artifact: $artifact"
+  fi
+  tmux set-option -t "$session" "$option" "$digest"
   tmux wait-for -S "$channel"
   echo "signaled: $channel"
 }
