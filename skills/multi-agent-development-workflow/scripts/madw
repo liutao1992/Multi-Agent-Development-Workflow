@@ -339,7 +339,7 @@ configure_team_labels() {
   impl="$(pane_for_role impl)"
   review="$(pane_for_role review)"
   tmux set-window-option -t "$session:team" pane-border-status bottom
-  tmux set-window-option -t "$session:team" pane-border-format ' [#{@madw_label}] '
+  tmux set-window-option -t "$session:team" pane-border-format ' #[fg=colour51,bold]#{?#{==:#{@madw_role},leader},[Leader],}#[fg=colour82,bold]#{?#{==:#{@madw_role},impl},[Impl],}#[fg=colour213,bold]#{?#{==:#{@madw_role},review},[Review],}#[default] '
   tmux set-option -p -t "$lead" @madw_label "Leader"
   tmux set-option -p -t "$impl" @madw_label "Impl"
   tmux set-option -p -t "$review" @madw_label "Review"
@@ -348,9 +348,11 @@ configure_team_labels() {
 configure_team_progress() {
   local session
   session="$(team_session)"
-  tmux set-option -t "$session" status 3
-  tmux set-option -t "$session" 'status-format[1]' '#[fg=colour45,bold] 任务进度 #[default] #{@madw_task_display}'
-  tmux set-option -t "$session" 'status-format[2]' '#[fg=colour220,bold] Agent 通信 #[default] #{@madw_flow_display}'
+  tmux set-option -t "$session" status 5
+  tmux set-option -t "$session" 'status-format[1]' '#[bg=colour235,fill=colour235] '
+  tmux set-option -t "$session" 'status-format[2]' '#[bg=colour235,fill=colour235,fg=colour51,bold]  ◆ 任务进度   #[fg=colour252,nobold]#{@madw_task_display}'
+  tmux set-option -t "$session" 'status-format[3]' '#[bg=colour235,fill=colour235] '
+  tmux set-option -t "$session" 'status-format[4]' '#[bg=colour235,fill=colour235,fg=colour215,bold]  ↔ Agent 通信  #[fg=colour252,nobold]#{@madw_flow_display}'
   if [ -z "$(session_option "$session" @madw_task_display)" ]; then
     tmux set-option -t "$session" @madw_task_display '尚未记录当前任务'
   fi

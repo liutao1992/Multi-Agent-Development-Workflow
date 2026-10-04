@@ -142,16 +142,20 @@ SESSION_A="$(session_for "$REPO_A")"
 [ "$(tmux list-panes -t "$SESSION_A:team" -F '#{pane_id}' | wc -l | tr -d ' ')" = "3" ]
 [ "$(tmux show-options -v -t "$SESSION_A" @madw_runtime)" = "custom" ]
 [ "$(tmux show-options -v -t "$SESSION_A" mouse)" = "on" ]
-[ "$(tmux show-options -v -t "$SESSION_A" status)" = "3" ]
-tmux show-options -v -t "$SESSION_A" 'status-format[1]' | grep -Fq '任务进度'
-tmux show-options -v -t "$SESSION_A" 'status-format[2]' | grep -Fq 'Agent 通信'
+[ "$(tmux show-options -v -t "$SESSION_A" status)" = "5" ]
+tmux show-options -v -t "$SESSION_A" 'status-format[2]' | grep -Fq '任务进度'
+tmux show-options -v -t "$SESSION_A" 'status-format[4]' | grep -Fq 'Agent 通信'
+[ "$(tmux show-options -v -t "$SESSION_A" 'status-format[1]')" = '#[bg=colour235,fill=colour235] ' ]
+[ "$(tmux show-options -v -t "$SESSION_A" 'status-format[3]')" = '#[bg=colour235,fill=colour235] ' ]
 [ "$(tmux show-options -v -t "$SESSION_A" @madw_task_display)" = "尚未记录当前任务" ]
 [ "$(tmux show-options -v -t "$SESSION_A" key-table)" != "root" ]
 TEAM_TABLE="$(tmux show-options -v -t "$SESSION_A" key-table)"
 tmux list-keys -a | grep -E -- "-T $TEAM_TABLE[[:space:]]+C-c[[:space:]]+kill-session -t $SESSION_A$" >/dev/null
 tmux list-keys -a | grep -E -- "-T $TEAM_TABLE[[:space:]]+MouseDown1Pane[[:space:]]+select-pane -t =" >/dev/null
 [ "$(tmux show-window-options -v -t "$SESSION_A:team" pane-border-status)" = "bottom" ]
-[ "$(tmux show-window-options -v -t "$SESSION_A:team" pane-border-format)" = ' [#{@madw_label}] ' ]
+tmux show-window-options -v -t "$SESSION_A:team" pane-border-format | grep -Fq '#[fg=colour51,bold]'
+tmux show-window-options -v -t "$SESSION_A:team" pane-border-format | grep -Fq '#[fg=colour82,bold]'
+tmux show-window-options -v -t "$SESSION_A:team" pane-border-format | grep -Fq '#[fg=colour213,bold]'
 
 # Reusing an older team repairs its session-local mouse setting.
 tmux set-option -t "$SESSION_A" mouse off

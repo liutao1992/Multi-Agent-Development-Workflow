@@ -105,11 +105,12 @@ Git 根目录短 hash 隔离。
 ```
 
 像截图中的 tmux session 名一样，每个 pane 的底部分隔线上固定显示
-`[Leader]`、`[Impl]`、`[Review]`。Agent 自己更新终端标题时，
+青色 `[Leader]`、绿色 `[Impl]`、紫色 `[Review]`。Agent 自己更新终端标题时，
 这些角色标识也不会被覆盖。界面上的 Leader 对应流程中的 Lead 角色。
 
-底部另有两行独立的协作提示：第一行用中文突出显示**当前阶段和任务编号**，
-第二行用 `Leader → Impl`、`Impl → Leader`、`Leader → Review` 等箭头显示
+底部消息栏用深色背景和空白行分隔内容，留出阅读空间。**任务进度**一行用
+中文突出显示当前阶段和任务编号；**Agent 通信**一行用 `Leader → Impl`、
+`Impl → Leader`、`Leader → Review` 等箭头显示
 **谁正与谁交接、当前在等待谁、哪一轮已完成**。这些提示由 `madw send`、
 `wait` 和 `signal` 更新，放在 tmux 状态栏中；它们不会写入 Agent 的对话或
 增加模型上下文。状态栏显示的是最近一次已记录的交接进度，不是 Agent
