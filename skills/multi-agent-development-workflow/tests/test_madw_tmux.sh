@@ -46,6 +46,18 @@ start_for() { local dir="$1"; (cd "$dir" && MADW_AGENT_CMD="$FAKE" MADW_NO_ATTAC
 start_with_layout_for() { local dir="$1"; shift; (cd "$dir" && MADW_AGENT_CMD="$FAKE" MADW_NO_ATTACH=1 "$MADW" start "$@"); }
 stop_for() { local dir="$1"; (cd "$dir" && "$MADW" stop); }
 
+deny_agent_process_probes() {
+  kill() {
+    if [ "${1:-}" = "-0" ]; then
+      case " $MADW_TEST_DENIED_PIDS " in
+        *" ${2:-} "*) return 1 ;;
+      esac
+    fi
+    builtin kill "$@"
+  }
+  export -f kill
+}
+
 REPO_A="$TMP/project"
 REPO_B="$TMP/other/project"
 REPO_C="$TMP/layout-precedence"
@@ -338,6 +350,26 @@ tmux capture-pane -p -t "$IMPL_PANE" -S -100 | grep -Fq 'Impl 角色'
 tmux capture-pane -p -t "$IMPL_PANE" -S -100 | grep -Fq '【Lead 交接任务】'
 tmux capture-pane -p -t "$IMPL_PANE" -S -100 | grep -Fq 'TASK-TEST-001: plan the change'
 
+# A sandbox-denied process probe must not mark live Agents dead or restart
+# them. Preserve every PID and the Leader's conversation when reusing a team.
+LIVE_LEAD_PID="$(tmux display-message -p -t "$LEAD_PANE" '#{pane_pid}')"
+LIVE_IMPL_PID="$(tmux display-message -p -t "$IMPL_PANE" '#{pane_pid}')"
+LIVE_REVIEW_PID="$(tmux display-message -p -t "$REVIEW_PANE" '#{pane_pid}')"
+export MADW_TEST_DENIED_PIDS="$LIVE_LEAD_PID $LIVE_IMPL_PID $LIVE_REVIEW_PID"
+SANDBOX_STATUS="$(
+  deny_agent_process_probes
+  cd "$REPO_A"
+  "$MADW" status
+)"
+printf '%s\n' "$SANDBOX_STATUS" | grep -E '^leader[[:space:]].*alive' >/dev/null
+printf '%s\n' "$SANDBOX_STATUS" | grep -E '^impl[[:space:]].*alive' >/dev/null
+printf '%s\n' "$SANDBOX_STATUS" | grep -E '^review[[:space:]].*alive' >/dev/null
+(deny_agent_process_probes; start_for "$REPO_A") >/dev/null
+[ "$(tmux display-message -p -t "$LEAD_PANE" '#{pane_pid}')" = "$LIVE_LEAD_PID" ]
+[ "$(tmux display-message -p -t "$IMPL_PANE" '#{pane_pid}')" = "$LIVE_IMPL_PID" ]
+[ "$(tmux display-message -p -t "$REVIEW_PANE" '#{pane_pid}')" = "$LIVE_REVIEW_PID" ]
+tmux capture-pane -p -t "$LEAD_PANE" -S -100 | grep -Fq '【收到开发需求后】'
+
 # Re-entering a team repairs a Lead pane that exited without ending the team.
 OLD_LEAD_PID="$(tmux display-message -p -t "$LEAD_PANE" '#{pane_pid}')"
 tmux respawn-pane -k -t "$LEAD_PANE" 'exit 0'
@@ -414,7 +446,7 @@ EOF
   cd "$REPO_A"
   "$MADW" signal impl TASK-TEST-001 001 >/dev/null
 ) &
-(cd "$REPO_A" && "$MADW" wait impl TASK-TEST-001 001 5) | grep -Fq "PLAN-v001.md"
+(deny_agent_process_probes; cd "$REPO_A" && "$MADW" wait impl TASK-TEST-001 001 5) | grep -Fq "PLAN-v001.md"
 tmux show-options -v -t "$SESSION_A" @madw_task_display | grep -Fq '【规划中】 TASK-TEST-001'
 tmux show-options -v -t "$SESSION_A" @madw_flow_display | grep -Fq 'Impl → Leader'
 

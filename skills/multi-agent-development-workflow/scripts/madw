@@ -253,15 +253,26 @@ validate_existing_team() {
   pane_for_role review >/dev/null
 }
 
+pane_is_alive() {
+  local pane="$1" dead
+  # A sandbox may deny kill -0 against the Agent even while tmux can see it.
+  # Only tmux's explicit dead state authorizes automatic pane replacement.
+  dead="$(tmux display-message -p -t "$pane" '#{pane_dead}')" ||
+    die "cannot inspect pane health: $pane"
+  case "$dead" in
+    0) return 0 ;;
+    1) return 1 ;;
+    *) die "unknown pane health for $pane: $dead" ;;
+  esac
+}
+
 wait_pane_alive() {
   local pane="$1" timeout="${2:-$DEFAULT_BOOT_TIMEOUT}"
-  local started now dead pid
+  local started now
   started="$(date +%s)"
   while :; do
     pane_exists "$pane" || die "pane disappeared during startup: $pane"
-    dead="$(tmux display-message -p -t "$pane" '#{pane_dead}')"
-    pid="$(tmux display-message -p -t "$pane" '#{pane_pid}')"
-    if [ "$dead" != "1" ] && [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+    if pane_is_alive "$pane"; then
       return 0
     fi
     now="$(date +%s)"
@@ -627,7 +638,7 @@ print_task_summary() {
 }
 
 status_team() {
-  local root session runtime role pane cmd pid dead health
+  local root session runtime role pane cmd pid health
   root="$(project_root)"
   session="$(team_session)"
   echo "Project: $root"
@@ -651,8 +662,7 @@ status_team() {
     pane="$(pane_for_role "$role")"
     cmd="$(tmux display-message -p -t "$pane" '#{pane_current_command}')"
     pid="$(tmux display-message -p -t "$pane" '#{pane_pid}')"
-    dead="$(tmux display-message -p -t "$pane" '#{pane_dead}')"
-    if [ "$dead" = "1" ] || ! kill -0 "$pid" 2>/dev/null; then health="dead"; else health="alive"; fi
+    if pane_is_alive "$pane"; then health="alive"; else health="dead"; fi
     printf '%-8s %-8s %-18s %-8s %s
 ' "$role" "$pane" "$cmd" "$health" "$pid"
   done
@@ -692,12 +702,10 @@ restart_role() {
 }
 
 repair_dead_panes() {
-  local role pane pid dead
+  local role pane
   for role in leader impl review; do
     pane="$(pane_for_role "$role")"
-    pid="$(tmux display-message -p -t "$pane" '#{pane_pid}')"
-    dead="$(tmux display-message -p -t "$pane" '#{pane_dead}')"
-    if [ "$dead" = "1" ] || ! kill -0 "$pid" 2>/dev/null; then
+    if ! pane_is_alive "$pane"; then
       restart_role "$role"
     fi
   done
@@ -777,7 +785,7 @@ expected_artifact() {
 
 wait_handoff() {
   local role="$1" task_id="$2" round="$3" timeout="${4:-$DEFAULT_WAIT_TIMEOUT}"
-  local channel option session pane waiter started now dead pid artifact
+  local channel option session pane waiter started now artifact
   channel="$(handoff_channel "$role" "$task_id" "$round")"
   option="$(handoff_option "$channel")"
   session="$(team_session)"
@@ -805,9 +813,7 @@ wait_handoff() {
       set_team_progress "$task_id" "⚠ $actor 面板消失  |  等待已中止"
       die "$role pane disappeared while waiting for $channel"
     fi
-    dead="$(tmux display-message -p -t "$pane" '#{pane_dead}')"
-    pid="$(tmux display-message -p -t "$pane" '#{pane_pid}')"
-    if [ "$dead" = "1" ] || ! kill -0 "$pid" 2>/dev/null; then
+    if ! pane_is_alive "$pane"; then
       kill "$waiter" 2>/dev/null || true; wait "$waiter" 2>/dev/null || true
       set_team_progress "$task_id" "⚠ $actor 已退出  |  等待已中止"
       echo "madw: $role Agent exited while waiting for $channel" >&2
