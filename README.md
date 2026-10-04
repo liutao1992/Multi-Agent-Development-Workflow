@@ -104,13 +104,21 @@ Git 根目录短 hash 隔离。
 └──────────────────┴──────────────────┘
 ```
 
-每个 pane 顶部固定显示角色：`Leader · 输入任务`、
-`Impl · 实现与测试`、`Review · 独立评审`。Agent 自己更新终端标题时，
+像截图中的 tmux session 名一样，每个 pane 的底部分隔线上固定显示
+`[Leader]`、`[Impl]`、`[Review]`。Agent 自己更新终端标题时，
 这些角色标识也不会被覆盖。界面上的 Leader 对应流程中的 Lead 角色。
 
 在 tmux 面板内点击 Lead、Impl 或 Review，即可将键盘焦点切到对应 Agent；
 再按 `Enter` 可确认该 Agent 当前的提示（例如 Codex 的目录信任确认）。
 `madw start` 和 `madw watch` 会为当前团队启用鼠标操作，不修改其他 tmux 会话。
+
+在三面板界面按 **Ctrl+C** 会结束整个当前项目团队：三个 Agent 进程、三个
+pane 和对应的 tmux session 都会退出。它不会结束其他项目或手动创建的 tmux
+session。若只想暂时离开界面、让团队继续运行，按 **Ctrl+b，然后按 d**；
+之后在项目目录执行 `madw watch` 可重新进入。也可以在普通终端执行
+`madw stop` 结束团队。此快捷键适用于通过 `madw start`、`watch` 或
+`attach` 进入的团队界面；直接使用 `tmux send-keys` 向 Agent 发送 Ctrl+C
+仍只会中断该 Agent。
 
 ## 常用命令
 

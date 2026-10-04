@@ -417,6 +417,11 @@ madw status
 madw watch
 ```
 
+在 MADW 三面板界面按 `Ctrl+C` 会停止整个项目团队，结束 Leader、Impl、Review
+及其 tmux session。仅需暂时离开时按 `Ctrl+b d`，之后用 `madw watch`
+重新进入；也可在普通终端执行 `madw stop`。不要把 `Ctrl+C` 当作单个
+Agent 的任务中断键。
+
 Lead handoff helpers:
 
 ```bash

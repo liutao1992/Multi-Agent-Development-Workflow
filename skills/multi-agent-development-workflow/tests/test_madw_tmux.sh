@@ -142,7 +142,11 @@ SESSION_A="$(session_for "$REPO_A")"
 [ "$(tmux list-panes -t "$SESSION_A:team" -F '#{pane_id}' | wc -l | tr -d ' ')" = "3" ]
 [ "$(tmux show-options -v -t "$SESSION_A" @madw_runtime)" = "custom" ]
 [ "$(tmux show-options -v -t "$SESSION_A" mouse)" = "on" ]
-[ "$(tmux show-window-options -v -t "$SESSION_A:team" pane-border-status)" = "top" ]
+[ "$(tmux show-options -v -t "$SESSION_A" key-table)" != "root" ]
+TEAM_TABLE="$(tmux show-options -v -t "$SESSION_A" key-table)"
+tmux list-keys -a | grep -E -- "-T $TEAM_TABLE[[:space:]]+C-c[[:space:]]+kill-session -t $SESSION_A$" >/dev/null
+tmux list-keys -a | grep -E -- "-T $TEAM_TABLE[[:space:]]+MouseDown1Pane[[:space:]]+select-pane -t =" >/dev/null
+[ "$(tmux show-window-options -v -t "$SESSION_A:team" pane-border-status)" = "bottom" ]
 [ "$(tmux show-window-options -v -t "$SESSION_A:team" pane-border-format)" = ' [#{@madw_label}] ' ]
 
 # Reusing an older team repairs its session-local mouse setting.
@@ -154,9 +158,9 @@ start_for "$REPO_A" >/dev/null
 LEAD_PANE="$(tmux show-options -v -t "$SESSION_A" @madw_pane_leader)"
 IMPL_PANE="$(tmux show-options -v -t "$SESSION_A" @madw_pane_impl)"
 REVIEW_PANE="$(tmux show-options -v -t "$SESSION_A" @madw_pane_review)"
-[ "$(tmux show-options -p -v -t "$LEAD_PANE" @madw_label)" = "Leader · 输入任务" ]
-[ "$(tmux show-options -p -v -t "$IMPL_PANE" @madw_label)" = "Impl · 实现与测试" ]
-[ "$(tmux show-options -p -v -t "$REVIEW_PANE" @madw_label)" = "Review · 独立评审" ]
+[ "$(tmux show-options -p -v -t "$LEAD_PANE" @madw_label)" = "Leader" ]
+[ "$(tmux show-options -p -v -t "$IMPL_PANE" @madw_label)" = "Impl" ]
+[ "$(tmux show-options -p -v -t "$REVIEW_PANE" @madw_label)" = "Review" ]
 LEAD_LEFT="$(tmux display-message -p -t "$LEAD_PANE" '#{pane_left}')"
 LEAD_HEIGHT="$(tmux display-message -p -t "$LEAD_PANE" '#{pane_height}')"
 IMPL_LEFT="$(tmux display-message -p -t "$IMPL_PANE" '#{pane_left}')"

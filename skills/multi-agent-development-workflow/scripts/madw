@@ -338,12 +338,28 @@ configure_team_labels() {
   lead="$(pane_for_role leader)"
   impl="$(pane_for_role impl)"
   review="$(pane_for_role review)"
-  tmux set-window-option -t "$session:team" pane-border-status top
+  tmux set-window-option -t "$session:team" pane-border-status bottom
   tmux set-window-option -t "$session:team" pane-border-format ' [#{@madw_label}] '
-  tmux set-option -p -t "$lead" @madw_label "Leader · 输入任务"
-  tmux set-option -p -t "$impl" @madw_label "Impl · 实现与测试"
-  tmux set-option -p -t "$review" @madw_label "Review · 独立评审"
+  tmux set-option -p -t "$lead" @madw_label "Leader"
+  tmux set-option -p -t "$impl" @madw_label "Impl"
+  tmux set-option -p -t "$review" @madw_label "Review"
 }
+
+configure_team_keys() (
+  local session table bindings
+  session="$(team_session)"
+  table="madw-$(printf '%s' "$session" | git hash-object --stdin | cut -c1-12)"
+  bindings="$(mktemp)"
+  trap 'rm -f "$bindings"' EXIT
+
+  # Keep the user's root-table mouse and other shortcuts in this team only.
+  # A session-specific table lets Ctrl+C stop all three panes without changing
+  # Ctrl+C in unrelated tmux sessions.
+  tmux list-keys -T root | sed "s/ -T root / -T $table /" > "$bindings"
+  tmux source-file "$bindings"
+  tmux bind-key -T "$table" C-c kill-session -t "$session"
+  tmux set-option -t "$session" key-table "$table"
+)
 
 create_team() {
   local runtime="$1" boot_timeout="$2"
@@ -376,6 +392,7 @@ create_team() {
   tmux set-option -p -t "$impl" @madw_role impl
   tmux set-option -p -t "$review" @madw_role review
   configure_team_labels
+  configure_team_keys
 
   if ! wait_pane_alive "$lead" "$boot_timeout" ||
      ! wait_pane_alive "$impl" "$boot_timeout" ||
@@ -400,6 +417,7 @@ attach_team() {
   validate_existing_team "$session"
   tmux set-option -t "$session" mouse on
   configure_team_labels
+  configure_team_keys
   repair_dead_panes
   pane="$(pane_for_role "$focus")"
   tmux select-window -t "$session:team"
@@ -768,6 +786,7 @@ start_command() {
     fi
     tmux set-option -t "$session" mouse on
     configure_team_labels
+    configure_team_keys
     repair_dead_panes
     echo "Project: $root"
     echo "Team:    $session"
