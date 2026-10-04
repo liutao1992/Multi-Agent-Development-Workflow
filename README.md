@@ -38,8 +38,13 @@ madw start
 `git init` 的空仓库会在创建面板前得到明确错误；先提交项目初始文件，再运行
 `madw start`。
 
-然后只在 **Lead** 中输入需求。Lead 自动把 Plan/实现/返工派给 Impl，把固定
-Code Head 派给独立 Review，并在 Review FAIL 时形成返工闭环。
+启动后，左侧 **Lead** 会提示你输入开发需求。点击左侧输入框，直接描述任务并
+按 `Enter`；右上 Impl 和右下 Review 启动后保持待命，无须手动输入初始化指令。
+Lead 收到你的需求后，把 Plan/实现/返工派给 Impl，把固定 Code Head 派给
+独立 Review，并在 Review FAIL 时形成返工闭环。
+
+如果左侧显示 `Pane is dead`，在项目的普通终端重新运行 `madw start codex`
+（或 `madw start pi`）；它会恢复退出的 Agent，并保留现有团队和任务状态。
 
 ### 运行时选择
 

@@ -253,7 +253,7 @@ Role targets:
 - impl: $impl
 - review: $review
 
-You are the only user-facing orchestrator. Delegate Plan/Implementation/Rework to Impl and independent verification to Review. Prefer "$SCRIPT_DIR/madw send" for bounded handoffs, "$SCRIPT_DIR/madw wait" for timeout/death-aware synchronization, and "$SCRIPT_DIR/madw restart review" before each substantive Review round. STATUS and immutable artifacts are durable truth; terminal scrollback is observational only. Continue Impl -> Review -> rework until PASS/ACCEPTED, BLOCKED, CANCELLED, or a genuine human decision is required.
+You are the only user-facing orchestrator. First tell the user briefly in Chinese: "请在左侧输入开发需求；右侧 Impl 和 Review 已启动，等待我分派任务。" Do not create a Task or delegate work until the user supplies a requirement. Delegate Plan/Implementation/Rework to Impl and independent verification to Review. Prefer "$SCRIPT_DIR/madw send" for bounded handoffs, "$SCRIPT_DIR/madw wait" for timeout/death-aware synchronization, and "$SCRIPT_DIR/madw restart review" before each substantive Review round. STATUS and immutable artifacts are durable truth; terminal scrollback is observational only. Continue Impl -> Review -> rework until PASS/ACCEPTED, BLOCKED, CANCELLED, or a genuine human decision is required.
 EOF
       ;;
     impl)
@@ -265,7 +265,7 @@ Project Root: $root
 MADW CLI: $SCRIPT_DIR/madw
 Lead target: $lead
 
-Wait for Lead handoffs. Read STATUS first. Perform exactly the requested Plan/Implementation/Rework action, preserve role boundaries, write the required immutable artifact, then signal the exact completion channel from Lead with "$SCRIPT_DIR/madw signal impl <TASK-ID> <ROUND>". Do not transition STATUS and do not dispatch Review.
+Read STATUS first. Perform exactly the requested Plan/Implementation/Rework action in the handoff below, preserve role boundaries, write the required immutable artifact, then signal the exact completion channel from Lead with "$SCRIPT_DIR/madw signal impl <TASK-ID> <ROUND>". Do not transition STATUS and do not dispatch Review.
 EOF
       ;;
     review)
@@ -277,7 +277,7 @@ Project Root: $root
 MADW CLI: $SCRIPT_DIR/madw
 Lead target: $lead
 
-Wait for Lead handoffs. This pane must be a fresh Review context for the current round. Read STATUS first, verify the exact frozen clean Code Head, create exactly one REVIEW artifact, then signal the exact completion channel from Lead with "$SCRIPT_DIR/madw signal review <TASK-ID> <ROUND>". Do not modify implementation code and do not transition STATUS.
+This pane must be a fresh Review context for the current round. Read STATUS first, verify the exact frozen clean Code Head in the handoff below, create exactly one REVIEW artifact, then signal the exact completion channel from Lead with "$SCRIPT_DIR/madw signal review <TASK-ID> <ROUND>". Do not modify implementation code and do not transition STATUS.
 EOF
       ;;
   esac
@@ -286,8 +286,6 @@ EOF
 bootstrap_team() {
   local lead="$1" impl="$2" review="$3"
   send_to_pane "$lead" "$(role_prompt leader "$lead" "$impl" "$review")"
-  send_to_pane "$impl" "$(role_prompt impl "$lead" "$impl" "$review")"
-  send_to_pane "$review" "$(role_prompt review "$lead" "$impl" "$review")"
 }
 
 create_team() {
@@ -343,6 +341,7 @@ attach_team() {
   session_exists "$session" || die "team is not running: $session"
   validate_existing_team "$session"
   tmux set-option -t "$session" mouse on
+  repair_dead_panes
   pane="$(pane_for_role "$focus")"
   tmux select-window -t "$session:team"
   tmux select-pane -t "$pane"
@@ -492,9 +491,23 @@ restart_role() {
   lead="$(pane_for_role leader)"
   impl="$(pane_for_role impl)"
   review="$(pane_for_role review)"
-  send_to_pane "$pane" "$(role_prompt "$role" "$lead" "$impl" "$review")"
+  if [ "$role" = "leader" ]; then
+    send_to_pane "$pane" "$(role_prompt "$role" "$lead" "$impl" "$review")"
+  fi
 
   echo "restarted $role in $pane using team runtime $runtime"
+}
+
+repair_dead_panes() {
+  local role pane pid dead
+  for role in leader impl review; do
+    pane="$(pane_for_role "$role")"
+    pid="$(tmux display-message -p -t "$pane" '#{pane_pid}')"
+    dead="$(tmux display-message -p -t "$pane" '#{pane_dead}')"
+    if [ "$dead" = "1" ] || ! kill -0 "$pid" 2>/dev/null; then
+      restart_role "$role"
+    fi
+  done
 }
 
 stop_team() {
@@ -636,8 +649,17 @@ signal_handoff() {
 }
 
 send_role() {
-  local role="$1" message="$2" pane
+  local role="$1" message="$2" pane lead impl review
   pane="$(pane_for_role "$role")"
+  if [ "$role" = "impl" ] || [ "$role" = "review" ]; then
+    lead="$(pane_for_role leader)"
+    impl="$(pane_for_role impl)"
+    review="$(pane_for_role review)"
+    message="$(role_prompt "$role" "$lead" "$impl" "$review")
+
+Lead handoff:
+$message"
+  fi
   send_to_pane "$pane" "$message"
   echo "sent to $role ($pane)"
 }
@@ -683,6 +705,7 @@ start_command() {
         die "team already runs runtime '$stored_runtime'; use 'madw restart <role> $requested' or stop first"
     fi
     tmux set-option -t "$session" mouse on
+    repair_dead_panes
     echo "Project: $root"
     echo "Team:    $session"
     echo "Team status: existing"

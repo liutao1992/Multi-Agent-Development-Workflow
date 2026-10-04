@@ -115,7 +115,33 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do
   sleep 0.1
 done
 tmux capture-pane -p -t "$LEAD_PANE" -S -100 | grep -q 'Role: Lead'
-tmux capture-pane -p -t "$LEAD_PANE" -S -100 | grep -Fq 'CWD_OK:project'
+[ "$(tmux display-message -p -t "$LEAD_PANE" '#{pane_current_path}')" = "$(cd "$REPO_A" && pwd -P)" ]
+if tmux capture-pane -p -t "$IMPL_PANE" -S -100 | grep -Fq 'Role: Impl'; then
+  echo "Impl received a task before Lead dispatched one" >&2
+  exit 1
+fi
+if tmux capture-pane -p -t "$REVIEW_PANE" -S -100 | grep -Fq 'Role: Review'; then
+  echo "Review received a task before Lead dispatched one" >&2
+  exit 1
+fi
+(cd "$REPO_A" && "$MADW" send impl 'TASK-TEST-001: plan the change') >/dev/null
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  if tmux capture-pane -p -t "$IMPL_PANE" -S -100 | grep -Fq 'TASK-TEST-001: plan the change'; then break; fi
+  sleep 0.1
+done
+tmux capture-pane -p -t "$IMPL_PANE" -S -100 | grep -Fq 'Role: Impl'
+tmux capture-pane -p -t "$IMPL_PANE" -S -100 | grep -Fq 'TASK-TEST-001: plan the change'
+
+# Re-entering a team repairs a Lead pane that exited without ending the team.
+OLD_LEAD_PID="$(tmux display-message -p -t "$LEAD_PANE" '#{pane_pid}')"
+tmux respawn-pane -k -t "$LEAD_PANE" 'exit 0'
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  [ "$(tmux display-message -p -t "$LEAD_PANE" '#{pane_dead}')" = "1" ] && break
+  sleep 0.1
+done
+start_for "$REPO_A" >/dev/null
+[ "$(tmux display-message -p -t "$LEAD_PANE" '#{pane_dead}')" = "0" ]
+[ "$(tmux display-message -p -t "$LEAD_PANE" '#{pane_pid}')" != "$OLD_LEAD_PID" ]
 
 start_for "$REPO_B"
 SESSION_B="$(session_for "$REPO_B")"
@@ -138,6 +164,17 @@ NEW_PID="$(tmux display-message -p -t "$NEW_REVIEW_PANE" '#{pane_pid}')"
 [ "$REVIEW_PANE" = "$NEW_REVIEW_PANE" ]
 [ "$OLD_PID" != "$NEW_PID" ]
 [ "$(tmux show-options -v -t "$SESSION_A" @madw_runtime)" = "custom" ]
+if tmux capture-pane -p -t "$NEW_REVIEW_PANE" -S -100 | grep -Fq 'Role: Review'; then
+  echo "Review received a task immediately after a fresh restart" >&2
+  exit 1
+fi
+(cd "$REPO_A" && "$MADW" send review 'TASK-TEST-001: verify the frozen code') >/dev/null
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  if tmux capture-pane -p -t "$NEW_REVIEW_PANE" -S -100 | grep -Fq 'TASK-TEST-001: verify the frozen code'; then break; fi
+  sleep 0.1
+done
+tmux capture-pane -p -t "$NEW_REVIEW_PANE" -S -100 | grep -Fq 'Role: Review'
+tmux capture-pane -p -t "$NEW_REVIEW_PANE" -S -100 | grep -Fq 'TASK-TEST-001: verify the frozen code'
 
 TASK_ROOT="$REPO_A/.agent-team/tasks/TASK-TEST-001"
 mkdir -p "$TASK_ROOT/plans"

@@ -45,6 +45,11 @@ Runtime selection:
 
 `start` also verifies Git, tmux, the installed Skill, and the selected runtime.
 It creates the three panes only after preflight succeeds.
+Lead receives a short startup instruction and invites the user to enter a task.
+Impl and Review launch idle. `madw send` attaches the worker's role context to
+each bounded handoff, and `madw restart review` leaves the fresh reviewer idle
+until Lead sends the next review request.
+Reusing or attaching to an existing team revives panes whose Agent exited.
 Each pane command explicitly changes to the canonical project path, including
 on role restart, because a long-lived tmux server may retain a deleted cwd.
 
