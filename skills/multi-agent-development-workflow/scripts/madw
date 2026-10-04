@@ -25,7 +25,7 @@ Usage:
   madw send <leader|impl|review> <message>
   madw wait <impl|review> <TASK-ID> <ROUND> [timeout-seconds]
   madw signal <impl|review> <TASK-ID> <ROUND>
-  madw restart <leader|impl|review> [pi|codex]
+  madw restart <leader|impl|review>
   madw stop
   madw doctor [pi|codex]
   madw id
@@ -199,7 +199,7 @@ validate_existing_team() {
   pane_for_role review >/dev/null
 }
 
-wait_pane_started() {
+wait_pane_alive() {
   local pane="$1" timeout="${2:-$DEFAULT_BOOT_TIMEOUT}"
   local started now dead pid
   started="$(date +%s)"
@@ -212,7 +212,7 @@ wait_pane_started() {
     fi
     now="$(date +%s)"
     if [ $((now - started)) -ge "$timeout" ]; then
-      echo "madw: Agent failed to become ready in pane $pane within ${timeout}s" >&2
+      echo "madw: Agent process did not remain alive in pane $pane within ${timeout}s" >&2
       tmux capture-pane -p -t "$pane" -S -40 >&2 2>/dev/null || true
       return 1
     fi
@@ -313,9 +313,9 @@ create_team() {
   tmux set-option -p -t "$impl" @madw_role impl
   tmux set-option -p -t "$review" @madw_role review
 
-  if ! wait_pane_started "$lead" "$boot_timeout" ||
-     ! wait_pane_started "$impl" "$boot_timeout" ||
-     ! wait_pane_started "$review" "$boot_timeout"; then
+  if ! wait_pane_alive "$lead" "$boot_timeout" ||
+     ! wait_pane_alive "$impl" "$boot_timeout" ||
+     ! wait_pane_alive "$review" "$boot_timeout"; then
     tmux kill-session -t "$session" 2>/dev/null || true
     die "team startup failed; partial tmux session removed"
   fi
@@ -456,40 +456,35 @@ status_team() {
 }
 
 restart_role() {
-  local role="$1" requested_runtime="${2:-}"
-  local session pane runtime cmd root stored_runtime lead impl review
+  local role="$1"
+  local session pane runtime cmd root lead impl review title
   session="$(team_session)"
   session_exists "$session" || die "team is not running: $session"
   validate_existing_team "$session"
   pane="$(pane_for_role "$role")"
   root="$(project_root)"
-  stored_runtime="$(session_option "$session" "@madw_runtime")"
+  runtime="$(session_option "$session" "@madw_runtime")"
+  cmd="$(session_option "$session" "@madw_agent_cmd")"
 
-  if [ -n "$requested_runtime" ]; then
-    runtime="$(resolve_runtime "$requested_runtime")"
-    preflight_runtime "$runtime"
-    cmd="$(runtime_command "$runtime")"
-  else
-    runtime="$stored_runtime"
-    cmd="$(session_option "$session" "@madw_agent_cmd")"
-    [ -n "$cmd" ] || die "team metadata is missing Agent command"
-  fi
+  [ -n "$runtime" ] || die "team metadata is missing runtime"
+  [ -n "$cmd" ] || die "team metadata is missing Agent command"
 
   tmux respawn-pane -k -t "$pane" -c "$root" "$cmd"
-  case "$role" in leader) title="Lead" ;; impl) title="Impl" ;; review) title="Review" ;; esac
+  case "$role" in
+    leader) title="Lead" ;;
+    impl) title="Impl" ;;
+    review) title="Review" ;;
+    *) die "unknown role: $role" ;;
+  esac
   tmux select-pane -t "$pane" -T "$title"
-  wait_pane_started "$pane" "$DEFAULT_BOOT_TIMEOUT"
+  wait_pane_alive "$pane" "$DEFAULT_BOOT_TIMEOUT"
 
   lead="$(pane_for_role leader)"
   impl="$(pane_for_role impl)"
   review="$(pane_for_role review)"
   send_to_pane "$pane" "$(role_prompt "$role" "$lead" "$impl" "$review")"
 
-  if [ -n "$requested_runtime" ]; then
-    tmux set-option -t "$session" @madw_runtime "$runtime"
-    tmux set-option -t "$session" @madw_agent_cmd "$cmd"
-  fi
-  echo "restarted $role in $pane"
+  echo "restarted $role in $pane using team runtime $runtime"
 }
 
 stop_team() {
@@ -677,8 +672,12 @@ case "$command" in
     ;;
   restart)
     preflight_base
-    [ "$#" -ge 1 ] || { usage >&2; exit 2; }
-    restart_role "$1" "${2:-}"
+    [ "$#" -eq 1 ] || {
+      echo "madw: restart takes exactly one role; change team runtime with 'madw stop' then 'madw start <runtime>'" >&2
+      usage >&2
+      exit 2
+    }
+    restart_role "$1"
     ;;
   stop) preflight_base; stop_team ;;
   doctor) doctor "${1:-}" ;;

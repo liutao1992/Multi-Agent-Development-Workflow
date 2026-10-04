@@ -107,6 +107,11 @@ Worker 在工件写完后使用 `madw signal ...`。等待封装增加 timeout�
 `madw start` 先检查 Git、Skill、tmux、runtime 和已有项目 team，再创建
 pane。不会先创建坏 pane 再发现 runtime 不存在。
 
+当前启动检查确认的是 **Agent 进程已经存活**，不是 runtime-specific 的
+“交互界面已经 Ready”。Pi/Codex 的 PTY 通常会保留提前输入；如果后续实测
+出现启动 prompt 被吞的问题，再在各 runtime adapter 中增加专门的 readiness
+探测，不在通用 tmux 层猜测 UI 状态。
+
 启动不依赖固定 `sleep 1`：
 
 ```bash
@@ -178,11 +183,34 @@ agent-team --runtime pi --transport process run <TASK-ID>
 默认：
 
 ```text
-Skill → ~/.codex/skills/multi-agent-development-workflow
+Skill → ~/.agents/skills/multi-agent-development-workflow
 madw  → ~/.local/bin/madw
 ```
 
-可通过 `MADW_SKILL_DIR`、`MADW_BIN_DIR` 覆盖安装位置。
+`~/.agents/skills` 作为共享用户级 Skill 目录，可同时服务 Pi 和 Codex，
+因此 `./install.sh` 与 `madw start` 的 runtime 自动选择保持一致，不需要
+为两个 runtime 复制两份 Skill。
+
+升级旧版本时，安装器会把旧的 `~/.codex/skills/...` 或
+`~/.pi/agent/skills/...` 同名 Skill 移到
+`~/.local/share/madw/backups/`，避免重复发现，同时保留可恢复备份。
+
+可通过 `MADW_SKILL_DIR`、`MADW_BIN_DIR`、`MADW_BACKUP_DIR` 覆盖路径。
+
+一个 MADW team 只使用一个 runtime。角色重启只允许：
+
+```bash
+madw restart leader
+madw restart impl
+madw restart review
+```
+
+如果要从 Codex 切换到 Pi（或反向），使用：
+
+```bash
+madw stop
+madw start pi
+```
 
 ## 文档
 

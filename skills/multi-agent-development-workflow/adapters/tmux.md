@@ -46,9 +46,11 @@ Runtime selection:
 `start` also verifies Git, tmux, the installed Skill, and the selected runtime.
 It creates the three panes only after preflight succeeds.
 
-The launcher does not rely on a fixed one-second sleep. It waits for each pane
-process to be alive up to `MADW_BOOT_TIMEOUT` (default 15 seconds) and fails
-closed if startup does not succeed.
+The launcher does not rely on a fixed one-second sleep. It verifies that each
+pane/Agent process is alive, up to `MADW_BOOT_TIMEOUT` (default 15 seconds), and
+fails closed if the process exits. This is intentionally **process liveness**,
+not runtime-specific UI readiness detection. Add Pi/Codex-specific readiness
+checks only if real startup behavior proves they are needed.
 
 ## Sending handoffs
 
@@ -95,6 +97,17 @@ madw restart review
 
 This uses `tmux respawn-pane -k`, preserving the session, layout and pane
 address while starting a fresh Review process/context.
+
+A team has exactly one runtime. `madw restart <role>` always reuses the stored
+team runtime/command. Runtime changes are team-level operations:
+
+```bash
+madw stop
+madw start pi      # or codex
+```
+
+Per-role runtime overrides are intentionally unsupported because they would make
+team-level runtime metadata ambiguous.
 
 ## Observation
 

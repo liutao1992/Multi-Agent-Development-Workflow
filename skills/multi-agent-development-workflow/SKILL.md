@@ -217,8 +217,6 @@ the interactive tmux team.
 
 ### Code Plane concurrency invariant
 
-### Code Plane concurrency invariant
-
 Automatic orchestration MUST serialize mutable work by working tree:
 
 ```text
@@ -440,8 +438,6 @@ agent-team --runtime codex --transport process start "Add persistent AI chat his
 agent-team --runtime codex --transport process run TASK-YYYYMMDD-NNN-short-name
 agent-team metrics TASK-YYYYMMDD-NNN-short-name
 ```
-
-### BLOCKED resume entry
 
 ### BLOCKED resume entry
 
