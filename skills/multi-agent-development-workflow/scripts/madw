@@ -290,7 +290,8 @@ role_prompt() {
 4. 使用 "\$MADW_CLI" send / wait 交接并等待完成。
 5. 每轮正式评审前，先运行 "\$MADW_CLI" restart review。
 6. 以 STATUS 和不可变工件为准，完成实现、评审、返工和验收闭环。
-7. 用户尚未提出需求时，保持待命。
+7. 若 madw 报 tmux socket access denied，只对该条 madw 命令申请提升权限并重试；不要判断为团队已停止。
+8. 用户尚未提出需求时，保持待命。
 EOF
       ;;
     impl)
@@ -303,6 +304,7 @@ EOF
 2. 只修改该角色允许的内容，写入本轮不可变工件。
 3. 完成后运行 "\$MADW_CLI" signal impl <TASK-ID> <ROUND>。
 4. 不修改 STATUS，不自行派发 Review。
+5. 若 madw 报 tmux socket access denied，只对该条命令申请提升权限并重试。
 EOF
       ;;
     review)
@@ -314,6 +316,7 @@ EOF
 1. 先读取指定任务的 STATUS，独立核验冻结且干净的 Code Head。
 2. 只写入一份本轮 REVIEW 工件，不修改实现代码和 STATUS。
 3. 完成后运行 "\$MADW_CLI" signal review <TASK-ID> <ROUND>。
+4. 若 madw 报 tmux socket access denied，只对该条命令申请提升权限并重试。
 EOF
       ;;
   esac

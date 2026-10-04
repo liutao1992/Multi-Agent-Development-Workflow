@@ -59,7 +59,9 @@ madw start
 也可以显式使用 `madw start pi` 或 `madw start codex`。
 
 Codex 的默认工作区沙箱在 macOS 上可能拒绝连接 tmux 的本地 socket，
-使 `madw send`、`wait` 和 `signal` 失败。可**明确选择**为这个团队的
+使 `madw send`、`wait` 和 `signal` 失败。默认模式会提示 Agent 仅对失败的
+`madw` 命令申请提升权限并重试；该错误不表示团队已经退出。
+也可**明确选择**为这个团队的
 Codex 进程启用工作区沙箱网络访问：
 
 ```bash
