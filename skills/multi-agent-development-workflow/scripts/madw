@@ -346,10 +346,16 @@ configure_team_labels() {
 }
 
 configure_team_progress() {
-  local session
+  local session root branch
   session="$(team_session)"
+  root="$(project_root)"
+  branch="$(git -C "$root" branch --show-current)"
+  if [ -z "$branch" ]; then
+    branch="HEAD $(git -C "$root" rev-parse --short HEAD)"
+  fi
   tmux set-option -t "$session" status 5
-  tmux set-option -t "$session" 'status-format[1]' '#[bg=colour235,fill=colour235] '
+  tmux set-option -t "$session" @madw_context_display "分支 $branch  ·  目录 $root"
+  tmux set-option -t "$session" 'status-format[1]' '#[bg=colour235,fill=colour235,fg=colour39,bold]  ◈ 工作目录与分支  #[fg=colour252,nobold]#{@madw_context_display}'
   tmux set-option -t "$session" 'status-format[2]' '#[bg=colour235,fill=colour235,fg=colour51,bold]  ◆ 任务进度   #[fg=colour252,nobold]#{@madw_task_display}'
   tmux set-option -t "$session" 'status-format[3]' '#[bg=colour235,fill=colour235] '
   tmux set-option -t "$session" 'status-format[4]' '#[bg=colour235,fill=colour235,fg=colour215,bold]  ↔ Agent 通信  #[fg=colour252,nobold]#{@madw_flow_display}'
@@ -383,6 +389,7 @@ state_label() {
 set_team_progress() {
   local task_id="$1" flow="$2" session status state
   session="$(team_session)"
+  configure_team_progress
   if [ -n "$task_id" ]; then
     status="$(project_root)/.agent-team/tasks/$task_id/STATUS.md"
     state='等待 STATUS'
@@ -574,6 +581,7 @@ status_team() {
 
   validate_existing_team "$session"
   runtime="$(session_option "$session" "@madw_runtime")"
+  configure_team_progress
   echo "Runtime: $runtime"
   print_task_summary
   echo

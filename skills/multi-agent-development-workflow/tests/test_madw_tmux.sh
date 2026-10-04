@@ -143,9 +143,10 @@ SESSION_A="$(session_for "$REPO_A")"
 [ "$(tmux show-options -v -t "$SESSION_A" @madw_runtime)" = "custom" ]
 [ "$(tmux show-options -v -t "$SESSION_A" mouse)" = "on" ]
 [ "$(tmux show-options -v -t "$SESSION_A" status)" = "5" ]
+tmux show-options -v -t "$SESSION_A" @madw_context_display | grep -Fq '分支 '
+tmux show-options -v -t "$SESSION_A" 'status-format[1]' | grep -Fq '工作目录与分支'
 tmux show-options -v -t "$SESSION_A" 'status-format[2]' | grep -Fq '任务进度'
 tmux show-options -v -t "$SESSION_A" 'status-format[4]' | grep -Fq 'Agent 通信'
-[ "$(tmux show-options -v -t "$SESSION_A" 'status-format[1]')" = '#[bg=colour235,fill=colour235] ' ]
 [ "$(tmux show-options -v -t "$SESSION_A" 'status-format[3]')" = '#[bg=colour235,fill=colour235] ' ]
 [ "$(tmux show-options -v -t "$SESSION_A" @madw_task_display)" = "尚未记录当前任务" ]
 [ "$(tmux show-options -v -t "$SESSION_A" key-table)" != "root" ]
