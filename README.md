@@ -1,981 +1,257 @@
-# Multi-Agent Development Workflow
+# 多 Agent 开发工作流
 
-A runtime-independent software-development workflow built around three roles:
+本项目用三个角色完成一个开发任务：**Lead** 定义需求、推进状态并最终验收；**Impl** 制定计划、修改代码和测试；**Review** 基于固定的代码提交独立复核。只有 Lead 能修改任务生命周期状态并宣布 `ACCEPTED`。
 
-- **Lead** — requirement definition, lifecycle control, Plan approval, rework decisions, final acceptance
-- **Impl** — investigation, Plan creation, implementation, tests, implementation evidence
-- **Review** — fresh-context independent verification of an exact Code Plane snapshot
+> `feature/agent-orchestrator` 分支提供实验性的自动编排；`main` 是稳定的手动交接版本。
 
-Only **Lead** may transition lifecycle state and declare a task `ACCEPTED`.
+## 先选运行方式
 
-> The `feature/agent-orchestrator` branch adds experimental automatic orchestration.  
-> `main` remains the stable manual-handoff version.
+| 方式 | 适合场景 | 如何启动 | 能看到什么 |
+|---|---|---|---|
+| **Native SubAgent** | 日常交互式开发；宿主支持原生子 Agent | 在 Lead 会话中提出任务 | Lead 会话和子 Agent 的最终回报；宿主是否显示子 Agent 过程取决于宿主 |
+| **Process** | CI、无人值守、本地单命令执行 | `agent-team --transport process` | CLI 输出及运行日志 |
+| **Queue** | 现在就需要 Warp 三面板，分别看到 Impl、Review 工作者 | 两个 `worker` 面板加一个 Lead 面板 | 各工作者进程的实时输出；它们是独立进程，不是 Native SubAgent |
+| **手动交接** | 宿主没有自动编排能力，或需要人工控制每次交接 | 分别打开 Lead、Impl、Review 会话 | 各会话的交互过程；需要手动通知下一角色 |
 
----
+优先使用 Native SubAgent。若宿主不支持原生子 Agent，用 Process；如果需要**当前可用**的三面板实时输出，用 Queue。手动方式是最后的退路。Native 模式的只读三面板观察方案见[设计与使用说明](docs/native-subagent-three-pane-observability.md)：该观察命令尚未实现，不能把设计中的命令当作现有功能。
 
-## Quick start
+**并发规则：** 同一个 Git 工作树同一时间只能运行一个自动化 Task。Process/Queue 使用 Code Plane 锁；Native 模式由 Lead 遵守同样约束。要并行开发多个 Task，请为每个 Task 创建独立的 Git worktree。不要自行清除疑似陈旧的锁：仍可能有工作者在改代码。若发生中断或校验失败，先检查 Task 运行目录中的 `pending-validation.json` 并核对状态。
 
-Use the Skill from the **project you want to change**. Lead owns the task and
-the final decision; Impl plans and changes code; a fresh Review agent checks
-the committed result. The task is done only when Lead records `ACCEPTED`.
+## 安装
 
-### 1. Install or load the Skill
+可安装的 Skill 是仓库中的 `skills/multi-agent-development-workflow/` 目录，包含 `SKILL.md`、角色、工作流、模板、运行时适配器和 `scripts/agent-team`。
 
-Install `skills/multi-agent-development-workflow/` in your coding agent, or
-open this repository and load that Skill from the workspace. See
-[Install the Skill](#2-install-the-skill) for the Codex install command.
-
-### 2. Start in your coding agent
-
-When the parent agent supports native SubAgents, give the request to Lead:
-
-```text
-Use multi-agent-development-workflow.
-Role: Lead.
-Mode: Automatic.
-Transport: native-subagent.
-
-Implement <describe the change and expected behavior>.
-```
-
-Lead creates the task, runs the Plan / implementation / independent Review
-cycle, handles any rework, and records final acceptance. To continue later,
-send:
-
-```text
-Use multi-agent-development-workflow.
-Role: Lead.
-Mode: Automatic.
-Transport: native-subagent.
-
-Continue TASK-YYYYMMDD-NNN-short-name.
-```
-
-Native SubAgents run inside the parent-agent session. Do not ask the standalone
-`agent-team` CLI to create native SubAgents; it supports process and queue
-workers only. If native SubAgents are unavailable, use the CLI below.
-
-### 3. Or run with the standalone CLI
-
-The CLI supports Codex and Pi process workers. Set its path after installing
-the Skill:
-
-```bash
-AGENT_TEAM="$HOME/.codex/skills/multi-agent-development-workflow/scripts/agent-team"
-```
-
-Check the runtime, start a task from a requirement, and inspect its state:
-
-```bash
-"$AGENT_TEAM" --runtime codex doctor
-"$AGENT_TEAM" --runtime codex --transport process start "<describe the change>"
-"$AGENT_TEAM" status TASK-YYYYMMDD-NNN-short-name
-```
-
-Use `--runtime pi` in place of `--runtime codex` for Pi. `start` prints the
-created Task ID; use that ID with `run` to continue a task:
-
-```bash
-"$AGENT_TEAM" --runtime codex --transport process run TASK-YYYYMMDD-NNN-short-name
-```
-
-Use `--transport queue` when Impl and Review should run in dedicated Warp
-panes. The full setup is in [Process fallback](#5-process-fallback) and
-[Warp three-pane Queue fallback](#6-warp-three-pane-queue-fallback).
-
-### 4. Find the task and its result
-
-By default, task records are kept in the target project's
-`.agent-team/tasks/<TASK-ID>/`. `STATUS.md` is the lifecycle source of truth;
-`TASK.md` contains the requirements. `ACCEPTANCE.md` records Lead's final
-decision. Keep `.agent-team/` out of Git commits.
-
-If the workflow reaches `BLOCKED`, provide the requested product decision to
-Lead. In standalone CLI mode, resume explicitly with:
-
-```bash
-"$AGENT_TEAM" --runtime codex resume TASK-YYYYMMDD-NNN-short-name "<your decision>"
-```
-
-Do not start another automated task in the same Git working tree while one is
-running. Use a separate worktree for parallel tasks.
-
----
-
-## 1. Which mode should I use?
-
-| Mode | Recommended for | Human handoff | Warp panes |
-|---|---|---:|---:|
-| **Native SubAgent** | Normal interactive development | No | 1 is enough |
-| **Process fallback** | CI / unattended local execution | No | Not required |
-| **Queue fallback** | Watching Impl and Review in separate Warp panes | No | 3 |
-| Manual | Runtime without automation support | Yes | Any |
-
-Recommended order:
-
-```text
-native-subagent
-      ↓ unavailable
-process
-      ↓ need visible Warp workers
-queue
-      ↓ automation unavailable
-manual
-```
-
-For normal use, **start with Native SubAgent mode**.
-
-### Concurrency rule
-
-A single Git working tree is one mutable Code Plane. Do not run two automated Tasks against the same working tree at the same time.
-
-```text
-one working tree
-→ one automated Task at a time
-```
-
-The standalone Process/Queue runtime enforces this with a Code Plane lock. The lock is fail-closed: a stale lock is not automatically stolen because an orphan worker may still be changing the Code Plane. For true parallel Tasks, create a separate Git worktree per Task. Native SubAgent mode must follow the same rule even though its scheduling happens inside the parent Agent.
-
-The automated lock is stored in the worktree's Git directory and is shared across Control Root settings. Interrupted or rejected worker steps leave a `pending-validation.json` marker in the Task runtime directory. Inspect and reconcile the Task before clearing that marker and retrying.
-
----
-
-## 2. Install the Skill
-
-The installable Skill directory is:
-
-```text
-skills/multi-agent-development-workflow/
-├── SKILL.md
-├── roles/
-├── workflows/
-├── templates/
-├── adapters/
-├── runtimes/
-├── automation/
-└── scripts/
-```
-
-### Codex — manual install
-
-For the automatic-orchestration branch:
+在 Codex 中手动安装此分支：
 
 ```bash
 git clone -b feature/agent-orchestrator \
   https://github.com/liutao1992/Multi-Agent-Development-Workflow.git
-
 mkdir -p ~/.codex/skills
-
-cp -R \
-  Multi-Agent-Development-Workflow/skills/multi-agent-development-workflow \
+cp -R Multi-Agent-Development-Workflow/skills/multi-agent-development-workflow \
   ~/.codex/skills/multi-agent-development-workflow
 ```
 
-Installed layout:
+如果你的 Skill 安装器支持安装仓库子目录，也可以直接安装 `skills/multi-agent-development-workflow/`。安装后，在**要开发的项目目录**启动 Agent 或运行 CLI，而不是在本仓库中替目标项目执行任务。
 
-```text
-~/.codex/skills/
-└── multi-agent-development-workflow/
-    ├── SKILL.md
-    ├── roles/
-    ├── workflows/
-    ├── templates/
-    ├── adapters/
-    ├── runtimes/
-    ├── automation/
-    └── scripts/
-```
-
-If your Skill installer can install a repository subdirectory directly, install:
-
-```text
-skills/multi-agent-development-workflow/
-```
-
----
-
-## 3. Recommended usage: Native SubAgent
-
-### What this mode does
-
-Native mode uses the runtime's real parent/child Agent capability:
-
-```text
-You
- ↓
-Lead = Parent / Root Agent
- ├── Impl SubAgent       ← reused within the same Task
- └── Review SubAgent     ← NEW for every Review round
-```
-
-Lead automatically drives:
-
-```text
-Task
- ↓
-Impl creates Plan
- ↓
-Lead approves Plan
- ↓
-same Impl implements + tests
- ↓
-Lead freezes Review target
- ↓
-fresh Review SubAgent
- ├── FAIL → Lead → same Impl rework → fresh Review
- └── PASS → Lead final acceptance
- ↓
-ACCEPTED
-```
-
-You do **not** need to manually type `继续` into Impl or `Review` into Review.
-
-### Start a new Task
-
-Open the target project in your coding Agent and talk only to **Lead**:
-
-```text
-Use multi-agent-development-workflow.
-Role: Lead.
-Mode: Automatic.
-Transport: native-subagent.
-
-新建任务：
-增加 iOS 系统词典释义功能。
-```
-
-After that, Lead should automatically:
-
-1. create `.agent-team/tasks/<TASK-ID>/`;
-2. create `TASK.md` and `STATUS.md`;
-3. spawn/reuse Impl for Plan and implementation;
-4. perform Plan Gate itself;
-5. spawn a fresh Review SubAgent for each Review round;
-6. drive rework automatically when Review fails;
-7. create `ACCEPTANCE.md` and finish at `ACCEPTED`.
-
-### Continue an existing Task
-
-```text
-Use multi-agent-development-workflow.
-Role: Lead.
-Mode: Automatic.
-Transport: native-subagent.
-
-继续 TASK-20261003-001-ios-system-dictionary-meaning
-```
-
-Lead reads `STATUS.md` and resumes from the current lifecycle state.
-
-### Short form after Lead is already bound
-
-If the current Lead session already knows the Skill and the Task:
-
-```text
-继续
-```
-
-That is enough.
-
-### Impl reuse rule
-
-For one Task:
-
-```text
-Impl-1
-  ├── Plan
-  ├── Implementation
-  └── Rework
-```
-
-Lead should reuse the same Impl child when possible so implementation context is preserved.
-
-### Review freshness rule
-
-Every Review round gets a new child:
-
-```text
-IMPL-001 → Review-1 → REVIEW-001
-IMPL-002 → Review-2 → REVIEW-002
-IMPL-003 → Review-3 → REVIEW-003
-```
-
-A Review SubAgent must not inherit Impl private reasoning.
-
-> A separate `codex exec` process or Pi RPC process is a **worker process**, not a native SubAgent.
-
-Native SubAgent orchestration is **Skill-level orchestration**: Lead uses the host runtime's native child-agent tools. The bundled `agent-team` CLI implements only Process and Queue fallback transports.
-
----
-
-## 4. Do I still need three Warp panes?
-
-### Native SubAgent mode
-
-No.
-
-One Lead pane is enough:
-
-```text
-┌──────────────────────────────────────┐
-│ Lead / Parent Agent                  │
-│                                      │
-│ automatically spawns Impl / Review   │
-│ automatically drives STATUS          │
-│ automatically handles rework         │
-│ automatically accepts the Task       │
-└──────────────────────────────────────┘
-```
-
-You can keep extra panes for logs or Git inspection, but they are not required for orchestration.
-
-### If you want visible Impl / Review panes
-
-Use **Queue fallback** instead. See section 6.
-
----
-
-## 5. Process fallback
-
-Use this when the current runtime does not expose native SubAgent collaboration.
-
-The bundled CLI launches separate Codex/Pi worker processes and drives the same lifecycle automatically.
-
-Define the CLI path after installing the Skill:
+以下 CLI 示例先设置路径：
 
 ```bash
 AGENT_TEAM="$HOME/.codex/skills/multi-agent-development-workflow/scripts/agent-team"
 ```
 
-### Check the environment
+使用 Pi 时，请把它改为实际安装 Skill 的路径。
+
+## 方式一：Native SubAgent
+
+Native 模式由当前 Lead 会话作为父 Agent。Lead 通常复用同一个 Impl 子 Agent 完成计划、实现和返工；每轮 Review 都新建一个 Review 子 Agent，以保持独立性。Lead 自动执行计划审批、冻结 Review 目标、处理返工和最终验收。
+
+### 新建任务
+
+在目标项目中打开支持原生子 Agent 的编码 Agent，对 Lead 发送：
+
+```text
+Use multi-agent-development-workflow.
+Role: Lead.
+Mode: Automatic.
+Transport: native-subagent.
+
+新建任务：增加 iOS 系统词典释义功能。
+```
+
+Lead 应创建 `.agent-team/tasks/<TASK-ID>/`，写入 `TASK.md` 与 `STATUS.md`，随后按 `Impl 制定计划 → Lead 审批 → Impl 实现与测试 → 新 Review 复核 → Lead 验收` 推进。Review 失败时，Lead 把确认的返工项交给原 Impl，并在下一轮新建 Review 子 Agent。正常交接无需你去其他面板输入 `继续`。
+
+### 继续任务与处理阻塞
+
+在原 Lead 会话中发送：
+
+```text
+Use multi-agent-development-workflow.
+Role: Lead.
+Mode: Automatic.
+Transport: native-subagent.
+
+继续 TASK-YYYYMMDD-NNN-short-name
+```
+
+如果 Lead 会话已经绑定且只有一个明确的 Task，直接发送 `继续` 即可。若任务为 `BLOCKED`，把所需产品决策发给 Lead；Lead 记录决策并按 `STATUS.md` 的 Resume State 恢复。丢失 Impl 会话时，Lead 可根据 STATUS 和工件建立替代子 Agent；不能靠旧会话的私有思考重建 Review 依据。
+
+### Native 模式的三面板可见性
+
+目前一个 Lead 面板就能完成编排，但普通 Warp 终端面板**不能自动附着到原生子 Agent 的内部执行流**。想马上看到 Impl、Review 各自的工作者输出，请使用下面的 Queue 模式。
+
+[Native 三面板观察设计](docs/native-subagent-three-pane-observability.md)计划在 Lead 左面板保留交互，在右上、右下面板分别运行 Impl、Review 的只读观察器。没有宿主事件接口时，只能显示结构化进度、工件和结果，不能显示每一次工具调用；有受支持的宿主事件接口时，才可显示更细的实时事件。**观察器尚未实现，当前不能按设计文档直接启动。**
+
+不要运行 `agent-team --transport subagent` 来创建 Native 子 Agent：独立 CLI 无法接入已运行的 Lead 父会话，该参数会被拒绝。
+
+## 方式二：Process 自动运行
+
+Process 模式使用单条 CLI 命令驱动同一套生命周期，分别启动 Codex 或 Pi 工作者进程。它不需要保留三个终端面板。
+
+先检查环境：
 
 ```bash
 "$AGENT_TEAM" --runtime codex doctor
 ```
 
-### Start from a requirement
+从需求新建任务，命令返回 Task ID：
 
 ```bash
-"$AGENT_TEAM" \
-  --runtime codex \
-  --transport process \
+"$AGENT_TEAM" --runtime codex --transport process \
   start "增加 iOS 系统词典释义功能"
 ```
 
-### Continue an existing Task
+按 Task ID 继续：
 
 ```bash
-"$AGENT_TEAM" \
-  --runtime codex \
-  --transport process \
-  run TASK-20261003-001-ios-system-dictionary-meaning
+"$AGENT_TEAM" --runtime codex --transport process \
+  run TASK-YYYYMMDD-NNN-short-name
 ```
 
-### Pi
+使用 Pi 时，将 `--runtime codex` 改为 `--runtime pi`：
 
 ```bash
-"$AGENT_TEAM" \
-  --runtime pi \
-  --transport process \
-  run TASK-20261003-001-ios-system-dictionary-meaning
+"$AGENT_TEAM" --runtime pi --transport process \
+  start "增加 iOS 系统词典释义功能"
 ```
 
-Process mode also enforces runtime safety:
+Process 模式会检查工作树是否干净、角色写入边界、计划审批、Review 目标与 Code Head、超时和取消，并在每次 Lead 动作后校验状态转换。Review 不能改代码、Git HEAD 或 STATUS；计划阶段 Impl 不能改代码；实现阶段 Impl 必须留下干净的已提交代码快照。
 
-- one automated Task per working tree through a Code Plane lock;
-- clean Code Plane before every dispatch;
-- real per-worker timeout for Codex and Pi;
-- process-group termination on timeout/cancel;
-- executable lifecycle transition validation after every Lead action;
-- evidence gates for Plan approval, Review PASS/FAIL, Review Target, BLOCKED resume, and final ACCEPTED;
-- role postconditions after every worker;
-- whole-project Control Plane write-boundary validation (runtime metadata excluded);
-- immutable existing Plan / IMPL / REVIEW artifacts;
-- Review cannot change HEAD/index/worktree or STATUS;
-- Planning Impl cannot change Code Plane or STATUS;
-- Implementation Impl must leave a clean committed Code Plane and create exactly one IMPL artifact;
-- Lead cannot modify Code Plane.
+查看任务状态和运行指标：
 
----
+```bash
+"$AGENT_TEAM" status TASK-YYYYMMDD-NNN-short-name
+"$AGENT_TEAM" metrics TASK-YYYYMMDD-NNN-short-name
+```
 
-## 6. Warp three-pane Queue fallback
+## 方式三：Warp 三面板 Queue
 
-Use this mode when you want to **see Impl and Review running in dedicated Warp panes**.
-
-Layout:
+这是**当前已实现**的三面板方案。左侧运行 Lead/Orchestrator，右上运行 Impl worker，右下运行 Review worker。右侧是等待任务的 CLI 工作者进程，不是已经打开的交互式 Codex/Pi 会话；Queue 不会向任意会话注入提示。不要开启 Warp 的同步输入。
 
 ```text
 ┌──────────────────────────────┬──────────────────────────────┐
-│ Lead / Orchestrator          │ Impl Worker                  │
-│                              │                              │
-│ controls STATUS              │ consumes Impl jobs           │
-│ dispatches automatically     ├──────────────────────────────┤
-│ final acceptance             │ Review Worker                │
-│                              │ consumes Review jobs         │
+│ Lead / Orchestrator          │ Impl worker                  │
+│ 创建任务、调度、修改 STATUS   │ 接收计划/实现/返工任务         │
+│ 审批、最终验收               ├──────────────────────────────┤
+│                              │ Review worker                │
+│                              │ 接收独立复核任务             │
 └──────────────────────────────┴──────────────────────────────┘
 ```
 
-Do not enable Warp synchronized input.
+三个面板都进入同一个目标项目，并在每个面板分别执行上文的 `AGENT_TEAM="..."` 路径设置。启动顺序如下。
 
-Set:
-
-```bash
-AGENT_TEAM="$HOME/.codex/skills/multi-agent-development-workflow/scripts/agent-team"
-```
-
-### Right-top pane — Impl
-
-Run once:
+**右上 Impl 面板**，运行一次并保持运行：
 
 ```bash
 "$AGENT_TEAM" --runtime codex worker Impl
 ```
 
-Leave this process running.
-
-### Right-bottom pane — Review
-
-Run once:
+**右下 Review 面板**，运行一次并保持运行：
 
 ```bash
 "$AGENT_TEAM" --runtime codex worker Review
 ```
 
-Leave this process running.
-
-### Left pane — Lead / Orchestrator
-
-Start a new Task:
+**左侧 Lead 面板**，新建任务：
 
 ```bash
-"$AGENT_TEAM" \
-  --runtime codex \
-  --transport queue \
+"$AGENT_TEAM" --runtime codex --transport queue \
   start "增加 iOS 系统词典释义功能"
 ```
 
-Or continue an existing Task:
+继续已有任务：
 
 ```bash
-"$AGENT_TEAM" \
-  --runtime codex \
-  --transport queue \
-  run TASK-20261003-001-ios-system-dictionary-meaning
+"$AGENT_TEAM" --runtime codex --transport queue \
+  run TASK-YYYYMMDD-NNN-short-name
 ```
 
-After that, no manual pane switching is required.
+如果使用 Pi，三个面板都将 `--runtime codex` 改为 `--runtime pi`。Lead 会自动把工作派给右侧面板，等待结果，再继续状态转换、返工或验收；不需要在面板之间手动输入指令。
 
-The Orchestrator automatically performs:
+Queue 的任务按项目隔离。任务经过 `QUEUED → CLAIMED/RUNNING → SUCCEEDED/FAILED/CANCELLED`；如果过期任务的原工作者身份或停止状态无法证实，运行时会隔离该任务并停止新的自动执行，避免旧进程继续改同一个工作树。出现隔离时应先检查工作者进程与运行目录，再恢复任务。
+
+## 方式四：手动交接
+
+当没有可用的自动编排能力时，在目标项目中打开三个交互式 Agent 会话，分别加载 Skill 和对应角色文件：`roles/lead.md`、`roles/impl.md`、`roles/review.md`。Review 每一轮都要使用**全新会话**，不能复用上一轮 Review。
+
+首次绑定可分别发送：
 
 ```text
-Lead
- ↓
-queue → Impl pane
- ↓
-Lead
- ↓
-queue → Impl pane
- ↓
-Lead
- ↓
-queue → Review pane
- ↓
-Lead
- ├── rework loop
- └── acceptance
+Lead 面板：Use multi-agent-development-workflow. Role: Lead. Mode: Manual.
+Impl 面板：Use multi-agent-development-workflow. Role: Impl. Mode: Manual.
+Review 面板：Use multi-agent-development-workflow. Role: Review. Mode: Manual.
 ```
 
-### Important
+按以下顺序操作：
 
-Queue mode does **not** inject prompts into arbitrary interactive Codex/Pi sessions already open in those panes.
+1. 给 Lead 提需求，由 Lead 建立 TASK 和 STATUS。记下返回的 Task ID。
+2. 在 Impl 面板发送 `继续 <TASK-ID>`，让 Impl 读取 STATUS、制定计划；完成后通知 Lead。
+3. 在 Lead 面板发送 `继续 <TASK-ID>`，由 Lead 审批计划并推进状态。
+4. 再让 Impl `继续 <TASK-ID>`，实现、测试并写入 IMPL 工件。
+5. Lead `继续 <TASK-ID>`，冻结确切的 Review 目标和 Code Head。
+6. 在**新的** Review 会话发送 `Review <TASK-ID>`；Review 完成后让 Lead `继续 <TASK-ID>`。
+7. 如果 Review 失败，Lead 确认返工项，原 Impl 返工，然后重复步骤 5–6 并换新的 Review 会话；通过后由 Lead 验收。
 
-The right-side panes must run:
+每个角色先读 `STATUS.md`，再读它引用的工件。不要按文件名最大编号猜测当前 Plan、IMPL 或 REVIEW。若会话已绑定唯一任务，后续可使用简短的 `继续`、`Review`、`验收`。手动方式仍遵守角色权限、计划审批、固定代码快照和最终验收规则。
 
-```text
-agent-team worker Impl
-agent-team worker Review
-```
+## 查看状态、阻塞恢复与数据位置
 
-Those worker processes launch the configured runtime when a job arrives.
-
-Queue jobs are project-scoped. When multiple projects share an external `AGENT_TEAM_DIR`, each project gets a fingerprint namespace. Workers reject jobs whose project root/fingerprint does not match.
-
-Queue jobs use lease + cancellation semantics:
-
-```text
-QUEUED
-  ↓
-CLAIMED / RUNNING + lease
-  ↓
-SUCCEEDED / FAILED / CANCELLED
-                    └─ or QUARANTINED when orphan safety is uncertain
-```
-
-Expired claims are requeued only when the previous child process identity is known and confirmed unable to execute.
-
-For a live stale PID, the runtime also verifies recorded process identity (PID + process group/start-time/command where available) before terminating anything. A live PID that cannot be proven to be the original child is never killed; the claim is quarantined as `UNKNOWN_PROCESS_IDENTITY`.
-
-If an expired/malformed claim has no trustworthy `child_pid`, or a child cannot be confirmed quiesced, the claim moves to `quarantined/` as `UNKNOWN_ORPHAN_RISK`. New automatic runs/workers fail closed until the quarantine is inspected.
-
-A timed-out orchestrator cancels the job and attempts to quiesce any claimed child process before returning; a running worker also observes cancellation and terminates its child runtime instead of continuing to make ghost changes.
-
----
-
-## 7. Where task data is stored
-
-By default, Agent Team data lives inside the target project:
-
-```text
-<project-root>/
-├── .agent-team/
-│   ├── INDEX.md
-│   ├── runtime/
-│   └── tasks/
-│       └── TASK-YYYYMMDD-NNN-short-name/
-│           ├── TASK.md
-│           ├── STATUS.md
-│           ├── plans/
-│           ├── implementations/
-│           ├── reviews/
-│           └── ACCEPTANCE.md
-└── project source...
-```
-
-The Skill must not automatically use:
-
-```text
-/private/tmp/...
-/tmp/...
-~/.agent-team/...
-```
-
-unless you explicitly configure an external Control Root.
-
-If `AGENT_TEAM_DIR` is external and shared by multiple projects, storage becomes project-scoped:
-
-```text
-<AGENT_TEAM_DIR>/
-└── projects/
-    └── <project-fingerprint>/
-        ├── tasks/
-        └── runtime/
-```
-
-If a custom Control Root is still inside the Git working tree, the CLI verifies that it is untracked and adds that path to `.git/info/exclude`. A tracked Control Root is rejected.
-
-The default root is resolved from:
-
-```bash
-git rev-parse --show-toplevel
-```
-
-and becomes:
-
-```text
-<project-root>/.agent-team/
-```
-
-### Git rule
-
-`.agent-team/` is Control Plane data and must not enter the Code Plane commit history.
-
-The Skill normally adds it to:
-
-```text
-.git/info/exclude
-```
-
-Verify:
-
-```bash
-git ls-files .agent-team
-git check-ignore -q .agent-team/
-```
-
-`git ls-files .agent-team` should return nothing.
-
----
-
-## 8. Role files and task lookup
-
-Role definitions:
-
-```text
-Lead   → roles/lead.md
-Impl   → roles/impl.md
-Review → roles/review.md
-```
-
-For a Task:
-
-```text
-<project-root>/.agent-team/tasks/<TASK-ID>/
-```
-
-Every role reads:
-
-```text
-STATUS.md
-```
-
-first.
-
-Then it follows the exact artifact references recorded there.
-
-### Lead
-
-Reads:
-
-```text
-STATUS.md
-TASK.md
-plans/PLAN-vNNN.md
-implementations/IMPL-NNN.md
-reviews/REVIEW-NNN.md
-ACCEPTANCE.md
-```
-
-### Impl
-
-Reads:
-
-```text
-STATUS.md
-TASK.md
-approved Plan
-failed Review / confirmed RW items when reworking
-```
-
-### Review
-
-Reads:
-
-```text
-STATUS.md
-TASK.md
-approved Plan or fast-path marker
-exact IMPL-NNN
-exact Code Head SHA
-Git diffs
-test evidence
-```
-
-Agents must not guess an artifact merely because it has the highest filename number.
-
----
-
-## 9. Useful commands
-
-Using:
-
-```bash
-AGENT_TEAM="$HOME/.codex/skills/multi-agent-development-workflow/scripts/agent-team"
-```
-
-Environment check:
+下面的 CLI 查询适用于已存在的任务，且不会启动工作者：
 
 ```bash
 "$AGENT_TEAM" doctor
+"$AGENT_TEAM" status TASK-YYYYMMDD-NNN-short-name
+"$AGENT_TEAM" metrics TASK-YYYYMMDD-NNN-short-name
 ```
 
-`doctor` does not require Codex/Pi to be installed. It reports missing runtimes instead of failing and does not create Control Plane directories.
+`doctor` 报告运行时是否可用，不会创建 Control Plane；`status` 为只读查询。`metrics` 统计 Process/Queue 的工作者调用；Native 模式目前没有接入这份统计，返回零不代表子 Agent 没有执行。
 
-Current Task state:
+Process/Queue 遇到 `BLOCKED` 会停止，获得人工决策后使用显式恢复命令：
 
 ```bash
-"$AGENT_TEAM" status TASK-20261003-001-ios-system-dictionary-meaning
+"$AGENT_TEAM" --runtime codex \
+  resume TASK-YYYYMMDD-NNN-short-name "采用向后兼容的迁移方式"
 ```
 
-`status` is read-only: it does not resolve a runtime, create directories, or modify `.git/info/exclude`.
+`resume` 先让 Lead 记录 Blocked Resolution 并校验返回到 STATUS 指定的 Resume State，然后继续自动执行。Native/手动模式则把决策发给 Lead。
 
-Resume a BLOCKED Task after a human decision:
-
-```bash
-"$AGENT_TEAM" \
-  --runtime codex \
-  resume TASK-20261003-001-ios-system-dictionary-meaning \
-  "Use a backward-compatible migration"
-```
-
-`run` intentionally stops at `BLOCKED`. Only `resume` asks Lead to consume the human resolution, transition exactly to the recorded Resume State, validate that transition, and then continue automation.
-
-Automatic process fallback:
-
-```bash
-"$AGENT_TEAM" --runtime codex --transport process run TASK-...
-```
-
-Warp queue fallback:
-
-```bash
-"$AGENT_TEAM" --runtime codex --transport queue run TASK-...
-```
-
-The standalone CLI intentionally rejects:
-
-```bash
-"$AGENT_TEAM" --transport subagent ...
-```
-
-because native SubAgents belong to the already-running Lead parent session. The CLI must not pretend that a child OS process is a native SubAgent.
-
----
-
-### Requirement Contract is snapshot-bound
-
-`TASK.md` is the requirement source of truth, and its executable contract is versioned.
-
-The contract hash covers:
+默认数据位置：
 
 ```text
-Objective
-Requirements
-Acceptance Criteria
-Constraints
-Dependencies
-Out of Scope
+<project-root>/.agent-team/
+├── INDEX.md
+├── runtime/                         # 调度日志与运行元数据
+└── tasks/<TASK-ID>/
+    ├── TASK.md                       # 需求契约
+    ├── STATUS.md                     # 唯一生命周期状态
+    ├── plans/PLAN-vNNN.md
+    ├── implementations/IMPL-NNN.md
+    ├── reviews/REVIEW-NNN.md
+    └── ACCEPTANCE.md                # Lead 的最终验收
 ```
 
-TASK records:
+项目根目录通过 `git rev-parse --show-toplevel` 识别。`.agent-team/` 是 Control Plane，不能进入代码提交；安装/运行时通常将它写入 `.git/info/exclude`。可用 `git ls-files .agent-team` 确认没有被跟踪。只有显式配置 `AGENT_TEAM_DIR` 才会改用外部 Control Root；多个项目共享时按项目指纹隔离。若自定义根目录仍在工作树内，CLI 会验证它未被 Git 跟踪。
+
+## 生命周期与校验规则
 
 ```text
-Task Contract Revision: N
-Task Contract Hash: <SHA-256>
+用户需求 → Lead 建任务 → Impl 出 Plan → Lead 审批
+         → Impl 提交代码、测试、IMPL → Lead 固定 Review 目标
+         → 全新 Review ┬─ FAIL → Lead 确认返工 → 原 Impl → 全新 Review
+                       └─ PASS → Lead 写 ACCEPTANCE → ACCEPTED
 ```
 
-The active PLAN, IMPL, REVIEW, STATUS and ACCEPTANCE evidence must bind the same revision/hash.
+`TASK.md` 是需求来源，记录修订号和 SHA-256 契约哈希；当前 PLAN、IMPL、REVIEW、STATUS、ACCEPTANCE 必须绑定相同版本。Lead 修改产品需求时，须记录变更并重新进入计划流程；Review 返工说明属于单独的 Rework Requirements。Impl 负责 Plan 正文，Lead 只能处理待审批 Plan 的 Approval 区块；决定后该版 Plan 冻结。
 
-When Lead changes contract content:
+`STATUS.md` 是状态来源。Python 校验器在自动执行的 Lead 动作后检查合法状态转换及证据，例如：审批后才能实现；Review 必须针对确切的已提交 Code Head；PASS 才能验收；验收时当前 Git HEAD 仍须等于已复核的 Head。Review 的 FAIL 必须有阻塞问题，目标不匹配须明确记录 `REVIEW_TARGET_MISMATCH`。旧证据不能在需求或代码变更后直接复用。
 
-```text
-Revision N
-   ↓ amendment
-Revision N+1
-   ↓
-Requirement Change Log records:
-- Revision
-- Previous Hash
-- New Hash
-   ↓
-existing Plan / IMPL / REVIEW evidence becomes stale
-   ↓
-PLAN_REWORK
-```
+自动执行遇到以下情况会停止：需要真实的产品决策、`BLOCKED`、工作者失败或消失、没有协议进展、代码工作树不干净、Review 目标无效、角色越权、工作树被另一 Task 占用，或达到编排步数上限。由 Lead 消费问题和证据后再恢复。
 
-A changed Task Contract therefore cannot silently reuse an old Plan, Review or Acceptance path.
+## 进一步文档
 
-`Rework Requirements` contains Review remediation instructions and is excluded from the requirement hash. Lead may update only that TASK section during `REVIEWING -> REWORK`, with valid FAIL or MISMATCH evidence. Contract revision/hash and all other TASK content remain unchanged. Product requirement changes still require a contract amendment and `PLAN_REWORK`.
-
-Tasks created with the earlier hash definition (which included Rework Requirements) require regenerated contract bindings and evidence; existing immutable artifacts must not be edited to substitute the new hash.
-
-### Plan ownership is mechanically enforced
-
-Plan content and Plan approval have different owners:
-
-```text
-Impl
-  owns every section except ## Approval
-
-Lead
-  may change only ## Approval
-```
-
-The runtime hashes each Plan after removing the `## Approval` block. Existing Plan content hashes must not change.
-
-Approval is a one-time decision. Only the current PENDING Plan may change during `PLAN_REVIEW`:
-
-```text
-PENDING → APPROVED
-or
-PENDING → REWORK
-```
-
-After that decision, the entire Plan version—including the Approval block—is frozen. Older approval history cannot be rewritten.
-
-When a Plan enters `PLAN_REVIEW`, both STATUS and the Plan file must say:
-
-```text
-PENDING
-```
-
-so Impl cannot self-approve a Plan.
-
-## 10. Executable lifecycle enforcement
-
-The Markdown Transition Table is also enforced by Python.
-
-After every Lead action the runtime validates:
-
-```text
-before state
-+
-after state
-+
-required evidence
-+
-allowed transition
-```
-
-Examples:
-
-```text
-CREATED → ACCEPTED
-= rejected
-
-PLAN_REVIEW → READY_FOR_IMPLEMENTATION
-= requires APPROVED in STATUS + Plan artifact
-
-IMPLEMENTING → READY_FOR_REVIEW
-= requires frozen IMPL target + exact full 40-char Code Head SHA
-
-REVIEWING → READY_FOR_FINAL_ACCEPTANCE
-= requires REVIEW Result PASS
-
-READY_FOR_FINAL_ACCEPTANCE → ACCEPTED
-= requires ACCEPTANCE.md + current PASS Review
-+ matching accepted Code Head
-+ current real Git HEAD still equals the reviewed Code Head
-
-<any> → BLOCKED
-= requires Resume State = previous lifecycle state
-```
-
-This turns the Transition Table from prompt guidance into an executable protocol.
-
-Review evidence is machine-validated for all three exits.
-
-For PASS or FAIL, the Review must bind:
-
-```text
-Reviewed Implementation
-=
-STATUS Current Implementation
-
-Declared Code Head
-=
-Observed Review Head
-=
-STATUS Code Head
-=
-current Git HEAD
-
-Protocol Status = READY_FOR_REVIEW
-
-Unstaged Diff Clean = YES
-Staged Diff Clean = YES
-Status Porcelain Clean = YES
-Control Plane Excluded = YES
-```
-
-For FAIL, STATUS and REVIEW must both say `FAIL`, the same implementation/head checks apply, and at least one blocking `REV-NNN` issue must exist.
-
-For target mismatch:
-
-```text
-Protocol Status = REVIEW_TARGET_MISMATCH
-Review Result = N/A
-Declared Code Head = submitted STATUS Code Head
-Observed Code Head = current Git HEAD
-```
-
-Final Acceptance repeats both the reviewed Code Head check and Task Contract check to close Code and Requirement TOCTOU gaps.
-
-## 11. When automation stops
-
-Automatic execution stops rather than guessing when:
-
-- `STATUS = BLOCKED`;
-- a genuine product or requirement decision needs a human;
-- a worker/runtime fails;
-- no protocol progress is produced;
-- the Review target is invalid;
-- a required worker disappears;
-- a worker violates its role postconditions;
-- the Code Plane is dirty before dispatch;
-- another automated Task already owns the same working tree;
-- the maximum orchestration step limit is reached.
-
-Example:
-
-```text
-Need human decision:
-Should this database migration be destructive or backward-compatible?
-```
-
-At that point Lead should ask the user.
-
-After the decision:
-
-- Native SubAgent / interactive Lead: provide the decision to Lead and continue;
-- standalone Process/Queue mode: use the explicit `resume` command.
-
-```bash
-"$AGENT_TEAM" --runtime codex resume TASK-... "human decision"
-```
-
-The decision must be persisted in STATUS → Blocked Resolution before the workflow resumes.
-
----
-
-## 12. Lifecycle overview
-
-```text
-User requirement
-      ↓
-Lead
-      ↓
-Impl → PLAN
-      ↓
-Lead Plan Gate
-      ↓
-Impl → Code + Tests + IMPL
-      ↓
-Lead freezes Review target
-      ↓
-fresh Review
-   ┌───────┴────────┐
-   │                │
- FAIL              PASS
-   │                │
- Lead → Rework      Lead
-   │                │
- Impl               ACCEPTANCE.md
-   │                │
- fresh Review       ACCEPTED
-   └──── loop
-```
-
-Lifecycle source of truth:
-
-```text
-STATUS.md
-```
-
-Requirement source of truth:
-
-```text
-TASK.md
-```
-
-Implementation source of truth:
-
-```text
-Code Head SHA
-```
-
-Verification evidence:
-
-```text
-REVIEW-NNN.md
-```
-
----
-
-## 13. Documentation
-
-- [Skill protocol](./skills/multi-agent-development-workflow/SKILL.md)
-- [Native SubAgent orchestration](./skills/multi-agent-development-workflow/automation/subagent.md)
-- [Standalone Orchestrator fallback](./skills/multi-agent-development-workflow/automation/orchestrator.md)
-- [Warp adapter](./skills/multi-agent-development-workflow/adapters/warp.md)
-- [Codex runtime](./skills/multi-agent-development-workflow/runtimes/codex.md)
-- [Pi runtime](./skills/multi-agent-development-workflow/runtimes/pi.md)
+- [Skill 协议](skills/multi-agent-development-workflow/SKILL.md)
+- [Native SubAgent 编排](skills/multi-agent-development-workflow/automation/subagent.md)
+- [Native 三面板观察设计与使用说明](docs/native-subagent-three-pane-observability.md)
+- [独立 Orchestrator](skills/multi-agent-development-workflow/automation/orchestrator.md)
+- [Warp 适配器](skills/multi-agent-development-workflow/adapters/warp.md)
+- [Codex 适配器](skills/multi-agent-development-workflow/runtimes/codex.md)
+- [Pi 适配器](skills/multi-agent-development-workflow/runtimes/pi.md)
