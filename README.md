@@ -104,6 +104,18 @@ Git 根目录短 hash 隔离。
 └──────────────────┴──────────────────┘
 ```
 
+也可以启动为三列布局，Lead、Impl、Review 各占一列。用户可通过启动参数
+选择布局；默认 `balanced` 保持上图：
+
+```bash
+madw start --layout columns
+# 或为后续启动设置默认值
+MADW_LAYOUT=columns madw start
+```
+
+`--layout balanced` 可显式恢复默认布局。布局仅在创建新团队时应用；已有团队
+保留其当前面板排列。
+
 像截图中的 tmux session 名一样，每个 pane 的底部分隔线上固定显示
 青色 `[Leader]`、绿色 `[Impl]`、紫色 `[Review]`。Agent 自己更新终端标题时，
 这些角色标识也不会被覆盖。界面上的 Leader 对应流程中的 Lead 角色。

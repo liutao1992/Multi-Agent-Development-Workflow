@@ -35,6 +35,17 @@ Do not add another mailbox/queue/inbox/outbox layer for interactive Agents.
 madw start
 ```
 
+Choose the pane arrangement when creating a team:
+
+```bash
+madw start --layout balanced  # Lead left; Impl and Review stacked on the right
+madw start --layout columns   # Lead, Impl, Review in three columns
+```
+
+`MADW_LAYOUT=columns` sets the default. `balanced` is the default layout, and
+the selection applies when creating a new team; an existing team keeps its
+current arrangement.
+
 Runtime selection:
 
 1. explicit `madw start pi|codex`;

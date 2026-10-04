@@ -18,7 +18,7 @@ DEFAULT_WAIT_TIMEOUT="${MADW_WAIT_TIMEOUT:-3600}"
 usage() {
   cat <<'EOF'
 Usage:
-  madw start [pi|codex] [--boot-timeout SECONDS]
+  madw start [pi|codex] [--layout balanced|columns] [--boot-timeout SECONDS]
   madw status
   madw watch
   madw attach [leader|impl|review]
@@ -33,6 +33,7 @@ Usage:
 Defaults:
   - Project-scoped tmux session: madw-<repo>-<path-hash>
   - One session/window with three panes: Lead / Impl / Review
+  - Layout: MADW_LAYOUT or balanced (Lead left, Impl/Review stacked right)
   - Runtime auto-select: MADW_RUNTIME, then pi, then codex
 
 Environment:
@@ -458,7 +459,7 @@ configure_team_keys() (
 )
 
 create_team() {
-  local runtime="$1" boot_timeout="$2"
+  local runtime="$1" boot_timeout="$2" layout="$3"
   local root session cmd pane_cmd lead impl review
   root="$(project_root)"
   session="$(team_session)"
@@ -471,6 +472,9 @@ create_team() {
   lead="$(tmux display-message -p -t "$session:team.0" '#{pane_id}')"
   impl="$(tmux split-window -h -l 50% -P -F '#{pane_id}' -t "$lead" -c "$root" "$pane_cmd")"
   review="$(tmux split-window -v -l 50% -P -F '#{pane_id}' -t "$impl" -c "$root" "$pane_cmd")"
+  if [ "$layout" = "columns" ]; then
+    tmux select-layout -t "$session:team" even-horizontal
+  fi
 
   tmux select-pane -t "$lead" -T "Lead"
   tmux select-pane -t "$impl" -T "Impl"
@@ -479,6 +483,7 @@ create_team() {
 
   tmux set-option -t "$session" @madw_project_root "$root"
   tmux set-option -t "$session" @madw_runtime "$runtime"
+  tmux set-option -t "$session" @madw_layout "$layout"
   tmux set-option -t "$session" @madw_agent_cmd "$cmd"
   tmux set-option -t "$session" @madw_skill_root "$SKILL_ROOT"
   tmux set-option -t "$session" @madw_pane_leader "$lead"
@@ -874,14 +879,16 @@ doctor() {
 }
 
 start_command() {
-  local requested="" boot_timeout="$DEFAULT_BOOT_TIMEOUT"
+  local requested="" boot_timeout="$DEFAULT_BOOT_TIMEOUT" layout="${MADW_LAYOUT:-balanced}"
   while [ "$#" -gt 0 ]; do
     case "$1" in
       pi|codex) requested="$1"; shift ;;
+      --layout) [ "$#" -ge 2 ] || die "--layout requires balanced or columns"; layout="$2"; shift 2 ;;
       --boot-timeout) [ "$#" -ge 2 ] || die "--boot-timeout requires seconds"; boot_timeout="$2"; shift 2 ;;
       *) die "unknown start argument: $1" ;;
     esac
   done
+  case "$layout" in balanced|columns) ;; *) die "unknown layout '$layout' (choose balanced or columns)" ;; esac
 
   preflight_base
   local session root stored_runtime runtime cmd
@@ -916,7 +923,7 @@ start_command() {
   else
     runtime="$(resolve_runtime "$requested")"
     preflight_runtime "$runtime"
-    create_team "$runtime" "$boot_timeout"
+    create_team "$runtime" "$boot_timeout" "$layout"
   fi
 
   if [ "${MADW_NO_ATTACH:-0}" != "1" ]; then attach_team leader; fi
