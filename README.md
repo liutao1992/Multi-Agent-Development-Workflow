@@ -41,7 +41,7 @@ export AGENT_TEAM="$HOME/.codex/skills/multi-agent-development-workflow/scripts/
 
 此设置只对当前终端会话及其子进程生效。新开一个 Warp 面板或终端窗口时，需要在那个面板再执行一次；Queue 三个面板都要设置。也可以把这行加入 `~/.zshrc` 或 `~/.bashrc`，让之后启动的终端自动设置。使用 Pi 时，请把路径改为实际安装 Skill 的位置。
 
-**在 Warp 中请使用普通终端输入框执行这些 `bash` 命令。** 如果输入记录前出现 `/agent`，说明命令被送进 Warp AI 对话，随后出现“out of AI credits”是 Warp AI 的额度提示，`agent-team doctor` 并没有运行。此时打开或切换到显示 shell 提示符的终端面板，不要带 `/agent` 前缀；先执行上面的 `export`，再执行 `"$AGENT_TEAM" --runtime codex doctor`。可以先运行 `printf '%s\n' "$AGENT_TEAM"`，确认当前面板已经设置了路径。
+**在 Warp 中请使用普通终端输入框执行这些 `bash` 命令。** 如果当前面板显示 Warp Agent 对话（底部有“resume conversation”）或正在运行 Codex 会话，请另开一个普通 shell 标签页或面板；macOS 可用 `⌘+T` 新建标签页。确认看到 shell 提示符后，再输入命令。如果输入记录前出现 `/agent`，说明命令被送进 Warp AI 对话；“out of AI credits”是 Warp AI 的额度提示，`agent-team` 并没有运行。不要带 `/agent` 前缀。先执行上面的 `export`，再执行 `"$AGENT_TEAM" --runtime codex doctor`。可以先运行 `printf '%s\n' "$AGENT_TEAM"`，确认当前 shell 已设置路径。
 
 ## 方式一：Native SubAgent
 
@@ -127,7 +127,7 @@ Process 模式会检查工作树是否干净、角色写入边界、计划审批
 
 ## 方式三：Warp 三面板 Queue
 
-这是**当前已实现**的三面板方案。左侧运行 Lead/Orchestrator，右上运行 Impl worker，右下运行 Review worker。右侧是等待任务的 CLI 工作者进程，不是已经打开的交互式 Codex/Pi 会话；Queue 不会向任意会话注入提示。不要开启 Warp 的同步输入。
+这是**当前已实现**的三面板方案。请新建三个普通 shell 面板：左侧运行 Lead/Orchestrator，右上运行 Impl worker，右下运行 Review worker。已有的 Warp Agent 对话或交互式 Codex/Pi 会话不能直接充当这三个面板；Queue 不会向这些会话注入提示。不要开启 Warp 的同步输入。
 
 ```text
 ┌──────────────────────────────┬──────────────────────────────┐
