@@ -307,7 +307,10 @@ def line_field(text: str, field: str) -> str:
         rf"[^\S\r\n]*(.*?)[^\S\r\n]*\r?$",
         text,
     )
-    return match.group(1).strip() if match else ""
+    if not match:
+        return ""
+    value = match.group(1).strip()
+    return value[1:-1] if value.startswith("`") and value.endswith("`") else value
 
 
 def task_contract_content(text: str) -> str:
