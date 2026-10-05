@@ -4,19 +4,18 @@ tmux is the default interactive coordination layer for this Skill.
 
 ## Topology
 
-Each Git project gets one project-scoped tmux session:
+By default each Git project gets three role sessions:
 
 ```text
-madw-<repo>-<path-hash>
-└── window: team
-    ├── Lead   (pane)
-    ├── Impl   (pane)
-    └── Review (pane)
+madw-<repo>-<path-hash>          Lead
+madw-<repo>-<path-hash>-impl     Impl
+madw-<repo>-<path-hash>-review   Review
 ```
 
-The path hash prevents repositories with the same basename from sharing a team.
-The session records the canonical Git root and refuses to attach if the metadata
-does not match the current project.
+Each session starts in the canonical Git root. The user starts Pi or Codex in
+any combination. An explicit `madw start pi|codex` keeps the earlier automatic
+three-pane team for compatibility. The path hash isolates repositories with
+the same name.
 
 ## Responsibilities
 
@@ -35,45 +34,32 @@ Do not add another mailbox/queue/inbox/outbox layer for interactive Agents.
 madw start
 ```
 
-Choose the pane arrangement when creating a team:
+`madw start` creates shell sessions and attaches to Lead. In each session run
+`madw launch pi|codex`; the command starts the chosen Agent and automatically
+bootstraps Lead. Use `madw attach impl|review|leader` to enter a role session.
+Direct `pi` or `codex` startup is also supported, followed by
+`madw bootstrap leader` from another terminal. `madw send` prefixes
+Impl/Review handoffs with their role prompt.
 
-```bash
-madw start --layout balanced  # Lead left; Impl and Review stacked on the right
-madw start --layout columns   # Lead, Impl, Review in three columns
-```
-
-`MADW_LAYOUT=columns` sets the default; it also accepts `balanced`. With no
-environment setting, the default is `balanced`. An explicit `--layout` option
-overrides `MADW_LAYOUT`. The selection applies when creating a new team; an
-existing team keeps its current arrangement.
-
-Runtime selection:
-
-1. explicit `madw start pi|codex`;
-2. `MADW_RUNTIME`;
-3. installed `pi`;
-4. installed `codex`;
-5. fail before creating panes.
-
-`start` also verifies Git, tmux, the installed Skill, and the selected runtime.
-It creates the three panes only after preflight succeeds.
-Lead receives a short startup instruction and invites the user to enter a task.
-Impl and Review launch idle. `madw send` attaches the worker's role context to
-each bounded handoff, and `madw restart review` leaves the fresh reviewer idle
-until Lead sends the next review request.
-Reusing or attaching to an existing team revives panes whose Agent exited.
-Each pane command explicitly changes to the canonical project path, including
-on role restart, because a long-lived tmux server may retain a deleted cwd.
-The pane command also exports the launcher's `PATH`, and the team records it
-for role restarts. This keeps runtime lookup consistent even when the tmux
-server started with a different environment. Older teams without a recorded
-`PATH` adopt the restart caller's path on their first role restart.
+`madw start pi|codex` automatically starts that runtime in the old three-pane
+layout. `MADW_RUNTIME` or `MADW_AGENT_CMD` also selects automatic mode. Only
+this mode uses `--layout balanced|columns`, `MADW_BOOT_TIMEOUT`, and the stored
+runtime command. It is retained for existing teams.
 
 The launcher does not rely on a fixed one-second sleep. It verifies that each
 pane/Agent process is alive, up to `MADW_BOOT_TIMEOUT` (default 15 seconds), and
-fails closed if the process exits. This is intentionally **process liveness**,
-not runtime-specific UI readiness detection. Add Pi/Codex-specific readiness
-checks only if real startup behavior proves they are needed.
+fails closed if the process exits. Process liveness alone is not input
+readiness: after a respawn, Pi and Codex spend a while initializing and then
+redraw a full-screen UI that silently discards any input pasted before the UI
+is ready (the pre-UI terminal echoes the paste and the redraw erases it). For
+the supported TUI runtimes, `start`, `madw restart <role>`, and `madw send`
+wait for the pane to enter the terminal alternate screen — the signal that the
+Agent UI is ready to receive a handoff — up to `MADW_TUI_TIMEOUT` (default 10
+seconds). If the UI never appears, the command fails without sending the
+handoff. Without this gate a handoff sent right after `madw restart review`
+never reaches Review, and Lead's retries look like inexplicable Review agent
+restarts. Custom `MADW_AGENT_CMD` agents keep liveness-only waiting unless
+`MADW_TUI_READY=1` opts the team into the same alternate-screen gate.
 
 ## Sending handoffs
 
@@ -120,19 +106,11 @@ Lead still validates the artifact before changing STATUS.
 madw restart review
 ```
 
-This uses `tmux respawn-pane -k`, preserving the session, layout and pane
-address while starting a fresh Review process/context.
-
-A team has exactly one runtime. `madw restart <role>` always reuses the stored
-team runtime/command. Runtime changes are team-level operations:
-
-```bash
-madw stop
-madw start pi      # or codex
-```
-
-Per-role runtime overrides are intentionally unsupported because they would make
-team-level runtime metadata ambiguous.
+In manual mode, `madw restart review` respawns the runtime selected by
+`madw launch`. A directly started Review Agent has no stored command, so the
+session resets to a shell and the user starts an Agent again. The pane address
+and completion metadata stay stable. In automatic mode the command respawns
+the team runtime.
 
 ## Observation
 
@@ -146,10 +124,9 @@ madw attach review
 `status` shows the project/team, active Task/state/head/artifacts when
 available, the expected next actor, and pane process health.
 
-`watch` attaches to the full three-pane team UI.
-Click a pane to focus its Agent, then use the keyboard to respond to prompts.
-The launcher enables tmux mouse mode for this team session on creation and
-when attaching or reusing an existing team; other sessions are unaffected.
+`watch` attaches to Lead in manual mode and to the full three-pane UI in
+automatic mode. `attach <role>` selects that role session in manual mode.
+Automatic mode enables tmux mouse mode only for its team session.
 
 Terminal scrollback is observational only. Never use it as lifecycle truth.
 

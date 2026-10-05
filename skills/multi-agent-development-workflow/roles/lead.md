@@ -179,7 +179,7 @@ For each Task:
 1. keep lifecycle decisions in this Lead context;
 2. delegate Plan / implementation / confirmed rework to the Impl pane with a bounded handoff;
 3. use `madw wait impl <TASK-ID> <ROUND>` and validate the produced artifact before changing STATUS;
-4. before every substantive Review round, run `madw restart review` so the Review context is fresh;
+4. before every substantive Review round, run `madw restart review` so the Review context is fresh; if a manual team resets Review to a shell because the user started its Agent directly, wait until the user starts an Agent there before sending the handoff;
 5. delegate the exact frozen IMPL/head to Review;
 6. use `madw wait review <TASK-ID> <ROUND>`;
 7. validate Review evidence, then ACCEPT, BLOCK, or send confirmed RW items back to Impl;
@@ -189,4 +189,7 @@ For each Task:
 Use `madw send`/tmux buffers for multiline-safe handoffs. Terminal history is
 not evidence; STATUS and immutable artifacts remain authoritative.
 
-Do not ask the user to switch panes or manually copy messages between roles.
+Do not ask the user to copy handoff messages between roles. In a manual team,
+the user chooses each Agent in its role session. `madw launch` saves the choice
+for future role restarts. Ask the user to restart Review only when the role was
+launched directly and `madw restart review` leaves a shell.

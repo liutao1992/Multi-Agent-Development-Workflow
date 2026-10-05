@@ -171,7 +171,24 @@ rm "$TMP/bin/tmux"
 tmux new-session -d -s madw-path-server 'sleep 120'
 tmux set-environment -g PATH /usr/bin:/bin
 tmux set-option -g default-shell /bin/bash
-cp "$FAKE" "$TMP/bin/codex"
+# The codex runtime always gates handoffs on the agent's full-screen UI
+# (alternate screen). The fake Codex executable must behave like a real TUI
+# and draw it immediately so UI-readiness checks pass without hitting the
+# timeout.
+cat > "$TMP/bin/codex" <<'EOF'
+#!/usr/bin/env bash
+trap 'exit 0' TERM INT
+printf '\033[?1049h\033[2J\033[H'
+CWD="$(/bin/pwd -P)" || exit 17
+printf 'CWD_OK:%s\n' "$(basename "$CWD")"
+printf 'MADW_CLI_OK:%s\n' "$MADW_CLI"
+while IFS= read -r line; do
+  printf 'FAKE:%s\n' "$line"
+  printf 'CWD_OK:%s\n' "$(basename "$CWD")"
+  printf 'MADW_CLI_OK:%s\n' "$MADW_CLI"
+done
+EOF
+chmod +x "$TMP/bin/codex"
 CODEX_REPO="$TMP/codex-project"
 init_repo "$CODEX_REPO"
 (cd "$CODEX_REPO" && PATH="$TMP/bin:$PATH" MADW_AGENT_CMD= MADW_NO_ATTACH=1 "$MADW" start codex) >/dev/null
@@ -222,6 +239,162 @@ grep -Fq 'stored Codex Agent command is custom' "$TMP/custom-codex-policy.log"
 [ "$(tmux show-options -v -t "$CODEX_SESSION" @madw_agent_cmd)" = 'codex --custom-policy' ]
 (cd "$CODEX_REPO" && "$MADW" stop) >/dev/null
 
+# UI readiness gating: a custom agent that draws its full-screen UI only after
+# a delay must not receive handoffs before the UI exists. MADW_TUI_READY=1
+# opts the custom runtime into the same alternate-screen gate that pi/codex
+# always use; without the gate, start returns while the pane is still pre-UI
+# and the pasted bootstrap is silently discarded (observed with Pi: Lead's
+# review dispatch never arrived, and Lead's retries resurfaced as inexplicable
+# Review agent restarts).
+FAKE_TUI="$TMP/fake-tui.sh"
+FAKE_TUI_LOG="$TMP/fake-tui.log"
+cat >"$FAKE_TUI" <<EOF
+#!/usr/bin/env bash
+sleep 0.8
+printf '\033[?1049h\033[2J\033[HFAKE_TUI_DRAWN\n'
+: > "$FAKE_TUI_LOG"
+while IFS= read -r line; do
+  printf 'FAKE:%s\n' "\$line" >> "$FAKE_TUI_LOG"
+  if [ "\$line" = EXIT_ALT ]; then printf '\033[?1049l'; fi
+done
+EOF
+chmod +x "$FAKE_TUI"
+# An alive process without a UI must fail startup and leave no partial team.
+NO_TUI_REPO="$TMP/no-tui-project"
+init_repo "$NO_TUI_REPO"
+if (cd "$NO_TUI_REPO" && MADW_AGENT_CMD="$FAKE" MADW_TUI_READY=1 MADW_TUI_TIMEOUT=1 MADW_NO_ATTACH=1 "$MADW" start) >"$TMP/no-tui.log" 2>&1; then
+  echo "start accepted an agent whose UI never became ready" >&2
+  exit 1
+fi
+grep -Fq 'handoff was not sent' "$TMP/no-tui.log"
+NO_TUI_SESSION="$(session_for "$NO_TUI_REPO")"
+if tmux list-sessions -F '#S' | grep -Fqx "$NO_TUI_SESSION"; then
+  echo "start left a partial team after UI readiness timeout" >&2
+  exit 1
+fi
+TUI_REPO="$TMP/tui-project"
+init_repo "$TUI_REPO"
+(
+  cd "$TUI_REPO"
+  MADW_AGENT_CMD="$FAKE_TUI" MADW_TUI_READY=1 MADW_NO_ATTACH=1 "$MADW" start
+) >/dev/null
+TUI_SESSION="$(session_for "$TUI_REPO")"
+for role in leader impl review; do
+  TUI_PANE="$(tmux show-options -v -t "$TUI_SESSION" "@madw_pane_$role")"
+  if [ "$(tmux display-message -p -t "$TUI_PANE" '#{alternate_on}')" != "1" ]; then
+    echo "start returned before the $role agent UI was ready" >&2
+    exit 1
+  fi
+done
+# start delivered the Lead bootstrap only after the UI existed. The fake logs
+# every received line because an alternate-screen UI has no scrollback for
+# capture-pane to inspect.
+for _ in $(seq 1 50); do
+  if grep -Fq 'Lead 角色' "$FAKE_TUI_LOG" 2>/dev/null; then break; fi
+  sleep 0.1
+done
+grep -Fq '请使用 multi-agent-development-workflow Skill' "$FAKE_TUI_LOG"
+grep -Fq 'Lead 角色' "$FAKE_TUI_LOG"
+
+# A role restart also waits for UI readiness before returning, and only then
+# accepts a handoff.
+TUI_REVIEW="$(tmux show-options -v -t "$TUI_SESSION" @madw_pane_review)"
+OLD_TUI_REVIEW_PID="$(tmux display-message -p -t "$TUI_REVIEW" '#{pane_pid}')"
+(
+  cd "$TUI_REPO"
+  MADW_AGENT_CMD="$FAKE_TUI" MADW_TUI_READY=1 "$MADW" restart review
+) >/dev/null
+[ "$(tmux display-message -p -t "$TUI_REVIEW" '#{pane_pid}')" != "$OLD_TUI_REVIEW_PID" ]
+if [ "$(tmux display-message -p -t "$TUI_REVIEW" '#{alternate_on}')" != "1" ]; then
+  echo "restart review returned before the fresh agent UI was ready" >&2
+  exit 1
+fi
+(cd "$TUI_REPO" && ./.agent-team/madw send review 'TASK-TEST-001: verify the frozen code') >/dev/null
+for _ in $(seq 1 50); do
+  if grep -Fq 'TASK-TEST-001: verify the frozen code' "$FAKE_TUI_LOG" 2>/dev/null; then break; fi
+  sleep 0.1
+done
+grep -Fq 'Review 角色' "$FAKE_TUI_LOG"
+grep -Fq 'TASK-TEST-001: verify the frozen code' "$FAKE_TUI_LOG"
+
+(cd "$TUI_REPO" && "$MADW" send review EXIT_ALT) >/dev/null
+for _ in $(seq 1 50); do
+  if [ "$(tmux display-message -p -t "$TUI_REVIEW" '#{alternate_on}')" = "0" ]; then break; fi
+  sleep 0.1
+done
+if (cd "$TUI_REPO" && MADW_TUI_TIMEOUT=1 "$MADW" send review 'TASK-TEST-002: must not be lost') >"$TMP/tui-send-timeout.log" 2>&1; then
+  echo "send accepted a Review pane whose UI was not ready" >&2
+  exit 1
+fi
+grep -Fq 'handoff was not sent' "$TMP/tui-send-timeout.log"
+if grep -Fq 'TASK-TEST-002: must not be lost' "$FAKE_TUI_LOG"; then
+  echo "send pasted a handoff into an unready Review pane" >&2
+  exit 1
+fi
+
+(cd "$TUI_REPO" && "$MADW" stop) >/dev/null
+
+# Default startup creates three independent shell sessions. Users may launch
+# different interactive Agents in each one; handoffs wait for that Agent's UI.
+MANUAL_REPO="$TMP/manual-project"
+init_repo "$MANUAL_REPO"
+(cd "$MANUAL_REPO" && MADW_NO_ATTACH=1 "$MADW" start) >/dev/null
+MANUAL_SESSION="$(session_for "$MANUAL_REPO")"
+[ "$(tmux show-options -v -t "$MANUAL_SESSION" @madw_runtime)" = manual ]
+for role in leader impl review; do
+  if [ "$role" = leader ]; then ROLE_SESSION="$MANUAL_SESSION"; else ROLE_SESSION="$MANUAL_SESSION-$role"; fi
+  tmux list-sessions -F '#S' | grep -Fqx "$ROLE_SESSION"
+done
+if (cd "$MANUAL_REPO" && MADW_TUI_TIMEOUT=1 "$MADW" send impl 'TASK-MANUAL-001') >"$TMP/manual-unready.log" 2>&1; then
+  echo "manual handoff reached a shell before an Agent was started" >&2
+  exit 1
+fi
+grep -Fq 'handoff was not sent' "$TMP/manual-unready.log"
+cp "$FAKE_TUI" "$TMP/bin/pi"
+cp "$FAKE_TUI" "$TMP/bin/codex"
+for role in impl review leader; do
+  if [ "$role" = leader ]; then ROLE_SESSION="$MANUAL_SESSION"; else ROLE_SESSION="$MANUAL_SESSION-$role"; fi
+  if [ "$role" = impl ]; then ROLE_RUNTIME=codex; else ROLE_RUNTIME=pi; fi
+  tmux send-keys -t "$ROLE_SESSION" "PATH=$TMP/bin:\$PATH $MADW launch $ROLE_RUNTIME" Enter
+done
+for role in leader impl review; do
+  MANUAL_PANE="$(tmux show-options -v -t "$MANUAL_SESSION" "@madw_pane_$role")"
+  for _ in $(seq 1 50); do
+    if [ "$(tmux display-message -p -t "$MANUAL_PANE" '#{alternate_on}')" = 1 ]; then break; fi
+    sleep 0.1
+  done
+  [ "$(tmux display-message -p -t "$MANUAL_PANE" '#{alternate_on}')" = 1 ]
+done
+[ "$(tmux show-options -v -t "$MANUAL_SESSION" @madw_role_cmd_impl)" = "codex -s workspace-write -c 'sandbox_workspace_write.network_access=true'" ]
+[ "$(tmux show-options -v -t "$MANUAL_SESSION" @madw_role_cmd_review)" = pi ]
+for _ in $(seq 1 50); do
+  if grep -Fq 'Lead 角色' "$FAKE_TUI_LOG"; then break; fi
+  sleep 0.1
+done
+grep -Fq 'Lead 角色' "$FAKE_TUI_LOG"
+(cd "$MANUAL_REPO" && "$MADW" send impl 'TASK-MANUAL-001: mixed runtimes') >/dev/null
+for _ in $(seq 1 50); do
+  if grep -Fq 'TASK-MANUAL-001: mixed runtimes' "$FAKE_TUI_LOG"; then break; fi
+  sleep 0.1
+done
+grep -Fq 'TASK-MANUAL-001: mixed runtimes' "$FAKE_TUI_LOG"
+(cd "$MANUAL_REPO" && "$MADW" restart review) >/dev/null
+MANUAL_REVIEW="$(tmux show-options -v -t "$MANUAL_SESSION" @madw_pane_review)"
+[ "$(tmux display-message -p -t "$MANUAL_REVIEW" '#{alternate_on}')" = 1 ]
+(cd "$MANUAL_REPO" && "$MADW" send review 'TASK-MANUAL-002: review') >/dev/null
+tmux kill-session -t "$MANUAL_SESSION-review"
+(cd "$MANUAL_REPO" && MADW_NO_ATTACH=1 "$MADW" start) >/dev/null
+tmux list-sessions -F '#S' | grep -Fqx "$MANUAL_SESSION-review"
+[ "$(tmux display-message -p -t "$(tmux show-options -v -t "$MANUAL_SESSION" @madw_pane_review)" '#{pane_dead}')" = 0 ]
+(cd "$MANUAL_REPO" && "$MADW" stop) >/dev/null
+for role in leader impl review; do
+  if [ "$role" = leader ]; then ROLE_SESSION="$MANUAL_SESSION"; else ROLE_SESSION="$MANUAL_SESSION-$role"; fi
+  if tmux list-sessions -F '#S' | grep -Fqx "$ROLE_SESSION"; then
+    echo "stop left a manual $role session running" >&2
+    exit 1
+  fi
+done
+
 # Default install goes to the shared Agent Skills directory and removes an old
 # Codex-specific copy from the discovery path.
 INSTALL_HOME="$TMP/install-home"
@@ -262,8 +435,8 @@ tmux show-options -v -t "$SESSION_A" 'status-format[4]' | grep -Fq 'statusline c
 [ "$(tmux show-options -v -t "$SESSION_A" @madw_task_display)" = "尚未记录当前任务" ]
 [ "$(tmux show-options -v -t "$SESSION_A" key-table)" != "root" ]
 TEAM_TABLE="$(tmux show-options -v -t "$SESSION_A" key-table)"
-tmux list-keys -a | grep -E -- "-T $TEAM_TABLE[[:space:]]+C-c[[:space:]]+kill-session -t $SESSION_A$" >/dev/null
-tmux list-keys -a | grep -E -- "-T $TEAM_TABLE[[:space:]]+MouseDown1Pane[[:space:]]+select-pane -t =" >/dev/null
+tmux list-keys -a | grep -E -- "-T ${TEAM_TABLE}[[:space:]]+C-c[[:space:]]+kill-session -t $SESSION_A$" >/dev/null
+tmux list-keys -a | grep -E -- "-T ${TEAM_TABLE}[[:space:]]+MouseDown1Pane[[:space:]]+select-pane -t =" >/dev/null
 [ "$(tmux show-window-options -v -t "$SESSION_A:team" pane-border-status)" = "bottom" ]
 tmux show-window-options -v -t "$SESSION_A:team" pane-border-format | grep -Fq '#[fg=colour51,bold]'
 tmux show-window-options -v -t "$SESSION_A:team" pane-border-format | grep -Fq '#[fg=colour82,bold]'
@@ -356,10 +529,10 @@ grep -Fq "unknown layout 'invalid' (choose balanced or columns)" "$TMP/invalid-c
 [ ! -e "$REPO_D/.agent-team" ]
 
 for _ in 1 2 3 4 5 6 7 8 9 10; do
-  if tmux capture-pane -p -t "$LEAD_PANE" -S -100 | grep -Fq '队长，团队已就绪。'; then break; fi
+  if tmux capture-pane -p -t "$LEAD_PANE" -S -100 | grep -Fq '队长，Lead 已就绪。'; then break; fi
   sleep 0.1
 done
-tmux capture-pane -p -t "$LEAD_PANE" -S -100 | grep -Fq '队长，团队已就绪。'
+tmux capture-pane -p -t "$LEAD_PANE" -S -100 | grep -Fq '队长，Lead 已就绪。'
 tmux capture-pane -p -t "$LEAD_PANE" -S -100 | grep -Fq '【收到开发需求后】'
 tmux capture-pane -p -t "$LEAD_PANE" -S -100 | grep -Fq '绝不能解释为“没有团队”'
 [ "$(tmux display-message -p -t "$LEAD_PANE" '#{pane_current_path}')" = "$(cd "$REPO_A" && pwd -P)" ]

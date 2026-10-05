@@ -13,12 +13,15 @@ done
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$SOURCE")" && pwd)"
 SKILL_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
 DEFAULT_BOOT_TIMEOUT="${MADW_BOOT_TIMEOUT:-15}"
+DEFAULT_TUI_READY_TIMEOUT="${MADW_TUI_TIMEOUT:-10}"
 DEFAULT_WAIT_TIMEOUT="${MADW_WAIT_TIMEOUT:-3600}"
 
 usage() {
   cat <<'EOF'
 Usage:
   madw start [pi|codex] [--layout balanced|columns] [--boot-timeout SECONDS]
+  madw bootstrap leader
+  madw launch <pi|codex>   # run inside a manual role session
   madw status
   madw watch
   madw attach [leader|impl|review]
@@ -32,17 +35,22 @@ Usage:
 
 Defaults:
   - Project-scoped tmux session: madw-<repo>-<path-hash>
-  - One session/window with three panes: Lead / Impl / Review
+  - Three shell sessions by default: Lead / Impl / Review (start Agents yourself)
+  - Explicit pi/codex or MADW_AGENT_CMD uses the legacy three-pane auto-start
   - Layout: MADW_LAYOUT or balanced (Lead left, Impl/Review stacked right)
-  - Runtime auto-select: MADW_RUNTIME, then pi, then codex
+  - Runtime: manual by default; MADW_RUNTIME selects an auto-start runtime
 
 Environment:
   MADW_AGENT_CMD       Override the interactive Agent command.
-  MADW_RUNTIME         Default runtime: pi or codex.
+  MADW_RUNTIME         Auto-start runtime: pi or codex (omitted: manual mode).
   MADW_CODEX_NETWORK_ACCESS=0|1  Codex workspace-write network policy (default: 1).
                                  1 also allows outbound network access; 0 is restrictive.
   MADW_SESSION         Override the project-scoped tmux session name.
-  MADW_BOOT_TIMEOUT    Agent startup timeout (default: 15).
+  MADW_BOOT_TIMEOUT    Agent process startup timeout (default: 15).
+  MADW_TUI_TIMEOUT     Agent UI readiness timeout (default: 10). Handoffs fail
+                       if a pi/codex pane does not enter its UI.
+  MADW_TUI_READY=1     Also gate custom MADW_AGENT_CMD agents on UI readiness
+                       (for agents that draw a full-screen alternate-screen UI).
   MADW_WAIT_TIMEOUT    Handoff completion timeout (default: 3600).
   MADW_NO_ATTACH=1     Do not attach after start.
 EOF
@@ -91,6 +99,16 @@ team_session() {
     printf 'madw-%s-%s
 ' "$(project_slug)" "$(project_hash)"
   fi
+}
+
+role_session() {
+  local role="$1" base
+  base="$(team_session)"
+  case "$role" in
+    leader) printf '%s\n' "$base" ;;
+    impl|review) printf '%s-%s\n' "$base" "$role" ;;
+    *) die "unknown role: $role" ;;
+  esac
 }
 
 session_exists() {
@@ -286,6 +304,43 @@ wait_pane_alive() {
   done
 }
 
+wait_pane_ready() {
+  local pane="$1" timeout="${2:-$DEFAULT_BOOT_TIMEOUT}" runtime="$3"
+  local started now alt tui_ready
+  wait_pane_alive "$pane" "$timeout" || return 1
+  case "$runtime" in
+    pi|codex|manual) ;;
+    *)
+      tui_ready="$(session_option "$(team_session)" @madw_tui_ready)"
+      [ "${tui_ready:-${MADW_TUI_READY:-0}}" = "1" ] || return 0 ;;
+  esac
+  # Process liveness is not input readiness: after respawn, interactive Agents
+  # spend a while initializing and redraw a full-screen UI that silently
+  # discards input pasted before it is ready (observed with Pi: the paste is
+  # echoed by the pre-UI terminal and then erased on redraw). Both supported
+  # runtimes enter the terminal alternate screen exactly when their UI becomes
+  # ready to receive a handoff, so gate delivery on that.
+  started="$(date +%s)"
+  while :; do
+    if ! pane_is_alive "$pane"; then
+      echo "madw: Agent exited before its UI became ready in pane $pane" >&2
+      tmux capture-pane -p -t "$pane" -S -40 >&2 2>/dev/null || true
+      return 1
+    fi
+    alt="$(tmux display-message -p -t "$pane" '#{alternate_on}' 2>/dev/null || true)"
+    if [ "$alt" = "1" ]; then
+      return 0
+    fi
+    now="$(date +%s)"
+    if [ $((now - started)) -ge "$DEFAULT_TUI_READY_TIMEOUT" ]; then
+      echo "madw: Agent UI in pane $pane did not become ready within ${DEFAULT_TUI_READY_TIMEOUT}s; handoff was not sent" >&2
+      tmux capture-pane -p -t "$pane" -S -40 >&2 2>/dev/null || true
+      return 1
+    fi
+    sleep 0.1
+  done
+}
+
 send_to_pane() {
   local pane="$1" message="$2"
   local buffer="madw-$PPID-$$-$(date +%s)"
@@ -308,9 +363,9 @@ role_prompt() {
 
 【先向用户说明】
 请先只回复下面三行，不调用工具，也不创建任务：
-队长，团队已就绪。
-请在左侧输入开发需求，然后按 Enter。
-右上 Impl 和右下 Review 正在待命；我会按需分派任务。
+队长，Lead 已就绪。
+请确认 Impl 和 Review Agent 已启动，再在 Lead 会话输入开发需求。
+我会按需分派任务，并在完成后向你汇报。
 
 【收到开发需求后】
 1. 你是唯一与用户交流、管理任务状态和最终验收的 Lead。
@@ -319,7 +374,7 @@ role_prompt() {
 4. 使用 ./.agent-team/madw send / wait 交接并等待完成。
 5. 每轮正式评审前，先运行 ./.agent-team/madw restart review。
 6. 以 STATUS 和不可变工件为准，完成实现、评审、返工和验收闭环。
-7. MADW 的 Codex 角色默认使用 workspace-write 并允许网络，以连接 tmux；角色命令也可访问外部网络。MADW_CODEX_NETWORK_ACCESS=0 可选择限制模式。
+7. 若通过 madw 启动 Codex，它默认使用 workspace-write 并允许网络，以连接 tmux；MADW_CODEX_NETWORK_ACCESS=0 可选择限制模式。
 8. 任何 tmux/madw 会话查询失败都只表示状态未知，绝不能解释为“没有团队”，也不要启动或重建 session；保留原错误并对失败命令重试或申请提升权限。
 9. 用户尚未提出需求时，保持待命。
 EOF
@@ -334,7 +389,7 @@ EOF
 2. 只修改该角色允许的内容，写入本轮不可变工件。
 3. 完成后运行 ./.agent-team/madw signal impl <TASK-ID> <ROUND>。
 4. 不修改 STATUS，不自行派发 Review。
-5. MADW 的 Codex 角色默认使用 workspace-write 并允许网络，以连接 tmux；角色命令也可访问外部网络。MADW_CODEX_NETWORK_ACCESS=0 可选择限制模式。
+5. 若通过 madw 启动 Codex，它默认使用 workspace-write 并允许网络，以连接 tmux；MADW_CODEX_NETWORK_ACCESS=0 可选择限制模式。
 6. 若 madw 仍报 tmux socket access denied，只对该条命令申请提升权限并重试。
 EOF
       ;;
@@ -347,7 +402,7 @@ EOF
 1. 先读取指定任务的 STATUS，独立核验冻结且干净的 Code Head。
 2. 只写入一份本轮 REVIEW 工件，不修改实现代码和 STATUS。
 3. 完成后运行 ./.agent-team/madw signal review <TASK-ID> <ROUND>。
-4. MADW 的 Codex 角色默认使用 workspace-write 并允许网络，以连接 tmux；角色命令也可访问外部网络。MADW_CODEX_NETWORK_ACCESS=0 可选择限制模式。
+4. 若通过 madw 启动 Codex，它默认使用 workspace-write 并允许网络，以连接 tmux；MADW_CODEX_NETWORK_ACCESS=0 可选择限制模式。
 5. 若 madw 仍报 tmux socket access denied，只对该条命令申请提升权限并重试。
 EOF
       ;;
@@ -509,6 +564,7 @@ create_team() {
 
   tmux set-option -t "$session" @madw_project_root "$root"
   tmux set-option -t "$session" @madw_runtime "$runtime"
+  tmux set-option -t "$session" @madw_tui_ready "${MADW_TUI_READY:-0}"
   tmux set-option -t "$session" @madw_layout "$layout"
   tmux set-option -t "$session" @madw_agent_cmd "$cmd"
   tmux set-option -t "$session" @madw_agent_path "$PATH"
@@ -523,9 +579,9 @@ create_team() {
   configure_team_progress
   configure_team_keys
 
-  if ! wait_pane_alive "$lead" "$boot_timeout" ||
-     ! wait_pane_alive "$impl" "$boot_timeout" ||
-     ! wait_pane_alive "$review" "$boot_timeout"; then
+  if ! wait_pane_ready "$lead" "$boot_timeout" "$runtime" ||
+     ! wait_pane_ready "$impl" "$boot_timeout" "$runtime" ||
+     ! wait_pane_ready "$review" "$boot_timeout" "$runtime"; then
     tmux kill-session -t "$session" 2>/dev/null || true
     die "team startup failed; partial tmux session removed"
   fi
@@ -539,11 +595,83 @@ create_team() {
 ' "$runtime"
 }
 
+create_manual_team() {
+  local root session lead impl review role
+  root="$(project_root)"
+  session="$(team_session)"
+  for role in impl review; do
+    ! session_exists "$(role_session "$role")" ||
+      die "session already exists: $(role_session "$role")"
+  done
+  tmux new-session -d -s "$session" -n lead -c "$root"
+  if ! tmux new-session -d -s "$(role_session impl)" -n impl -c "$root" ||
+     ! tmux new-session -d -s "$(role_session review)" -n review -c "$root"; then
+    tmux kill-session -t "$(role_session review)" 2>/dev/null || true
+    tmux kill-session -t "$(role_session impl)" 2>/dev/null || true
+    tmux kill-session -t "$session" 2>/dev/null || true
+    die "manual team startup failed"
+  fi
+  lead="$(tmux display-message -p -t "$session:lead.0" '#{pane_id}')"
+  impl="$(tmux display-message -p -t "$(role_session impl):impl.0" '#{pane_id}')"
+  review="$(tmux display-message -p -t "$(role_session review):review.0" '#{pane_id}')"
+  tmux set-option -t "$session" @madw_project_root "$root"
+  tmux set-option -t "$session" @madw_runtime manual
+  tmux set-option -t "$session" @madw_pane_leader "$lead"
+  tmux set-option -t "$session" @madw_pane_impl "$impl"
+  tmux set-option -t "$session" @madw_pane_review "$review"
+  for role in impl review; do
+    tmux set-option -t "$(role_session "$role")" @madw_project_root "$root"
+    tmux set-option -t "$(role_session "$role")" @madw_runtime manual
+    tmux set-option -t "$(role_session "$role")" status-left " $role | run madw launch pi|codex "
+  done
+  configure_team_progress
+  tmux set-option -t "$session" 'status-format[0]' '#[fg=colour51,bold] Lead | run madw launch pi|codex'
+  printf 'Project: %s\n' "$root"
+  printf 'Sessions: %s  %s  %s\n' "$session" "$(role_session impl)" "$(role_session review)"
+  printf 'In each session, run madw launch pi|codex; you may mix them.\n'
+  printf 'Direct pi/codex startup also works; then run madw bootstrap leader.\n'
+}
+
+repair_manual_sessions() {
+  local root session role pane cmd agent_path pane_cmd
+  root="$(project_root)"
+  session="$(team_session)"
+  for role in impl review; do
+    if ! session_exists "$(role_session "$role")"; then
+      cmd="$(session_option "$session" "@madw_role_cmd_$role")"
+      if [ -n "$cmd" ]; then
+        agent_path="$(session_option "$session" "@madw_role_path_$role")"
+        pane_cmd="$(pane_command "$root" "$cmd" "${agent_path:-$PATH}")"
+        tmux new-session -d -s "$(role_session "$role")" -n "$role" -c "$root" "$pane_cmd"
+      else
+        tmux new-session -d -s "$(role_session "$role")" -n "$role" -c "$root"
+      fi
+      pane="$(tmux display-message -p -t "$(role_session "$role"):$role.0" '#{pane_id}')"
+      tmux set-option -t "$session" "@madw_pane_$role" "$pane"
+      tmux set-option -t "$(role_session "$role")" @madw_project_root "$root"
+      tmux set-option -t "$(role_session "$role")" @madw_runtime manual
+      tmux set-option -t "$(role_session "$role")" status-left " $role | ${cmd:-run madw launch pi|codex} "
+      if [ -n "$cmd" ]; then wait_pane_ready "$pane" "$DEFAULT_BOOT_TIMEOUT" manual; fi
+    fi
+  done
+}
+
 attach_team() {
-  local focus="${1:-leader}" session pane
+  local focus="${1:-leader}" session pane runtime
   session="$(team_session)"
   session_exists "$session" || die "team is not running: $session"
   validate_existing_team "$session"
+  runtime="$(session_option "$session" @madw_runtime)"
+  if [ "$runtime" = manual ]; then
+    session="$(role_session "$focus")"
+    session_exists "$session" || die "$focus session is missing: $session"
+    if [ -n "${TMUX:-}" ]; then
+      tmux switch-client -t "$session"
+    else
+      tmux attach-session -t "$session"
+    fi
+    return
+  fi
   tmux set-option -t "$session" mouse on
   configure_team_labels
   configure_team_progress
@@ -656,6 +784,9 @@ status_team() {
   runtime="$(session_option "$session" "@madw_runtime")"
   configure_team_progress
   echo "Runtime: $runtime"
+  if [ "$runtime" = manual ]; then
+    echo "Sessions: $session  $(role_session impl)  $(role_session review)"
+  fi
   print_task_summary
   echo
   printf '%-8s %-8s %-18s %-8s %s
@@ -679,6 +810,21 @@ restart_role() {
   pane="$(pane_for_role "$role")"
   root="$(project_root)"
   runtime="$(session_option "$session" "@madw_runtime")"
+  if [ "$runtime" = manual ]; then
+    cmd="$(session_option "$session" "@madw_role_cmd_$role")"
+    if [ -n "$cmd" ]; then
+      agent_path="$(session_option "$session" "@madw_role_path_$role")"
+      pane_cmd="$(pane_command "$root" "$cmd" "${agent_path:-$PATH}")"
+      tmux respawn-pane -k -t "$pane" -c "$root" "$pane_cmd"
+      wait_pane_ready "$pane" "$DEFAULT_BOOT_TIMEOUT" manual
+      if [ "$role" = leader ]; then send_to_pane "$pane" "$(role_prompt leader)"; fi
+      echo "restarted $role in $(role_session "$role") using its selected Agent"
+    else
+      tmux respawn-pane -k -t "$pane" -c "$root"
+      echo "reset $role shell in $(role_session "$role"); start Pi or Codex there, then dispatch its role prompt"
+    fi
+    return
+  fi
   cmd="$(session_option "$session" "@madw_agent_cmd")"
 
   [ -n "$runtime" ] || die "team metadata is missing runtime"
@@ -700,7 +846,7 @@ restart_role() {
   esac
   tmux select-pane -t "$pane" -T "$title"
   configure_team_labels
-  wait_pane_alive "$pane" "$DEFAULT_BOOT_TIMEOUT"
+  wait_pane_ready "$pane" "$DEFAULT_BOOT_TIMEOUT" "$runtime"
 
   if [ "$role" = "leader" ]; then
     send_to_pane "$pane" "$(role_prompt "$role")"
@@ -720,10 +866,17 @@ repair_dead_panes() {
 }
 
 stop_team() {
-  local session
+  local session runtime role
   session="$(team_session)"
   if session_exists "$session"; then
-    validate_existing_team "$session"
+    runtime="$(session_option "$session" @madw_runtime)"
+    if [ "$runtime" = manual ]; then
+      for role in impl review; do
+        tmux kill-session -t "$(role_session "$role")" 2>/dev/null || true
+      done
+    else
+      validate_existing_team "$session"
+    fi
     tmux kill-session -t "$session"
     echo "stopped $session"
   else
@@ -870,8 +1023,12 @@ signal_handoff() {
 }
 
 send_role() {
-  local role="$1" message="$2" pane task_id actor
+  local role="$1" message="$2" pane task_id actor session runtime
   pane="$(pane_for_role "$role")"
+  pane_is_alive "$pane" || die "$role pane is dead; run 'madw restart $role' before sending a handoff"
+  session="$(team_session)"
+  runtime="$(session_option "$session" @madw_runtime)"
+  wait_pane_ready "$pane" "$DEFAULT_BOOT_TIMEOUT" "$runtime"
   task_id="$(printf '%s\n' "$message" | grep -oE 'TASK-[A-Za-z0-9_-]+' | head -1 || true)"
   if [ "$role" = "impl" ] || [ "$role" = "review" ]; then
     message="$(role_prompt "$role")
@@ -890,12 +1047,57 @@ $message"
   echo "sent to $role ($pane)"
 }
 
+launch_role_agent() {
+  local runtime="$1" session pane role selected="" cmd root
+  case "$runtime" in pi|codex) ;; *) die "launch requires pi or codex" ;; esac
+  session="$(team_session)"
+  session_exists "$session" || die "team is not running: $session"
+  [ "$(session_option "$session" @madw_runtime)" = manual ] ||
+    die "launch is only for manually managed role sessions"
+  [ -n "${TMUX_PANE:-}" ] || die "run launch inside a role session"
+  for role in leader impl review; do
+    pane="$(pane_for_role "$role")"
+    if [ "$pane" = "$TMUX_PANE" ]; then selected="$role"; break; fi
+  done
+  [ -n "$selected" ] || die "this pane is not a role in the current team"
+  cmd="$(MADW_AGENT_CMD= runtime_command "$runtime")"
+  MADW_AGENT_CMD= preflight_runtime "$runtime"
+  tmux set-option -t "$session" "@madw_role_cmd_$selected" "$cmd"
+  tmux set-option -t "$session" "@madw_role_path_$selected" "$PATH"
+  if [ "$selected" = leader ]; then
+    tmux set-option -t "$session" 'status-format[0]' "#[fg=colour51,bold] Lead | $runtime"
+  else
+    tmux set-option -t "$(role_session "$selected")" status-left " $selected | $runtime "
+  fi
+  root="$(project_root)"
+  if [ "$selected" = leader ]; then
+    # The helper waits for the UI before delivering the Lead role prompt.
+    ("$SCRIPT_DIR/madw" bootstrap leader >/dev/null 2>"$root/.agent-team/lead-bootstrap.log" ||
+      tmux display-message -t "$pane" 'Lead bootstrap failed; check .agent-team/lead-bootstrap.log') &
+  fi
+  case "$runtime" in
+    pi) pi ;;
+    codex)
+      if [ "${MADW_CODEX_NETWORK_ACCESS-1}" = 0 ]; then
+        codex -s workspace-write -c 'sandbox_workspace_write.network_access=false'
+      else
+        codex -s workspace-write -c 'sandbox_workspace_write.network_access=true'
+      fi
+      ;;
+  esac
+}
+
 doctor() {
   local requested="${1:-}" runtime cmd session
   preflight_base
-  runtime="$(resolve_runtime "$requested")"
-  preflight_runtime "$runtime"
-  cmd="$(runtime_command "$runtime")"
+  if [ -z "$requested" ] && [ -z "${MADW_RUNTIME:-}" ] && [ -z "${MADW_AGENT_CMD:-}" ]; then
+    runtime=manual
+    cmd='user starts Pi or Codex in each session'
+  else
+    runtime="$(resolve_runtime "$requested")"
+    preflight_runtime "$runtime"
+    cmd="$(runtime_command "$runtime")"
+  fi
   session="$(team_session)"
   echo "Project Root: $(project_root)"
   echo "Skill Root:   $SKILL_ROOT"
@@ -927,8 +1129,9 @@ start_command() {
   prepare_control_plane
 
   if session_exists "$session"; then
-    validate_existing_team "$session"
     stored_runtime="$(session_option "$session" "@madw_runtime")"
+    if [ "$stored_runtime" = manual ]; then repair_manual_sessions; fi
+    validate_existing_team "$session"
     if [ -n "$requested" ]; then
       [ "$stored_runtime" = "$requested" ] ||
         die "team already runs runtime '$stored_runtime'; stop the team before changing runtime"
@@ -946,18 +1149,24 @@ start_command() {
       tmux set-option -t "$session" @madw_agent_cmd "$cmd"
       echo "Codex network policy saved for future role restarts; running Agents were not interrupted."
     fi
-    tmux set-option -t "$session" mouse on
-    configure_team_labels
+    if [ "$stored_runtime" != manual ]; then
+      tmux set-option -t "$session" mouse on
+      configure_team_labels
+      configure_team_keys
+    fi
     configure_team_progress
-    configure_team_keys
     repair_dead_panes
     echo "Project: $root"
     echo "Team:    $session"
     echo "Team status: existing"
   else
-    runtime="$(resolve_runtime "$requested")"
-    preflight_runtime "$runtime"
-    create_team "$runtime" "$boot_timeout" "$layout"
+    if [ -z "$requested" ] && [ -z "${MADW_RUNTIME:-}" ] && [ -z "${MADW_AGENT_CMD:-}" ]; then
+      create_manual_team
+    else
+      runtime="$(resolve_runtime "$requested")"
+      preflight_runtime "$runtime"
+      create_team "$runtime" "$boot_timeout" "$layout"
+    fi
   fi
 
   if [ "${MADW_NO_ATTACH:-0}" != "1" ]; then attach_team leader; fi
@@ -968,6 +1177,20 @@ command="${1:-start}"
 
 case "$command" in
   start) start_command "$@" ;;
+  launch)
+    preflight_base
+    [ "$#" -eq 1 ] || die "launch requires pi or codex"
+    launch_role_agent "$1"
+    ;;
+  bootstrap)
+    preflight_base
+    [ "$#" -eq 1 ] && [ "$1" = leader ] || die "bootstrap supports only leader"
+    [ "$(session_option "$(team_session)" @madw_runtime)" = manual ] || die "bootstrap is only needed for manual teams"
+    pane="$(pane_for_role leader)"
+    wait_pane_ready "$pane" "$DEFAULT_BOOT_TIMEOUT" "$(session_option "$(team_session)" @madw_runtime)"
+    send_to_pane "$pane" "$(role_prompt leader)"
+    echo "Lead role prompt sent"
+    ;;
   status) preflight_base; status_team ;;
   statusline) statusline "$@" ;;
   watch) preflight_base; attach_team leader ;;
