@@ -198,7 +198,14 @@ madw wait impl TASK-... 001
 madw restart review  # uses Review's selected Agent when launched via madw launch
 madw send review "<Task ID + exact IMPL/head + STATUS references>"
 madw wait review TASK-... 001
+madw logs review 200
 ```
+
+The launcher appends each role's terminal output under
+`.agent-team/runtime/logs/`. Use `madw logs <role>` to inspect recent output
+after a transport or Agent failure. Logs are diagnostic only; STATUS and
+immutable artifacts remain workflow evidence. Debug logging starts enabled and
+Lead may toggle it with `madw debug off` / `madw debug on`.
 
 Workers signal only after writing their immutable artifact:
 

@@ -128,6 +128,12 @@ available, the expected next actor, and pane process health.
 automatic mode. `attach <role>` selects that role session in manual mode.
 Automatic mode enables tmux mouse mode only for its team session.
 
+Each role's terminal stream is appended to
+`.agent-team/runtime/logs/<role>.log`. Inspect recent output with
+`madw logs review 200`; the default is 120 lines. `madw logs` removes terminal
+color and cursor control sequences for readable output. Debug logging is on
+for new teams; toggle it with `madw debug off|on`.
+
 Terminal scrollback is observational only. Never use it as lifecycle truth.
 
 ## Extended keys

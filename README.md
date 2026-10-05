@@ -105,6 +105,13 @@ madw-<repo>-<path-hash>-review   Review
 `codex` 的 Review session 会重置为 shell，需手动重新启动。
 `madw stop` 结束三个 session。
 
+每个角色的终端输出会追加保存到
+`.agent-team/runtime/logs/<role>.log`。排查 Agent 异常时运行
+`madw logs review 200` 查看 Review 最近 200 行；省略行数时默认显示 120 行。
+当前团队默认开启 Debug 日志；之后可用 `madw debug off` 停止记录，
+需要时运行 `madw debug on` 继续追加。日志保存在本机 Control Plane，
+不会进入 Git 代码快照。
+
 ## 常用命令
 
 ```bash
@@ -117,6 +124,8 @@ madw attach leader
 madw attach impl
 madw attach review
 madw restart review
+madw logs review 200
+madw debug off
 madw stop
 madw doctor
 madw id

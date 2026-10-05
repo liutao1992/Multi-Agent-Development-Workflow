@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+trap 'case $- in *e*) printf "tmux integration failed at line %s (exit %s)\n" "$LINENO" "$?" >&2 ;; esac' ERR
 
 TEST_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 SKILL_ROOT="$(CDPATH= cd -- "$TEST_DIR/.." && pwd)"
@@ -248,13 +249,14 @@ grep -Fq 'stored Codex Agent command is custom' "$TMP/custom-codex-policy.log"
 # Review agent restarts).
 FAKE_TUI="$TMP/fake-tui.sh"
 FAKE_TUI_LOG="$TMP/fake-tui.log"
+: > "$FAKE_TUI_LOG"
 cat >"$FAKE_TUI" <<EOF
 #!/usr/bin/env bash
 sleep 0.8
 printf '\033[?1049h\033[2J\033[HFAKE_TUI_DRAWN\n'
-: > "$FAKE_TUI_LOG"
 while IFS= read -r line; do
   printf 'FAKE:%s\n' "\$line" >> "$FAKE_TUI_LOG"
+  printf 'FAKE:%s\n' "\$line"
   if [ "\$line" = EXIT_ALT ]; then printf '\033[?1049l'; fi
 done
 EOF
@@ -338,6 +340,7 @@ fi
 # different interactive Agents in each one; handoffs wait for that Agent's UI.
 MANUAL_REPO="$TMP/manual-project"
 init_repo "$MANUAL_REPO"
+: > "$FAKE_TUI_LOG"
 (cd "$MANUAL_REPO" && MADW_NO_ATTACH=1 "$MADW" start) >/dev/null
 MANUAL_SESSION="$(session_for "$MANUAL_REPO")"
 [ "$(tmux show-options -v -t "$MANUAL_SESSION" @madw_runtime)" = manual ]
@@ -378,10 +381,33 @@ for _ in $(seq 1 50); do
   sleep 0.1
 done
 grep -Fq 'TASK-MANUAL-001: mixed runtimes' "$FAKE_TUI_LOG"
+MANUAL_LOG="$(cd "$MANUAL_REPO" && "$MADW" logs impl 200)"
+if ! printf '%s\n' "$MANUAL_LOG" | grep -Fq 'TASK-MANUAL-001: mixed runtimes'; then
+  echo "role log did not contain the visible Impl handoff:" >&2
+  cat "$MANUAL_REPO/.agent-team/runtime/logs/impl.log" >&2
+  exit 1
+fi
+(cd "$MANUAL_REPO" && "$MADW" debug off) >/dev/null
+[ "$(tmux show-options -v -t "$MANUAL_SESSION" @madw_debug)" = 0 ]
+(cd "$MANUAL_REPO" && "$MADW" send impl 'TASK-MANUAL-DEBUG-OFF') >/dev/null
+sleep 0.2
+if (cd "$MANUAL_REPO" && "$MADW" logs impl 200) | grep -Fq 'TASK-MANUAL-DEBUG-OFF'; then
+  echo "debug off continued writing role logs" >&2
+  exit 1
+fi
+(cd "$MANUAL_REPO" && "$MADW" debug on) >/dev/null
+(cd "$MANUAL_REPO" && "$MADW" send impl 'TASK-MANUAL-DEBUG-ON') >/dev/null
+for _ in $(seq 1 50); do
+  if (cd "$MANUAL_REPO" && "$MADW" logs impl 200) | grep -Fq 'TASK-MANUAL-DEBUG-ON'; then break; fi
+  sleep 0.1
+done
+(cd "$MANUAL_REPO" && "$MADW" logs impl 200) | grep -Fq 'TASK-MANUAL-DEBUG-ON'
 (cd "$MANUAL_REPO" && "$MADW" restart review) >/dev/null
 MANUAL_REVIEW="$(tmux show-options -v -t "$MANUAL_SESSION" @madw_pane_review)"
 [ "$(tmux display-message -p -t "$MANUAL_REVIEW" '#{alternate_on}')" = 1 ]
 (cd "$MANUAL_REPO" && "$MADW" send review 'TASK-MANUAL-002: review') >/dev/null
+MANUAL_REVIEW_LOG="$(cd "$MANUAL_REPO" && "$MADW" logs review 200)"
+printf '%s\n' "$MANUAL_REVIEW_LOG" | grep -Fq 'TASK-MANUAL-002: review'
 tmux kill-session -t "$MANUAL_SESSION-review"
 (cd "$MANUAL_REPO" && MADW_NO_ATTACH=1 "$MADW" start) >/dev/null
 tmux list-sessions -F '#S' | grep -Fqx "$MANUAL_SESSION-review"

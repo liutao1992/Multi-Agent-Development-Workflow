@@ -23,6 +23,8 @@ Usage:
   madw bootstrap leader
   madw launch <pi|codex>   # run inside a manual role session
   madw status
+  madw logs <leader|impl|review> [lines]
+  madw debug <on|off>
   madw watch
   madw attach [leader|impl|review]
   madw send <leader|impl|review> <message>
@@ -150,6 +152,54 @@ pane_for_role() {
   pane_exists "$pane" || die "$role pane is missing: $pane"
   printf '%s
 ' "$pane"
+}
+
+role_log_path() {
+  local role="$1" root
+  case "$role" in leader|impl|review) ;; *) die "unknown role: $role" ;; esac
+  root="$(project_root)"
+  printf '%s/.agent-team/runtime/logs/%s.log\n' "$root" "$role"
+}
+
+configure_role_logging() {
+  local role="$1" pane="$2" log_dir log_file quoted_log debug
+  debug="$(session_option "$(team_session)" @madw_debug)"
+  if [ "${debug:-1}" != 1 ]; then
+    tmux pipe-pane -t "$pane"
+    return
+  fi
+  log_file="$(role_log_path "$role")"
+  log_dir="$(dirname "$log_file")"
+  (umask 077; mkdir -p "$log_dir")
+  chmod 700 "$log_dir"
+  (umask 077; touch "$log_file")
+  chmod 600 "$log_file"
+  printf -v quoted_log '%q' "$log_file"
+  # Replacing the pipe keeps logging attached after a pane's shell or Agent
+  # process has been respawned, and prevents stale pipe processes.
+  tmux pipe-pane -t "$pane" "cat >> $quoted_log"
+}
+
+configure_team_logging() {
+  local role pane
+  for role in leader impl review; do
+    pane="$(pane_for_role "$role")"
+    configure_role_logging "$role" "$pane"
+  done
+}
+
+set_debug_mode() {
+  local mode="$1" session
+  case "$mode" in on|off) ;; *) die "debug mode must be on or off" ;; esac
+  session="$(team_session)"
+  session_exists "$session" || die "team is not running: $session"
+  validate_existing_team "$session"
+  case "$mode" in
+    on) tmux set-option -t "$session" @madw_debug 1 ;;
+    off) tmux set-option -t "$session" @madw_debug 0 ;;
+  esac
+  configure_team_logging
+  echo "Debug logging: $mode"
 }
 
 resolve_runtime() {
@@ -564,6 +614,7 @@ create_team() {
 
   tmux set-option -t "$session" @madw_project_root "$root"
   tmux set-option -t "$session" @madw_runtime "$runtime"
+  tmux set-option -t "$session" @madw_debug 1
   tmux set-option -t "$session" @madw_tui_ready "${MADW_TUI_READY:-0}"
   tmux set-option -t "$session" @madw_layout "$layout"
   tmux set-option -t "$session" @madw_agent_cmd "$cmd"
@@ -575,6 +626,7 @@ create_team() {
   tmux set-option -p -t "$lead" @madw_role leader
   tmux set-option -p -t "$impl" @madw_role impl
   tmux set-option -p -t "$review" @madw_role review
+  configure_team_logging
   configure_team_labels
   configure_team_progress
   configure_team_keys
@@ -616,6 +668,7 @@ create_manual_team() {
   review="$(tmux display-message -p -t "$(role_session review):review.0" '#{pane_id}')"
   tmux set-option -t "$session" @madw_project_root "$root"
   tmux set-option -t "$session" @madw_runtime manual
+  tmux set-option -t "$session" @madw_debug 1
   tmux set-option -t "$session" @madw_pane_leader "$lead"
   tmux set-option -t "$session" @madw_pane_impl "$impl"
   tmux set-option -t "$session" @madw_pane_review "$review"
@@ -624,6 +677,7 @@ create_manual_team() {
     tmux set-option -t "$(role_session "$role")" @madw_runtime manual
     tmux set-option -t "$(role_session "$role")" status-left " $role | run madw launch pi|codex "
   done
+  configure_team_logging
   configure_team_progress
   tmux set-option -t "$session" 'status-format[0]' '#[fg=colour51,bold] Lead | run madw launch pi|codex'
   printf 'Project: %s\n' "$root"
@@ -653,7 +707,11 @@ repair_manual_sessions() {
       tmux set-option -t "$(role_session "$role")" status-left " $role | ${cmd:-run madw launch pi|codex} "
       if [ -n "$cmd" ]; then wait_pane_ready "$pane" "$DEFAULT_BOOT_TIMEOUT" manual; fi
     fi
+    pane="$(pane_for_role "$role")"
+    configure_role_logging "$role" "$pane"
   done
+  pane="$(pane_for_role leader)"
+  configure_role_logging leader "$pane"
 }
 
 attach_team() {
@@ -817,10 +875,12 @@ restart_role() {
       pane_cmd="$(pane_command "$root" "$cmd" "${agent_path:-$PATH}")"
       tmux respawn-pane -k -t "$pane" -c "$root" "$pane_cmd"
       wait_pane_ready "$pane" "$DEFAULT_BOOT_TIMEOUT" manual
+      configure_role_logging "$role" "$pane"
       if [ "$role" = leader ]; then send_to_pane "$pane" "$(role_prompt leader)"; fi
       echo "restarted $role in $(role_session "$role") using its selected Agent"
     else
       tmux respawn-pane -k -t "$pane" -c "$root"
+      configure_role_logging "$role" "$pane"
       echo "reset $role shell in $(role_session "$role"); start Pi or Codex there, then dispatch its role prompt"
     fi
     return
@@ -847,6 +907,7 @@ restart_role() {
   tmux select-pane -t "$pane" -T "$title"
   configure_team_labels
   wait_pane_ready "$pane" "$DEFAULT_BOOT_TIMEOUT" "$runtime"
+  configure_role_logging "$role" "$pane"
 
   if [ "$role" = "leader" ]; then
     send_to_pane "$pane" "$(role_prompt "$role")"
@@ -863,6 +924,15 @@ repair_dead_panes() {
       restart_role "$role"
     fi
   done
+}
+
+show_role_logs() {
+  local role="$1" lines="${2:-120}" log_file
+  case "$role" in leader|impl|review) ;; *) die "logs role must be leader, impl, or review" ;; esac
+  [[ "$lines" =~ ^[1-9][0-9]*$ ]] || die "log line count must be a positive integer"
+  log_file="$(role_log_path "$role")"
+  [ -f "$log_file" ] || die "no log exists for $role yet: $log_file"
+  tail -n "$lines" "$log_file" | perl -pe 's/\e\[[0-?]*[ -\/]*[@-~]//g; s/\e\][^\a]*(?:\a|\e\\)//g'
 }
 
 stop_team() {
@@ -1169,6 +1239,7 @@ start_command() {
     fi
   fi
 
+  configure_team_logging
   if [ "${MADW_NO_ATTACH:-0}" != "1" ]; then attach_team leader; fi
 }
 
@@ -1192,6 +1263,15 @@ case "$command" in
     echo "Lead role prompt sent"
     ;;
   status) preflight_base; status_team ;;
+  logs)
+    [ "$#" -ge 1 ] && [ "$#" -le 2 ] || { usage >&2; exit 2; }
+    show_role_logs "$1" "${2:-120}"
+    ;;
+  debug)
+    preflight_base
+    [ "$#" -eq 1 ] || die "debug requires on or off"
+    set_debug_mode "$1"
+    ;;
   statusline) statusline "$@" ;;
   watch) preflight_base; attach_team leader ;;
   attach) preflight_base; attach_team "${1:-leader}" ;;
