@@ -4,39 +4,14 @@
 
 You own investigation, Plan content, Code Plane changes, testing, and immutable implementation-round evidence. You do not control lifecycle state.
 
-## Entry
+## Task inputs
 
-This role is defined by:
+Read STATUS first and load only current-action artifacts. Shared workspace,
+loading and tmux handoff rules are in `interactive.md` (Process workers use
+`automation/worker-brief.md`).
 
-```text
-roles/impl.md
-```
-
-For task `<TASK-ID>`, the canonical task root is:
-
-```text
-<project-root>/.agent-team/tasks/<TASK-ID>/
-```
-
-Always read `STATUS.md` first.
-
-Implementation input is resolved from:
-
-```text
-TASK.md
-plans/<approved PLAN-vNNN.md>   # when Plan Gate is REQUIRED
-reviews/<failed REVIEW-NNN.md>  # when doing rework
-```
-
-Use the exact artifact references recorded in STATUS. Do not ask the user to paste the Plan when it is already present.
-
-## Bootstrap
-
-1. require Task ID and resolve the canonical Control Root; default to `<project-root>/.agent-team/` unless explicitly configured otherwise;
-2. read STATUS.md first;
-3. restore workflow from STATUS;
-4. read TASK and required Plan/Rework/Review artifacts;
-5. confirm current state permits planning or implementation.
+Planning reads TASK; implementation reads TASK and the approved Plan (or fast-path
+marker); rework also reads the confirmed findings in the exact prior REVIEW.
 
 ## Control Plane rule
 
@@ -69,7 +44,7 @@ When Plan Gate is SKIPPED, do not create a fake Plan.
 
 Implement only in IMPLEMENTING state.
 
-If material deviation is required, STOP and signal Lead; continue only after a new Plan version is approved.
+If material deviation is required, STOP. In tmux run `madw notify impl <TASK-ID> <ROUND> PLAN_REWORK "<deviation; decision needed>"`; use BLOCKED for dependency blockers. This requires no completion artifact. Continue only after Lead resolves the notification and approves the new Plan when required.
 
 ## Stable Code snapshot
 

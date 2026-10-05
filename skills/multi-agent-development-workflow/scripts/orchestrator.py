@@ -195,15 +195,13 @@ Task Root: {task}
 Task: {task_id}
 Action: {ROLE_COMMAND[role]}
 
-Execute exactly ONE legal role action and stop at the next handoff boundary.
+Execute exactly ONE legal role action, then return control to the orchestrator.
+An intermediate Lead transition also ends this invocation; the validated direct
+IMPLEMENTING → REVIEWING and REVIEWING → ACCEPTED routes each count as one action.
 Read the entry map near the start of {skill / 'SKILL.md'}, then
 {skill / 'roles' / f'{role.lower()}.md'} and {skill / 'automation' / 'worker-brief.md'}.
 Use the brief's state-specific evidence list; open other SKILL sections only as needed.
 Read {task / 'STATUS.md'} first among Task artifacts and follow exact references.
-In STATUS Current Plan, Current Implementation, Current Review, and Final Acceptance,
-write Artifact as a filename only (for example, IMPL-001.md), never a directory path.
-In a Review report, Reviewed Implementation may be IMPL-001 or IMPL-001.md
-when STATUS Current Implementation Artifact is IMPL-001.md.
 {candidate or ''}
 {role_hint}
 {schema_hint}

@@ -11,7 +11,9 @@ artifact awaiting Lead consumption. Do not scan every historical round.
 - Lead alone changes STATUS, TASK contract, Plan Approval, INDEX, and ACCEPTANCE.
 - Impl creates one new PLAN or IMPL artifact and commits implementation work.
 - Review creates one new REVIEW artifact against the exact frozen Code Head.
-- Every action stops at the next role handoff. Never invoke `agent-team` recursively.
+- Execute one legal role action and return control to the orchestrator, including
+  after an intermediate Lead transition. Direct shortcuts below count as one action.
+  Never invoke `agent-team` recursively.
 
 ## State-specific evidence
 
@@ -29,6 +31,8 @@ artifact awaiting Lead consumption. Do not scan every historical round.
 | Lead, REVIEWING | STATUS, new REVIEW, current IMPL, TASK contract, clean Git HEAD |
 | Lead, READY_FOR_FINAL_ACCEPTANCE | STATUS, current REVIEW and IMPL, TASK, clean Git HEAD |
 
+When consuming evidence, update Artifact and numeric Round together (IMPL-001.md
+or REVIEW-001.md means Round: 1); also copy the Review Result and Protocol Status.
 `Artifact:` values in STATUS are filenames only, for example `IMPL-001.md`.
 `Reviewed Implementation:` in REVIEW may be `IMPL-001` or `IMPL-001.md`.
 All evidence records the current Task Contract Revision and Hash.

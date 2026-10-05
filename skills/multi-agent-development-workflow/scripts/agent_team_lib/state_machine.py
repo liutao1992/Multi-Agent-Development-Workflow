@@ -93,6 +93,17 @@ def _review_field(text: str, field: str) -> str:
     return _line_field(text, field)
 
 
+def _validate_round(status: str, heading: str, name: str, prefix: str, text: str) -> None:
+    match = re.fullmatch(rf"{prefix}-([0-9]{{3}})\.md", name)
+    value = section_field(status, heading, "Round")
+    if not match or not re.fullmatch(r"[0-9]+", value) or int(value) != int(match.group(1)) or int(value) < 1:
+        raise ProtocolViolation(f"{heading} Round must match its artifact filename: {name}.")
+    label = "Implementation Round" if prefix == "IMPL" else "Review Round"
+    reported = _line_field(text, label)
+    if reported and (not re.fullmatch(r"[0-9]+", reported) or int(reported) != int(value)):
+        raise ProtocolViolation(f"{label} must match STATUS and artifact filename.")
+
+
 def _review_common(
     task: Path,
     status: str,
@@ -101,9 +112,11 @@ def _review_common(
     review_name = section_field(status, "Current Review", "Artifact")
     text = _artifact_text(task, "reviews", review_name)
     _validate_contract_evidence(task, status, text, "Review")
+    _validate_round(status, "Current Review", review_name, "REVIEW", text)
 
     current_impl = section_field(status, "Current Implementation", "Artifact")
-    _artifact(task, "implementations", current_impl)
+    impl_text = _artifact_text(task, "implementations", current_impl)
+    _validate_round(status, "Current Implementation", current_impl, "IMPL", impl_text)
     reviewed_impl = _review_field(text, "Reviewed Implementation")
     if reviewed_impl not in {Path(current_impl).stem, current_impl}:
         raise ProtocolViolation(
@@ -192,6 +205,7 @@ def _validate_implementation_target(task: Path, status: str, observed_head: str)
 
     report = impl.read_text(encoding="utf-8")
     _validate_contract_evidence(task, status, report, "Implementation")
+    _validate_round(status, "Current Implementation", artifact, "IMPL", report)
     report_sha = _require_full_sha(_line_field(report, "Code Head SHA"), "IMPL Code Head SHA")
     observed = _require_full_sha(observed_head, "Observed Code Head SHA")
     if status_sha != report_sha or report_sha != observed:

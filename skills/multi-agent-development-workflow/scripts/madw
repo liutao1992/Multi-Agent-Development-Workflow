@@ -30,6 +30,7 @@ Usage:
   madw send <leader|impl|review> <message>
   madw wait <impl|review> <TASK-ID> <ROUND> [timeout-seconds]
   madw signal <impl|review> <TASK-ID> <ROUND>
+  madw notify <impl|review> <TASK-ID> <ROUND> <BLOCKED|PLAN_REWORK> <reason>
   madw restart <leader|impl|review>
   madw stop
   madw doctor [pi|codex]
@@ -1147,6 +1148,56 @@ expected_artifact() {
   fi
 }
 
+# Abnormal handoffs are separate from successful artifact completion.
+notification_artifact() {
+  printf '%s/.agent-team/runtime/notifications/%s.md\n' "$(project_root)" "${1#@}"
+}
+
+check_notification() {
+  local session="$1" option="$2" artifact
+  [ -n "$(session_option "$session" "${option}_notice")" ] || return 0
+  artifact="$(notification_artifact "$option")"
+  verify_handoff "$session" "${option}_notice" "$artifact"
+  cat "$artifact" >&2
+  echo "madw: abnormal handoff; Lead must validate and route it, then use a new round" >&2
+  return 3
+}
+
+notify_handoff() {
+  local role="$1" task_id="$2" round="$3" kind="$4" reason="$5"
+  local channel option artifact session content digest prior active_task
+  case "$kind" in
+    BLOCKED) ;;
+    PLAN_REWORK) [ "$role" = impl ] || die "PLAN_REWORK notification is Impl-only" ;;
+    *) die "notification must be BLOCKED or PLAN_REWORK" ;;
+  esac
+  [ -n "$reason" ] || die "notification reason is required"
+  channel="$(handoff_channel "$role" "$task_id" "$round")"
+  option="$(handoff_option "$channel")"
+  artifact="$(notification_artifact "$option")"
+  session="$(team_session)"
+  session_exists "$session" || die "team is not running: $session"
+  [ -z "$(session_option "$session" "$option")" ] || die "round already completed; use a new round"
+  content="$(printf 'Task: %s\nRole: %s\nRound: %s\nNotification: %s\nReason: %s\n' "$task_id" "$role" "$round" "$kind" "$reason")"
+  digest="$(printf '%s\n' "$content" | git hash-object --stdin)"
+  prior="$(session_option "$session" "${option}_notice")"
+  [ -z "$prior" ] || [ "$prior" = "$digest" ] || die "notification already recorded; use a new round"
+  mkdir -p "$(dirname "$artifact")"
+  if [ -f "$artifact" ]; then
+    [ "$(git hash-object -- "$artifact")" = "$digest" ] || die "notification file differs: $artifact"
+  else
+    printf '%s\n' "$content" > "$artifact"
+  fi
+  tmux set-option -t "$session" "${option}_notice" "$digest"
+  tmux wait-for -S "$channel"
+  record_event notify "$role" "$task_id" "$round" - - "$kind"
+  active_task="$(session_option "$session" @madw_flow_task)"
+  if [ -z "$active_task" ] || [ "$active_task" = "$task_id" ]; then
+    set_team_progress "$task_id" "⚠ $role → Leader  |  ${kind}：${reason}"
+  fi
+  echo "notified: $kind ($artifact)"
+}
+
 wait_handoff() {
   local role="$1" task_id="$2" round="$3" timeout="${4:-$DEFAULT_WAIT_TIMEOUT}"
   local channel option session pane waiter started now artifact
@@ -1159,6 +1210,7 @@ wait_handoff() {
   local actor
   case "$role" in impl) actor='Impl' ;; review) actor='Review' ;; esac
 
+  check_notification "$session" "$option" || return $?
   if [ -n "$(session_option "$session" "$option")" ]; then
     verify_handoff "$session" "$option" "$artifact"
     record_event wait_complete "$role" "$task_id" "$round" 0 - cached
@@ -1174,6 +1226,11 @@ wait_handoff() {
   started="$(date +%s)"
   record_event wait_start "$role" "$task_id" "$round"
   while kill -0 "$waiter" 2>/dev/null; do
+    if ! check_notification "$session" "$option"; then
+      kill "$waiter" 2>/dev/null || true; wait "$waiter" 2>/dev/null || true
+      record_event wait_failed "$role" "$task_id" "$round" "$(( $(date +%s) - started ))" - notification
+      return 3
+    fi
     # Completion takes precedence over a worker exiting immediately after signal.
     if [ -n "$(session_option "$session" "$option")" ]; then
       kill "$waiter" 2>/dev/null || true; wait "$waiter" 2>/dev/null || true
@@ -1206,6 +1263,7 @@ wait_handoff() {
   done
   wait "$waiter" 2>/dev/null || true
 
+  check_notification "$session" "$option" || return $?
   verify_handoff "$session" "$option" "$artifact"
   record_event wait_complete "$role" "$task_id" "$round" "$(( $(date +%s) - started ))"
   set_team_progress "$task_id" "$actor → Leader  |  第 $round 轮已完成，等待 Leader 检查工件"
@@ -1220,6 +1278,7 @@ signal_handoff() {
   artifact="$(expected_artifact "$1" "$2" "$3")"
   session="$(team_session)"
   session_exists "$session" || die "team is not running: $session"
+  [ -z "$(session_option "$session" "${option}_notice")" ] || die "round has abnormal notification; use a new round"
   [ -f "$artifact" ] || die "cannot signal before writing expected artifact: $artifact"
   digest="$(git hash-object -- "$artifact")"
   prior="$(session_option "$session" "$option")"
@@ -1259,8 +1318,7 @@ $message"
       initialize=1
     fi
     message="【Lead 交接任务】
-$message
-先读当前 STATUS 和本轮指定工件；使用本轮任务、动作、提交 SHA 与完成轮次，不能沿用旧结论。"
+$message"
   fi
   send_to_pane "$pane" "$message"
   if [ "$initialize" = 1 ]; then
@@ -1472,6 +1530,12 @@ case "$command" in
     preflight_base
     [ "$#" -eq 3 ] || { usage >&2; exit 2; }
     signal_handoff "$1" "$2" "$3"
+    ;;
+  notify)
+    preflight_base
+    [ "$#" -ge 5 ] || { usage >&2; exit 2; }
+    role="$1"; task_id="$2"; round="$3"; kind="$4"; shift 4
+    notify_handoff "$role" "$task_id" "$round" "$kind" "$*"
     ;;
   restart)
     preflight_base

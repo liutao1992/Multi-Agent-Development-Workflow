@@ -115,7 +115,7 @@ When an existing Task ID is known or discovered:
    - A workflow-type change requires an explicit Lead decision recorded in STATUS history.
 5. Determine invocation mode from STATUS and the request: planning, plan rework, implementation, implementation rework, review, re-review, or final acceptance.
 6. Determine runtime: Codex, Pi, or generic.
-7. Load the matching role file explicitly: Lead → `roles/lead.md`, Impl → `roles/impl.md`, Review → `roles/review.md`; then load the workflow recorded in STATUS, runtime adapter, and tmux adapter when applicable.
+7. Load the matching role file once per session: Lead → `roles/lead.md`, Impl → `roles/impl.md`, Review → `roles/review.md`. Load the recorded workflow only for workflow-specific guidance; runtime and tmux adapters only for startup, recovery, or transport issues. Later handoffs load STATUS and the artifacts needed for the action.
 8. Perform only actions allowed by the Lifecycle Transition Table.
 9. After a lifecycle transition, update STATUS.md first, then refresh INDEX.md.
 
@@ -209,6 +209,10 @@ The launcher appends each role's terminal output under
 after a transport or Agent failure. Logs are diagnostic only; STATUS and
 immutable artifacts remain workflow evidence. Debug logging starts enabled and
 Lead may toggle it with `madw debug off` / `madw debug on`.
+
+Normal completion requires an immutable artifact. An abnormal handoff instead uses
+`madw notify <role> <TASK-ID> <ROUND> BLOCKED|PLAN_REWORK "<reason and needed decision>"`
+without a PLAN/IMPL/REVIEW. See `interactive.md` for waiting and notification handling.
 
 Workers signal only after writing their immutable artifact:
 
@@ -406,7 +410,7 @@ An orchestrated worker MUST:
 1. execute exactly one legal role action;
 2. read STATUS first;
 3. use the role file and referenced artifacts;
-4. stop at the next handoff boundary;
+4. return control after that action; a Lead intermediate transition also ends the invocation;
 5. never start another Orchestrator recursively;
 6. preserve role boundaries.
 
@@ -573,7 +577,7 @@ Create a new Task using the New Task invocation protocol.
 Continue TASK-...
 ```
 
-Read STATUS first, determine the next legal Lead action from the Transition Table, and load only the required artifacts. Interactive Lead delegates, waits and continues until a terminal state or a required user decision. Only Process Orchestrator workers stop after one action.
+Read STATUS first, determine the next legal Lead action from the Transition Table, and load only the required artifacts. Interactive Lead delegates, waits and continues until a terminal state or a required user decision. Process Orchestrator workers return after one legal action, including an intermediate Lead transition.
 
 ```text
 验收 TASK-...
@@ -966,9 +970,9 @@ A deviation is material when it changes approved architecture/component boundari
 Protocol:
 
 ```text
-STOP implementation
+STOP implementation; in tmux use `madw notify impl <TASK-ID> <ROUND> PLAN_REWORK "<deviation and decision needed>"`
  ↓
-Lead STATUS → PLAN_REWORK
+Lead validates the notification; STATUS → PLAN_REWORK
  ↓
 Impl creates next Plan version
  ↓

@@ -4,36 +4,14 @@
 
 Independently verify an exact Code Plane Git snapshot. Do not implement fixes and do not accept the task.
 
-## Entry
+## Task inputs
 
-This role is defined by:
+Read STATUS first and load only current-action artifacts. Shared workspace,
+loading and tmux handoff rules are in `interactive.md` (Process workers use
+`automation/worker-brief.md`).
 
-```text
-roles/review.md
-```
-
-For task `<TASK-ID>`, the canonical task root is:
-
-```text
-<project-root>/.agent-team/tasks/<TASK-ID>/
-```
-
-Always read `STATUS.md` first.
-
-Review input is resolved from:
-
-```text
-TASK.md
-plans/<approved PLAN-vNNN.md>       # or N/A for fast path
-implementations/<current IMPL-NNN.md>
-reviews/<prior REVIEW-NNN.md>       # only when re-review context is needed
-```
-
-Use the exact references recorded in STATUS and IMPL. Do not review an arbitrary "latest" artifact.
-
-In the Review report, `Reviewed Implementation` may be the round ID
-(`IMPL-001`) or the exact `STATUS → Current Implementation → Artifact` filename
-(`IMPL-001.md`). Do not use a directory path or a different round.
+Read TASK, the exact current IMPL and approved Plan (or fast-path marker). Read
+a prior REVIEW only when needed for re-review.
 
 ## Task Contract binding
 

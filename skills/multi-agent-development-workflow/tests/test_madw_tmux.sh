@@ -863,6 +863,60 @@ if (cd "$REPO_A" && "$MADW" signal impl TASK-TEST-001 004) >/dev/null 2>&1; then
   exit 1
 fi
 
+# Abnormal handoffs wake a live waiter without completion artifacts or STATUS edits.
+STATUS_BEFORE="$(git hash-object -- "$TASK_ROOT/STATUS.md")"
+for notice_role in impl review; do
+  notice_kind=BLOCKED
+  [ "$notice_role" != impl ] || notice_kind=PLAN_REWORK
+  (
+    sleep 0.3
+    cd "$REPO_A"
+    "$MADW" notify "$notice_role" TASK-TEST-001 006 "$notice_kind" 'decision needed' >/dev/null
+  ) &
+  notice_pid=$!
+  NOTICE_RC=0
+  (cd "$REPO_A" && "$MADW" wait "$notice_role" TASK-TEST-001 006 5) > "$TMP/notice.log" 2>&1 || NOTICE_RC=$?
+  wait "$notice_pid"
+  [ "$NOTICE_RC" -eq 3 ]
+  grep -Fq "Notification: $notice_kind" "$TMP/notice.log"
+  grep -Fq 'Reason: decision needed' "$TMP/notice.log"
+  NOTICE_RC=0
+  (cd "$REPO_A" && "$MADW" wait "$notice_role" TASK-TEST-001 006 1) > "$TMP/notice.log" 2>&1 || NOTICE_RC=$?
+  [ "$NOTICE_RC" -eq 3 ]
+  (cd "$REPO_A" && "$MADW" notify "$notice_role" TASK-TEST-001 006 "$notice_kind" 'decision needed') >/dev/null
+  if (cd "$REPO_A" && "$MADW" notify "$notice_role" TASK-TEST-001 006 "$notice_kind" 'changed reason') >/dev/null 2>&1; then
+    echo 'notification replaced a closed round' >&2
+    exit 1
+  fi
+done
+[ "$(git hash-object -- "$TASK_ROOT/STATUS.md")" = "$STATUS_BEFORE" ]
+[ ! -e "$TASK_ROOT/plans/PLAN-v006.md" ]
+[ ! -e "$TASK_ROOT/reviews/REVIEW-006.md" ]
+if (cd "$REPO_A" && "$MADW" notify review TASK-TEST-001 007 PLAN_REWORK 'invalid role') >/dev/null 2>&1; then
+  echo 'Review requested Plan rework' >&2
+  exit 1
+fi
+# Early notifications and tampered notification evidence fail closed.
+(cd "$REPO_A" && "$MADW" notify impl TASK-TEST-001 007 BLOCKED 'early blocker') > "$TMP/notice-path.log"
+NOTICE_RC=0
+(cd "$REPO_A" && "$MADW" wait impl TASK-TEST-001 007 1) > "$TMP/notice.log" 2>&1 || NOTICE_RC=$?
+[ "$NOTICE_RC" -eq 3 ]
+NOTICE_PATH="$(sed -n 's/^notified: BLOCKED (\(.*\))$/\1/p' "$TMP/notice-path.log")"
+printf 'tampered\n' >> "$NOTICE_PATH"
+NOTICE_RC=0
+(cd "$REPO_A" && "$MADW" wait impl TASK-TEST-001 007 1) > "$TMP/notice.log" 2>&1 || NOTICE_RC=$?
+[ "$NOTICE_RC" -eq 1 ]
+grep -Fq 'artifact changed after signal' "$TMP/notice.log"
+printf 'invalid completion\n' > "$TASK_ROOT/plans/PLAN-v006.md"
+if (cd "$REPO_A" && "$MADW" signal impl TASK-TEST-001 006) >/dev/null 2>&1; then
+  echo 'signal completed an abnormally closed round' >&2
+  exit 1
+fi
+if (cd "$REPO_A" && "$MADW" notify impl TASK-TEST-001 001 BLOCKED 'after completion') >/dev/null 2>&1; then
+  echo 'notification replaced successful completion' >&2
+  exit 1
+fi
+
 # Timeout must fail closed instead of blocking forever.
 set +e
 TIMEOUT_OUTPUT="$(cd "$REPO_A" && "$MADW" wait impl TASK-TEST-001 002 1 2>&1)"

@@ -145,7 +145,7 @@ Approval: {plan_approval}
 
 ## Current Implementation
 
-Round: 1
+Round: {int(impl_artifact[5:8]) if impl_artifact.startswith('IMPL-') else 0}
 Artifact: {impl_artifact}
 Previous Head SHA: N/A
 Code Head SHA: {code_head}
@@ -153,7 +153,7 @@ Review Target Frozen: {frozen}
 
 ## Current Review
 
-Round: 1
+Round: {int(review_artifact[7:10]) if review_artifact.startswith('REVIEW-') else 0}
 Artifact: {review_artifact}
 Protocol Status: {review_protocol}
 Result: {review_result}
@@ -446,6 +446,29 @@ Protocol Status: {protocol}
         after = self.reviewed_status("READY_FOR_FINAL_ACCEPTANCE")
         with self.assertRaises(core.ProtocolViolation):
             state_machine.validate_transition(self.task, before, after, self.head)
+
+    def test_consumption_rejects_stale_or_mismatched_rounds(self) -> None:
+        self.write_impl()
+        self.write_review()
+        before = self.reviewed_status("REVIEWING")
+        after = self.reviewed_status("READY_FOR_FINAL_ACCEPTANCE")
+        for heading in ("Current Implementation", "Current Review"):
+            for invalid in ("0", "2", "N/A"):
+                with self.subTest(heading=heading, invalid=invalid):
+                    broken = after.replace(f"## {heading}\n\nRound: 1", f"## {heading}\n\nRound: {invalid}")
+                    with self.assertRaisesRegex(core.ProtocolViolation, "Round must match"):
+                        state_machine.validate_transition(self.task, before, broken, self.head)
+        for directory, name, label in (
+            ("implementations", "IMPL-001.md", "Implementation Round"),
+            ("reviews", "REVIEW-001.md", "Review Round"),
+        ):
+            with self.subTest(label=label):
+                report = self.task / directory / name
+                original = report.read_text()
+                report.write_text(original + f"{label}: 2\n")
+                with self.assertRaisesRegex(core.ProtocolViolation, f"{label} must match"):
+                    state_machine.validate_transition(self.task, before, after, self.head)
+                report.write_text(original)
 
     def test_ready_for_review_requires_full_exact_sha(self) -> None:
         self.write_impl(self.head[:7])

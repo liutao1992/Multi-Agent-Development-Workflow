@@ -1,95 +1,78 @@
 # Interactive tmux team
 
-Read this guide and `roles/<role>.md` at role initialization. Keep them in the
-Agent's context. On later handoffs read the current Task's STATUS and only the
-artifacts required by that action. Do not reload the entire SKILL on every turn.
+Initialize once with this guide and `roles/<role>.md`. Later handoffs read STATUS
+and only the current action's artifacts; load detailed protocol, workflow or
+adapters only when needed. The Control Plane is `<project>/.agent-team/`, ignored
+by Git. STATUS owns lifecycle and exact references; TASK owns requirements.
+STATUS Artifact fields are filenames only; numeric Round matches the filename
+suffix. History and terminal output are supporting context.
 
-## Workspace and roles
+## Role boundaries
 
-One project-scoped tmux session contains Lead, Impl and Review panes. Users
-choose Pi or Codex in each pane. `madw launch` records that choice; direct
-startup works but requires `madw bootstrap leader` from another terminal.
-The compatibility option `madw start --sessions` uses separate role sessions.
+- Lead alone communicates with the user, changes STATUS and accepts tasks.
+- Impl plans, implements, tests, commits and creates PLAN/IMPL evidence.
+- Review verifies the exact frozen Code Head and creates REVIEW evidence.
 
-- Lead alone communicates with the user, owns STATUS and decides acceptance.
-- Impl plans, implements, tests, commits and creates Plan/IMPL artifacts.
-- Review independently checks the specified implementation and creates REVIEW.
-- Impl and Review never change STATUS or impersonate another role.
-
-The Control Plane is `<project>/.agent-team/`, ignored by Git. Read STATUS first
-and use its exact references. History and terminal output are background only.
+Never run mutable Impl work and Review concurrently in one working tree.
+Keep worker context across rounds; Review reloads current STATUS, IMPL, requirements
+and SHA and independently verifies every round. Restart only for recovery or an
+explicit reset. Old conclusions never prove a new target.
 
 ## Lead loop
 
-Wait for a user requirement before creating a Task. Then:
+Wait for user requirements, then create TASK/STATUS against a clean Git baseline.
+Use SKILL's Plan Gate criteria to decide whether planning is required. Delegate
+Impl's next permitted action, wait, validate its artifact and update STATUS.
+Send Review the frozen IMPL/head; wait and consume REVIEW. On FAIL send confirmed
+RW findings to Impl; on PASS validate acceptance and write ACCEPTANCE/STATUS.
+Use direct IMPLEMENTING → REVIEWING and REVIEWING → ACCEPTED when all evidence
+is available. Continue until ACCEPTED, CANCELLED, BLOCKED or a real user decision.
 
-1. Create TASK/STATUS against a clean Git baseline. For a small, understood
-   change apply the existing Plan Gate criteria before adding a planning round.
-2. Send Impl the next permitted planning, implementation or rework action.
-3. Wait for its completion signal, inspect its artifact, and update STATUS.
-4. Send Review the exact frozen IMPL and Code Head; wait and inspect its REVIEW.
-5. On FAIL send confirmed findings back to Impl. On PASS verify acceptance and
-   record ACCEPTANCE/STATUS. Combine adjacent permitted Lead decisions when
-   their evidence is already available.
-6. Continue until ACCEPTED, CANCELLED, BLOCKED, or a real user decision is needed.
+Interactive handoffs do not end Lead's turn. Process workers instead return to
+the orchestrator after one legal action, including an intermediate Lead transition.
 
-A worker handoff is a delegation boundary, not a reason for interactive Lead
-to end its turn. Only Process Orchestrator workers stop after one action.
+## Handoff and waiting
 
-## Handoff format
-
-Send only Task ID, action, STATUS path, exact input artifact/head and a three-digit
-completion round. Do not paste complete plans, source files or protocol rules.
+Send only Task ID, action, STATUS path, exact input artifact/head and three-digit
+completion round. Do not paste plans, code or repeated protocol reminders.
 
 ```text
 Task: TASK-...
 Action: plan | implement | rework | review
 STATUS: .agent-team/tasks/TASK-.../STATUS.md
 Input: exact Plan/IMPL/Review reference, or N/A
-Code Head: exact SHA for Review, otherwise as required
+Code Head: exact SHA for Review
 Round: 001
 ```
 
-Lead uses `./.agent-team/madw send impl|review "<handoff>"`, then
+Use `./.agent-team/madw send impl|review "<handoff>"`, then one
 `./.agent-team/madw wait impl|review <TASK-ID> <ROUND> [timeout]`.
-Workers write the required artifact and call
-`./.agent-team/madw signal impl|review <TASK-ID> <ROUND>` once. Report only the
-artifact, result and unresolved blocker; Lead owns the user-facing summary.
+If the tool yields a running process, resume that same process with 30–60 second
+waits. Do not start duplicate waits, capture panes or reread progress during normal
+waiting. Give user updates without extra diagnostic reads. Inspect logs/panes only
+after failure, timeout, abnormal notification or a user request.
 
-Completion signals verify artifact identity, not acceptance. Never edit an
-artifact after signaling it. Do not run mutable Impl work and Review together
-in the same working tree.
+Workers write the immutable artifact, run `madw signal <role> <TASK-ID> <ROUND>`
+once and stop with a concise artifact/result/blocker summary. Never edit signaled
+artifacts. Completion verifies identity, not acceptance; Lead validates evidence.
 
-## Review continuity
+If unable to complete, stop and run
+`madw notify <role> <TASK-ID> <ROUND> BLOCKED "<reason; needed action>"`.
+Impl uses PLAN_REWORK instead for a material Plan deviation. No completion
+artifact is required. `wait` returns 3 and prints the notification. Lead validates
+and records it, then routes to PLAN_REWORK or BLOCKED with Resume State. Preserve
+unfinished code; after resolution use a new unused round. For details load
+`adapters/tmux.md → Abnormal handoffs`. Normal target mismatch still creates REVIEW.
 
-Keep Review running across rounds. Do not restart it automatically. Each round
-reload current STATUS, the specified IMPL, requirement snapshot and Code Head;
-verify the current checkout and tests independently. Previous findings help
-re-review but never replace evidence for the new round. Manual reset is for
-user-requested recovery; `madw restart review` discards the old context.
+## References and recovery
 
-## Read detailed references only when needed
+Load templates for the current action and SKILL sections for Plan Gate, lifecycle,
+contract amendments or acceptance as needed. Use only artifacts referenced in
+STATUS plus the single new artifact awaiting Lead consumption.
 
-- New task: `templates/TASK.md`, `templates/STATUS.md`, and SKILL's Plan Gate
-  classification, task contract and lifecycle table.
-- Planning: the Plan template and the current TASK/STATUS.
-- Implementation/rework: approved Plan or fast path, confirmed Review findings,
-  and the IMPL template.
-- Review: exact IMPL/head, current TASK/STATUS, relevant Plan and REVIEW template.
-- Acceptance or contract change: the corresponding SKILL rules and template.
-
-## Transport and diagnostics
-
-`madw send` gates input on UI readiness; `wait` detects the supported Agent
-leaving its UI even when its pane returns to a shell. Query errors mean unknown
-state: retain the error and retry or elevate that command, never recreate a
-team merely because a query failed. Codex sandbox/socket details are in
-`adapters/tmux.md` and README; load them only on a transport failure.
-
-Debug mode records role terminal streams and `runtime/logs/events.tsv`. Events
-include time, action, role, Task/round when supplied, wait duration, prompt
-character count and result. They are diagnostics, not workflow evidence.
-`madw debug off` disables both log types; `on` resumes appending.
-
-Ctrl+C closes the entire project team. Use manual `restart <role>` only for
-recovery or an explicit reset. `stop` preserves the Task artifacts and logs.
+`madw send` gates UI readiness; `wait` checks completion, timeout and Agent health.
+A failed query is unknown state: retain the error and recover the transport rather
+than recreating the team. Load `adapters/tmux.md` for startup or transport failures.
+`madw logs <role>` and `runtime/logs/events.tsv` are diagnostics, not task evidence.
+`madw debug off|on` controls logging. Ctrl+C closes the project team; `stop` retains
+artifacts/logs. Manual `restart <role>` is for recovery/reset.

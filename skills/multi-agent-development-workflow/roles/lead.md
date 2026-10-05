@@ -4,25 +4,11 @@
 
 You are the lifecycle authority. Only you may transition STATUS and declare ACCEPTED.
 
-## Entry
+## Task inputs
 
-This role is defined by:
-
-```text
-roles/lead.md
-```
-
-For task `<TASK-ID>`, the canonical task root is:
-
-```text
-<project-root>/.agent-team/tasks/<TASK-ID>/
-```
-
-Always read `STATUS.md` first. Use its references to locate the current Plan, IMPL, Review, and Acceptance artifacts. Requirements come from `TASK.md`.
-
-Record `Artifact:` values in STATUS as filenames only: `PLAN-v001.md`,
-`IMPL-001.md`, `REVIEW-001.md`, or `ACCEPTANCE.md`. Do not include their
-directory paths in these fields.
+Read STATUS first and load only current-action artifacts. Shared workspace,
+loading and tmux handoff rules are in `interactive.md` (Process workers use
+`automation/worker-brief.md`).
 
 ## Bootstrap
 
@@ -105,7 +91,7 @@ Before READY_FOR_REVIEW validate:
 - Control Plane Excluded = YES;
 - Frozen = true.
 
-Then enter READY_FOR_REVIEW, or use the direct handoff below.
+Copy Current Implementation Artifact, Round (numeric filename suffix), Previous/Code Head and frozen target fields together. Then enter READY_FOR_REVIEW, or use the direct handoff below.
 
 When the frozen implementation target is valid and
 independent Review can start immediately, transition directly from IMPLEMENTING
@@ -113,6 +99,8 @@ to REVIEWING in one action. This direct transition must satisfy both Review
 handoff checks; the old two-transition route remains valid for existing tasks.
 
 ## Review evaluation
+
+When consuming any REVIEW, update Current Review Artifact, Round (numeric filename suffix), Protocol Status and Result together before transitioning. An unconsumed worker report does not update STATUS by itself.
 
 On Review target mismatch:
 - if only reviewer checkout/environment is wrong, reset environment and return to READY_FOR_REVIEW;
@@ -156,7 +144,7 @@ For `继续`, read STATUS first and resume the legal Lead loop. Do not ask the u
 
 In interactive tmux mode delegate, wait and continue until a terminal state or
 a genuine human decision is required. A handoff does not end the Lead turn.
-Only Orchestrated Worker mode stops after one action.
+Process workers return after one legal action, including an intermediate Lead transition.
 
 ## Orchestrated Worker behavior
 
@@ -166,32 +154,15 @@ When \`Invocation Mode: Orchestrated Worker\` is present:
   IMPLEMENTING → REVIEWING and REVIEWING → ACCEPTED routes when applicable;
 - update STATUS only as allowed by the lifecycle table;
 - consume newly produced Plan / IMPL / REVIEW evidence when the current state permits it;
-- stop at the next Impl or Review handoff boundary;
+- return control after that one action, even if the next state also belongs to Lead;
 - never invoke \`agent-team\` recursively.
 
 In tmux-native mode, keep orchestration in this interactive Lead session and delegate to the existing Impl/Review panes instead of launching the standalone Orchestrator merely for role handoffs.
 
 
-## Tmux-native parent behavior
+## Tmux coordination
 
-When the project team is running, you are the only user-facing orchestrator.
-
-For each Task:
-
-1. keep lifecycle decisions in this Lead context;
-2. delegate Plan / implementation / confirmed rework to the Impl pane with a bounded handoff;
-3. use `madw wait impl <TASK-ID> <ROUND>` and validate the produced artifact before changing STATUS;
-4. keep Review running and require current-round STATUS, IMPL and SHA verification; do not restart it for routine reviews;
-5. delegate the exact frozen IMPL/head to Review;
-6. use `madw wait review <TASK-ID> <ROUND>`;
-7. validate Review evidence, then ACCEPT, BLOCK, or send confirmed RW items back to Impl;
-8. never run mutable Impl work and substantive Review concurrently against the same working tree;
-9. continue until ACCEPTED, CANCELLED, BLOCKED, or a genuine human decision is required.
-
-Use `madw send`/tmux buffers for multiline-safe handoffs. Terminal history is
-not evidence; STATUS and immutable artifacts remain authoritative.
-
-Do not ask the user to copy handoff messages between roles. The user chooses
-each Agent in its role pane. `madw launch` saves the choice for manual recovery.
-Restart a role only for user-requested reset or recovery, after preserving its
-completed artifacts. Use `interactive.md` for the short handoff format.
+Use the Lead loop, bounded handoff, waiting and notification handling in
+`interactive.md`. Keep lifecycle decisions here and Review running across rounds.
+An abnormal notification requires a Lead decision; it is never completion evidence.
+Do not ask the user to copy handoff messages between panes.

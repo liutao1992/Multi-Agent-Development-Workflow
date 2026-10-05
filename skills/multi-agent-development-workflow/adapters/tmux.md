@@ -165,3 +165,23 @@ set -g extended-keys on
 ```
 
 to `~/.tmux.conf` and restart the tmux server when convenient.
+
+## Abnormal handoffs
+
+A worker unable to produce valid completion evidence must stop and notify:
+
+```bash
+madw notify impl <TASK-ID> <ROUND> PLAN_REWORK "<material deviation; decision needed>"
+madw notify impl <TASK-ID> <ROUND> BLOCKED "<dependency; what unblocks work>"
+madw notify review <TASK-ID> <ROUND> BLOCKED "<environment blocker; needed action>"
+```
+
+No completion artifact is required. A notification is saved under
+`.agent-team/runtime/notifications/`, hash-checked and wakes the same wait channel.
+`wait` returns 3 and prints the notification, including for an early/repeated wait.
+It never treats it as successful completion or changes STATUS. Lead validates the
+reason, records it in STATUS history, and routes material deviation to PLAN_REWORK
+or a dependency blocker to BLOCKED with Resume State. Preserve unfinished code;
+do not fabricate IMPL evidence or silently discard work. Resolve it before freezing
+another review target. After resolution issue a new unused completion round;
+the old round remains closed. Normal REVIEW_TARGET_MISMATCH still produces REVIEW.

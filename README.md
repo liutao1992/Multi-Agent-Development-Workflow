@@ -200,11 +200,18 @@ Agent 在项目中可使用 `./.agent-team/madw` 替代 `madw`，避免依赖其
 | `madw wait impl TASK-001 001` | Lead | 等待 Impl 对该任务第 001 轮发出完成通知，并核对预期工件；`review` 同理 |
 | `madw wait review TASK-001 001 600` | Lead | 为这一轮等待设置 600 秒超时；省略时默认 3600 秒 |
 | `madw signal impl TASK-001 001` | Impl | 在该轮工件写完后通知 Lead；此命令不修改任务状态 |
+| `madw notify impl TASK-001 001 PLAN_REWORK "偏离计划；需要重新批准"` | Impl | 无需完成工件，结束等待并交由 Lead 决策；依赖阻塞使用 BLOCKED，Review 也可报告 BLOCKED |
 | `madw signal review TASK-001 001` | Review | 在 REVIEW 工件写完后通知 Lead，由 Lead 判断评审结果 |
 
 `TASK-001` 和 `001` 是示例，执行时应使用实际 Task ID 和本轮编号。
 派单内容还应包含 STATUS 路径、指定计划或实现工件，以及精确的代码提交 SHA。
 完成通知表示该轮工作已结束，是否通过仍由 Lead 核验。
+
+正常等待只启动一次 `madw wait`；工具返回运行中的进程时，以 30–60 秒间隔继续等待同一进程，
+不额外抓取面板或反复读取进度。超时、Agent 退出、异常通知或用户要求检查时才读取诊断信息。
+`notify` 保存并校验独立的异常通知，唤醒同一等待通道；`wait` 返回 3，打印阻塞原因。
+它不修改 STATUS，也不代表完成。Lead 核实后进入 PLAN_REWORK 或 BLOCKED（记录 Resume State），
+恢复工作时使用新的未使用完成轮次。读取工件后一起更新 STATUS 的 Artifact、Round 和评审结果。
 
 `wait` 同时检查超时、Agent 是否退出、预期工件是否存在及其内容哈希，失败时抓取
 最近终端输出。完成记录保存在 tmux session 内；Lead 中断后再次执行同一条 `wait`
@@ -291,6 +298,10 @@ agent-team --runtime pi --transport process run <TASK-ID>
 
 它不是交互式 tmux 团队的通信层。旧 filesystem Queue transport 和
 `agent-team worker Impl/Review` 已移除。
+
+Process fallback 每次调用仍使用独立 worker 进程，Pi 的 `--no-session` 保持不变。
+每次只执行一个合法角色动作后归还控制权；Lead 可以使用已支持的直接评审、直接验收转换。
+需要保留跨轮模型上下文的交互任务使用默认 tmux 模式。当前优化尚需完整真实任务运行验证工具调用和上下文节省效果。
 
 安装脚本会同时把 `madw` 和 `agent-team` 链接到 `~/.local/bin`。如果该目录
 不在 `PATH`，可以直接运行安装目录中的脚本，或在**要执行 Process 命令的

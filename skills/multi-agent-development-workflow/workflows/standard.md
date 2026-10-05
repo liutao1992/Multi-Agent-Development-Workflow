@@ -17,11 +17,11 @@ READY_FOR_IMPLEMENTATION
  ↓ Lead handoff
 IMPLEMENTING
  ↓ Impl commits Code Plane + writes IMPL
-READY_FOR_REVIEW
+READY_FOR_REVIEW (optional: Lead may go IMPLEMENTING → REVIEWING directly)
  ↓ Lead
 REVIEWING
  ├─ FAIL → REWORK → IMPLEMENTING
- └─ PASS → READY_FOR_FINAL_ACCEPTANCE
+ └─ PASS → READY_FOR_FINAL_ACCEPTANCE (optional: create ACCEPTANCE and go directly to ACCEPTED)
               ↓
             ACCEPTANCE.md
               ↓
