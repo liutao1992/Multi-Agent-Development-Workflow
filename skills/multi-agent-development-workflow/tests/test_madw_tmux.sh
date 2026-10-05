@@ -328,6 +328,7 @@ printf '\033[?1049h\033[2J\033[HFAKE_TUI_DRAWN\n'
 while IFS= read -r line; do
   printf 'FAKE:%s\n' "\$line" >> "$FAKE_TUI_LOG"
   printf 'FAKE:%s\n' "\$line"
+  if [ "\$line" = EXIT_AGENT ]; then printf '\033[?1049l'; exit 0; fi
   if [ "\$line" = EXIT_ALT ]; then printf '\033[?1049l'; fi
 done
 EOF
@@ -474,12 +475,20 @@ if ! printf '%s\n' "$MANUAL_LOG" | grep -Fq 'TASK-MANUAL-001: mixed runtimes'; t
   cat "$MANUAL_REPO/.agent-team/runtime/logs/impl.log" >&2
   exit 1
 fi
+# Repeated handoffs to a managed Agent keep the context and role prompt once.
+MANUAL_EVENTS="$MANUAL_REPO/.agent-team/runtime/logs/events.tsv"
+(cd "$MANUAL_REPO" && "$MADW" send impl 'TASK-MANUAL-REPEAT') >/dev/null
+[ "$(awk -F '\t' '$2 == "role_init" && $3 == "impl" {n++} END {print n+0}' "$MANUAL_EVENTS")" = 1 ]
 (cd "$MANUAL_REPO" && "$MADW" debug off) >/dev/null
 [ "$(tmux show-options -v -t "$MANUAL_SESSION" @madw_debug)" = 0 ]
 (cd "$MANUAL_REPO" && "$MADW" send impl 'TASK-MANUAL-DEBUG-OFF') >/dev/null
 sleep 0.2
 if (cd "$MANUAL_REPO" && "$MADW" logs impl 200) | grep -Fq 'TASK-MANUAL-DEBUG-OFF'; then
   echo "debug off continued writing role logs" >&2
+  exit 1
+fi
+if grep -Fq 'TASK-MANUAL-DEBUG-OFF' "$MANUAL_EVENTS"; then
+  echo "debug off continued writing events" >&2
   exit 1
 fi
 (cd "$MANUAL_REPO" && "$MADW" debug on) >/dev/null
@@ -489,12 +498,36 @@ for _ in $(seq 1 50); do
   sleep 0.1
 done
 (cd "$MANUAL_REPO" && "$MADW" logs impl 200) | grep -Fq 'TASK-MANUAL-DEBUG-ON'
+grep -Fq 'TASK-MANUAL-DEBUG-ON' "$MANUAL_EVENTS"
+MANUAL_REVIEW="$(tmux show-options -v -t "$MANUAL_SESSION" @madw_pane_review)"
+REVIEW_PID="$(tmux display-message -p -t "$MANUAL_REVIEW" '#{pane_pid}')"
+(cd "$MANUAL_REPO" && "$MADW" send review 'TASK-MANUAL-REVIEW-FIRST') >/dev/null
+(cd "$MANUAL_REPO" && "$MADW" send review 'TASK-MANUAL-REVIEW-SECOND') >/dev/null
+[ "$(tmux display-message -p -t "$MANUAL_REVIEW" '#{pane_pid}')" = "$REVIEW_PID" ]
+[ "$(awk -F '\t' '$2 == "role_init" && $3 == "review" {n++} END {print n+0}' "$MANUAL_EVENTS")" = 1 ]
 (cd "$MANUAL_REPO" && "$MADW" restart review) >/dev/null
 MANUAL_REVIEW="$(tmux show-options -v -t "$MANUAL_SESSION" @madw_pane_review)"
 [ "$(tmux display-message -p -t "$MANUAL_REVIEW" '#{alternate_on}')" = 1 ]
 (cd "$MANUAL_REPO" && "$MADW" send review 'TASK-MANUAL-002: review') >/dev/null
 MANUAL_REVIEW_LOG="$(cd "$MANUAL_REPO" && "$MADW" logs review 200)"
 printf '%s\n' "$MANUAL_REVIEW_LOG" | grep -Fq 'TASK-MANUAL-002: review'
+[ "$(awk -F '\t' '$2 == "role_init" && $3 == "review" {n++} END {print n+0}' "$MANUAL_EVENTS")" = 2 ]
+# Exiting an Agent to a live shell must abort wait promptly, not hit its timeout.
+EXIT_TASK="$MANUAL_REPO/.agent-team/tasks/TASK-MANUAL-EXIT"
+mkdir -p "$EXIT_TASK"
+printf '# Task Status\n\n## Current State\n\nIMPLEMENTING\n' > "$EXIT_TASK/STATUS.md"
+MANUAL_IMPL="$(tmux show-options -v -t "$MANUAL_SESSION" @madw_pane_impl)"
+tmux send-keys -t "$MANUAL_IMPL" EXIT_AGENT Enter
+for _ in $(seq 1 50); do
+  if [ "$(tmux display-message -p -t "$MANUAL_IMPL" '#{alternate_on}')" = 0 ]; then break; fi
+  sleep 0.1
+done
+[ "$(tmux display-message -p -t "$MANUAL_IMPL" '#{pane_dead}')" = 0 ]
+WAIT_EXIT_CODE=0
+(cd "$MANUAL_REPO" && "$MADW" wait impl TASK-MANUAL-EXIT 001 10) > "$TMP/manual-exit.log" 2>&1 || WAIT_EXIT_CODE=$?
+[ "$WAIT_EXIT_CODE" = 2 ]
+grep -Fq 'Agent exited' "$TMP/manual-exit.log"
+awk -F '\t' '$2 == "wait_failed" && $4 == "TASK-MANUAL-EXIT" && $8 == "agent_exited" && $6 < 10 {found=1} END {exit !found}' "$MANUAL_EVENTS"
 (cd "$MANUAL_REPO" && MADW_NO_ATTACH=1 "$MADW" start) >/dev/null
 [ "$(tmux list-panes -t "$MANUAL_SESSION:team" -F '#{pane_id}' | wc -l | tr -d ' ')" = 3 ]
 tmux select-pane -t "$MANUAL_REVIEW"
@@ -688,8 +721,8 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do
   sleep 0.1
 done
 tmux capture-pane -p -t "$LEAD_PANE" -S -100 | grep -Fq '队长，Lead 已就绪。'
-tmux capture-pane -p -t "$LEAD_PANE" -S -100 | grep -Fq '【收到开发需求后】'
-tmux capture-pane -p -t "$LEAD_PANE" -S -100 | grep -Fq '绝不能解释为“没有团队”'
+tmux capture-pane -p -t "$LEAD_PANE" -S -100 | grep -Fq '等待用户需求'
+tmux capture-pane -p -t "$LEAD_PANE" -S -100 | grep -Fq 'interactive.md'
 [ "$(tmux display-message -p -t "$LEAD_PANE" '#{pane_current_path}')" = "$(cd "$REPO_A" && pwd -P)" ]
 if tmux capture-pane -p -t "$IMPL_PANE" -S -100 | grep -Fq 'Impl 角色'; then
   echo "Impl received a task before Lead dispatched one" >&2
@@ -728,7 +761,7 @@ printf '%s\n' "$SANDBOX_STATUS" | grep -E '^review[[:space:]].*alive' >/dev/null
 [ "$(tmux display-message -p -t "$LEAD_PANE" '#{pane_pid}')" = "$LIVE_LEAD_PID" ]
 [ "$(tmux display-message -p -t "$IMPL_PANE" '#{pane_pid}')" = "$LIVE_IMPL_PID" ]
 [ "$(tmux display-message -p -t "$REVIEW_PANE" '#{pane_pid}')" = "$LIVE_REVIEW_PID" ]
-tmux capture-pane -p -t "$LEAD_PANE" -S -100 | grep -Fq '【收到开发需求后】'
+tmux capture-pane -p -t "$LEAD_PANE" -S -100 | grep -Fq '等待用户需求'
 
 # Re-entering a team repairs a Lead pane that exited without ending the team.
 OLD_LEAD_PID="$(tmux display-message -p -t "$LEAD_PANE" '#{pane_pid}')"

@@ -47,7 +47,7 @@ If the runtime exposes true parent/child agent collaboration, prefer:
 \`\`\`text
 Lead parent
 ├── reusable Impl child per Task
-└── fresh Review child per Review round
+└── reusable Review child with current-round input verification
 \`\`\`
 
 Use runtime-native spawn/follow-up/wait/close primitives. A separate OS process is a process worker, not a SubAgent.
@@ -55,5 +55,5 @@ Use runtime-native spawn/follow-up/wait/close primitives. A separate OS process 
 Fallback order:
 
 \`\`\`text
-native-subagent → process → queue → manual
+tmux → native-subagent → process → manual
 \`\`\`

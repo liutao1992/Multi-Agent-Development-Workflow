@@ -22,18 +22,16 @@ when a custom policy is required.
 
 For an existing Codex team, install the accepted Skill version first, then
 run `MADW_CODEX_NETWORK_ACCESS=1 MADW_NO_ATTACH=1 madw start codex`.
-This updates only the stored startup command. Restart Review and Impl after
-their current handoffs, then restart Lead from a safe external control point;
-each role adopts the new command only after its restart. The tmux session,
+This updates only the stored startup command; running Agents keep their context.
+The new policy takes effect on their next launch. If immediate migration is
+required, the user can manually reset a role after its current handoff. The tmux session,
 pane arrangement, and `.agent-team/` evidence remain in place. A restrictive
 or externally constrained sandbox may still require elevation for the one
 MADW command that failed.
 
-Refresh Review before every substantive round:
-
-```bash
-madw restart review
-```
+Keep Review running across rounds and verify current STATUS, IMPL and Code Head
+independently each time. Manual `madw restart review` is reserved for recovery
+or an explicit reset and discards its context.
 
 ## Control Plane
 

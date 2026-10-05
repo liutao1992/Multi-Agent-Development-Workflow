@@ -10,15 +10,14 @@ madw start
 madw start pi
 ```
 
-The launcher creates one project-scoped tmux session with Pi Lead, Impl and
-Review panes. Lead communicates through tmux; there is no filesystem Queue
+The launcher creates one project-scoped tmux session with Lead, Impl and
+Review panes. Default startup leaves shells for user-selected Agents;
+`madw start pi` automatically starts Pi in all three panes. Lead communicates through tmux; there is no filesystem Queue
 transport.
 
-Review is refreshed per round with:
-
-```bash
-madw restart review
-```
+Keep Review running across rounds. Re-read current STATUS, IMPL and Code Head
+and independently verify each round. `madw restart review` is only for manual
+recovery or an explicit reset; it discards context.
 
 STATUS and immutable artifacts remain authoritative.
 

@@ -203,6 +203,49 @@ set_debug_mode() {
   echo "Debug logging: $mode"
 }
 
+write_event() {
+  local event="$1" role="$2" task="${3:--}" round="${4:--}" elapsed="${5:--}" chars="${6:--}" result="${7:-ok}" root file debug
+  debug="$(session_option "$(team_session)" @madw_debug)"
+  [ "${debug:-1}" = 1 ] || return 0
+  root="$(project_root)"
+  file="$root/.agent-team/runtime/logs/events.tsv"
+  (umask 077; mkdir -p "$(dirname "$file")") || return 1
+  chmod 700 "$(dirname "$file")" || return 1
+  (umask 077; set -C; printf 'timestamp\tevent\trole\ttask\tround\telapsed_seconds\tprompt_chars\tresult\n' > "$file") 2>/dev/null || true
+  chmod 600 "$file" || return 1
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    "$event" "$role" "$task" "$round" "$elapsed" "$chars" "$result" >> "$file"
+}
+
+record_event() {
+  # Diagnostic failures must not interrupt an already delivered handoff.
+  if ! (write_event "$@"); then
+    echo "madw: warning: could not append Debug event" >&2
+  fi
+}
+
+agent_is_running() {
+  local pane="$1" runtime tui
+  pane_is_alive "$pane" || return 1
+  runtime="$(session_option "$(team_session)" @madw_runtime)"
+  tui="$(session_option "$(team_session)" @madw_tui_ready)"
+  case "$runtime" in
+    manual|pi|codex) ;;
+    *) [ "${tui:-0}" = 1 ] || return 0 ;;
+  esac
+  [ "$(tmux display-message -p -t "$pane" '#{alternate_on}')" = 1 ]
+}
+
+agent_context_key() {
+  local pane="$1" epoch runtime
+  epoch="$(tmux show-options -p -v -t "$pane" @madw_agent_epoch 2>/dev/null || true)"
+  runtime="$(session_option "$(team_session)" @madw_runtime)"
+  # Direct manual startup has no reliable process-generation marker. Send the
+  # short role entry each time instead of assuming an old Agent is still there.
+  [ "$runtime" != manual ] || [ -n "$epoch" ] || return 0
+  printf '%s:%s\n' "$(tmux display-message -p -t "$pane" '#{pane_pid}')" "$epoch"
+}
+
 resolve_runtime() {
   local requested="${1:-}"
   if [ -z "$requested" ] && [ -n "${MADW_RUNTIME:-}" ]; then
@@ -295,6 +338,8 @@ preflight_base() {
   project_root >/dev/null
   [ -f "$SKILL_ROOT/SKILL.md" ] ||
     die "Skill installation is incomplete: $SKILL_ROOT/SKILL.md not found"
+  [ -f "$SKILL_ROOT/interactive.md" ] ||
+    die "Skill installation is incomplete: $SKILL_ROOT/interactive.md not found"
 }
 
 preflight_runtime() {
@@ -416,57 +461,30 @@ send_to_pane() {
 }
 
 role_prompt() {
-  local role="$1" root
+  local role="$1" root profile title
   root="$(project_root)"
+  case "$role" in leader) profile=lead; title=Lead ;; impl) profile=impl; title=Impl ;; review) profile=review; title=Review ;; *) die "unknown role: $role" ;; esac
+  cat <<EOF
+请使用 multi-agent-development-workflow Skill，按其中的 $title 角色工作。
+项目：${root}。Skill 目录：${SKILL_ROOT}。
+先读 interactive.md 与 roles/$profile.md；详细协议和模板按当前步骤需要读取。
+EOF
   case "$role" in
     leader)
       cat <<EOF
-请使用 multi-agent-development-workflow Skill，并按其中的 Lead 角色工作。
-项目：$root
-
-【先向用户说明】
-请先只回复下面三行，不调用工具，也不创建任务：
-队长，Lead 已就绪。
-请确认 Impl 和 Review Agent 已启动，再在 Lead 会话输入开发需求。
-我会按需分派任务，并在完成后向你汇报。
-
-【收到开发需求后】
-1. 你是唯一与用户交流、管理任务状态和最终验收的 Lead。
-2. 控制面固定在项目的 .agent-team/；启动器已确认它不进入 Git 代码快照。
-3. 将计划、实现和返工交给 Impl；将独立验证交给 Review。
-4. 使用 ./.agent-team/madw send / wait 交接并等待完成。
-5. 每轮正式评审前，先运行 ./.agent-team/madw restart review。
-6. 以 STATUS 和不可变工件为准，完成实现、评审、返工和验收闭环。
-7. 若通过 madw 启动 Codex，它默认使用 workspace-write 并允许网络，以连接 tmux；MADW_CODEX_NETWORK_ACCESS=0 可选择限制模式。
-8. 任何 tmux/madw 会话查询失败都只表示状态未知，绝不能解释为“没有团队”，也不要启动或重建 session；保留原错误并对失败命令重试或申请提升权限。
-9. 用户尚未提出需求时，保持待命。
+先回复：队长，Lead 已就绪。
+等待用户需求。收到需求后持续派单、等待、核验并汇报，直到完成、取消、阻塞或需要用户决策。
+Review 保持现有上下文，不自动重启。
 EOF
       ;;
     impl)
       cat <<EOF
-请使用 multi-agent-development-workflow Skill，并按其中的 Impl 角色工作。
-项目：$root
-
-【收到 Lead 交接后】
-1. 先读取指定任务的 STATUS，再执行下方交接的计划、实现或返工工作。
-2. 只修改该角色允许的内容，写入本轮不可变工件。
-3. 完成后运行 ./.agent-team/madw signal impl <TASK-ID> <ROUND>。
-4. 不修改 STATUS，不自行派发 Review。
-5. 若通过 madw 启动 Codex，它默认使用 workspace-write 并允许网络，以连接 tmux；MADW_CODEX_NETWORK_ACCESS=0 可选择限制模式。
-6. 若 madw 仍报 tmux socket access denied，只对该条命令申请提升权限并重试。
+只处理 Lead 指定的计划、实现或返工。工件写完后运行 ./.agent-team/madw signal impl <TASK-ID> <ROUND>；不修改 STATUS，不自行派发 Review。
 EOF
       ;;
     review)
       cat <<EOF
-请使用 multi-agent-development-workflow Skill，并按其中的 Review 角色工作。
-项目：$root
-
-【收到 Lead 交接后】
-1. 先读取指定任务的 STATUS，独立核验冻结且干净的 Code Head。
-2. 只写入一份本轮 REVIEW 工件，不修改实现代码和 STATUS。
-3. 完成后运行 ./.agent-team/madw signal review <TASK-ID> <ROUND>。
-4. 若通过 madw 启动 Codex，它默认使用 workspace-write 并允许网络，以连接 tmux；MADW_CODEX_NETWORK_ACCESS=0 可选择限制模式。
-5. 若 madw 仍报 tmux socket access denied，只对该条命令申请提升权限并重试。
+每轮重新读取当前 STATUS、指定 IMPL 和提交 SHA，独立核验本轮代码；历史结论不能替代新证据。只写 REVIEW 工件，完成后运行 ./.agent-team/madw signal review <TASK-ID> <ROUND>。
 EOF
       ;;
   esac
@@ -971,6 +989,9 @@ restart_role() {
   pane="$(pane_for_role "$role")"
   root="$(project_root)"
   runtime="$(session_option "$session" "@madw_runtime")"
+  tmux set-option -p -t "$pane" @madw_role_bound ''
+  tmux set-option -p -t "$pane" @madw_agent_epoch "restart-$$-$(date +%s)"
+  record_event restart "$role" - - - - requested
   if [ "$runtime" = manual ]; then
     cmd="$(session_option "$session" "@madw_role_cmd_$role")"
     if [ -n "$cmd" ]; then
@@ -982,6 +1003,7 @@ restart_role() {
       if [ "$role" = leader ]; then send_to_pane "$pane" "$(role_prompt leader)"; fi
       echo "restarted $role using its selected Agent"
     else
+      tmux set-option -p -t "$pane" @madw_agent_epoch ''
       pane_cmd="$(manual_shell_command "$root")"
       tmux respawn-pane -k -t "$pane" -c "$root" "$pane_cmd"
       configure_role_logging "$role" "$pane"
@@ -1139,6 +1161,7 @@ wait_handoff() {
 
   if [ -n "$(session_option "$session" "$option")" ]; then
     verify_handoff "$session" "$option" "$artifact"
+    record_event wait_complete "$role" "$task_id" "$round" 0 - cached
     set_team_progress "$task_id" "$actor → Leader  |  第 $round 轮已完成，等待 Leader 检查工件"
     echo "completed: $channel"
     echo "artifact:  $artifact"
@@ -1149,15 +1172,23 @@ wait_handoff() {
   tmux wait-for "$channel" &
   waiter=$!
   started="$(date +%s)"
+  record_event wait_start "$role" "$task_id" "$round"
   while kill -0 "$waiter" 2>/dev/null; do
+    # Completion takes precedence over a worker exiting immediately after signal.
+    if [ -n "$(session_option "$session" "$option")" ]; then
+      kill "$waiter" 2>/dev/null || true; wait "$waiter" 2>/dev/null || true
+      break
+    fi
     if ! pane_exists "$pane"; then
       kill "$waiter" 2>/dev/null || true; wait "$waiter" 2>/dev/null || true
       set_team_progress "$task_id" "⚠ $actor 面板消失  |  等待已中止"
+      record_event wait_failed "$role" "$task_id" "$round" "$(( $(date +%s) - started ))" - pane_missing
       die "$role pane disappeared while waiting for $channel"
     fi
-    if ! pane_is_alive "$pane"; then
+    if ! agent_is_running "$pane"; then
       kill "$waiter" 2>/dev/null || true; wait "$waiter" 2>/dev/null || true
       set_team_progress "$task_id" "⚠ $actor 已退出  |  等待已中止"
+      record_event wait_failed "$role" "$task_id" "$round" "$(( $(date +%s) - started ))" - agent_exited
       echo "madw: $role Agent exited while waiting for $channel" >&2
       tmux capture-pane -p -t "$pane" -S -80 >&2 2>/dev/null || true
       return 2
@@ -1166,15 +1197,17 @@ wait_handoff() {
     if [ $((now - started)) -ge "$timeout" ]; then
       kill "$waiter" 2>/dev/null || true; wait "$waiter" 2>/dev/null || true
       set_team_progress "$task_id" "⚠ 等待 $actor 超时  |  请检查右侧 Agent"
+      record_event wait_failed "$role" "$task_id" "$round" "$((now - started))" - timeout
       echo "madw: timeout waiting ${timeout}s for $channel" >&2
       tmux capture-pane -p -t "$pane" -S -80 >&2 2>/dev/null || true
       return 124
     fi
-    sleep 0.25
+    sleep 1
   done
-  wait "$waiter"
+  wait "$waiter" 2>/dev/null || true
 
   verify_handoff "$session" "$option" "$artifact"
+  record_event wait_complete "$role" "$task_id" "$round" "$(( $(date +%s) - started ))"
   set_team_progress "$task_id" "$actor → Leader  |  第 $round 轮已完成，等待 Leader 检查工件"
   echo "completed: $channel"
   echo "artifact:  $artifact"
@@ -1195,6 +1228,7 @@ signal_handoff() {
   fi
   tmux set-option -t "$session" "$option" "$digest"
   tmux wait-for -S "$channel"
+  record_event signal "$1" "$2" "$3"
   case "$1" in impl) actor='Impl' ;; review) actor='Review' ;; esac
   active_task="$(session_option "$session" @madw_flow_task)"
   if [ -z "$active_task" ] || [ "$active_task" = "$2" ]; then
@@ -1204,20 +1238,36 @@ signal_handoff() {
 }
 
 send_role() {
-  local role="$1" message="$2" pane task_id actor session runtime
+  local role="$1" message="$2" pane task_id actor session runtime context bound initialize=0
   pane="$(pane_for_role "$role")"
   pane_is_alive "$pane" || die "$role pane is dead; run 'madw restart $role' before sending a handoff"
   session="$(team_session)"
   runtime="$(session_option "$session" @madw_runtime)"
-  wait_pane_ready "$pane" "$DEFAULT_BOOT_TIMEOUT" "$runtime"
   task_id="$(printf '%s\n' "$message" | grep -oE 'TASK-[A-Za-z0-9_-]+' | head -1 || true)"
+  if ! wait_pane_ready "$pane" "$DEFAULT_BOOT_TIMEOUT" "$runtime"; then
+    tmux set-option -p -t "$pane" @madw_role_bound ''
+    record_event send_failed "$role" "${task_id:--}" - - "${#message}" ui_unready
+    return 1
+  fi
+  context="$(agent_context_key "$pane")"
+  bound="$(tmux show-options -p -v -t "$pane" @madw_role_bound 2>/dev/null || true)"
   if [ "$role" = "impl" ] || [ "$role" = "review" ]; then
-    message="$(role_prompt "$role")
+    if [ -z "$context" ] || [ "$bound" != "$context" ]; then
+      message="$(role_prompt "$role")
 
-【Lead 交接任务】
 $message"
+      initialize=1
+    fi
+    message="【Lead 交接任务】
+$message
+先读当前 STATUS 和本轮指定工件；使用本轮任务、动作、提交 SHA 与完成轮次，不能沿用旧结论。"
   fi
   send_to_pane "$pane" "$message"
+  if [ "$initialize" = 1 ]; then
+    [ -z "$context" ] || tmux set-option -p -t "$pane" @madw_role_bound "$context"
+    record_event role_init "$role" "${task_id:--}"
+  fi
+  record_event send "$role" "${task_id:--}" - - "${#message}"
   [ -n "$task_id" ] || task_id="$(session_option "$(team_session)" @madw_flow_task)"
   case "$role" in
     impl) actor='Impl' ;;
@@ -1229,7 +1279,7 @@ $message"
 }
 
 launch_role_agent() {
-  local runtime="$1" session pane role selected="" cmd root
+  local runtime="$1" session pane role selected="" cmd root exit_code=0
   case "$runtime" in pi|codex) ;; *) die "launch requires pi or codex" ;; esac
   session="$(team_session)"
   session_exists "$session" || die "team is not running: $session"
@@ -1245,6 +1295,9 @@ launch_role_agent() {
   MADW_AGENT_CMD= preflight_runtime "$runtime"
   tmux set-option -t "$session" "@madw_role_cmd_$selected" "$cmd"
   tmux set-option -t "$session" "@madw_role_path_$selected" "$PATH"
+  tmux set-option -p -t "$TMUX_PANE" @madw_agent_epoch "launch-$$-$(date +%s)"
+  tmux set-option -p -t "$TMUX_PANE" @madw_role_bound ''
+  record_event agent_start "$selected" - - - - "$runtime"
   if [ "$selected" = leader ]; then
     tmux set-option -t "$session" 'status-format[0]' "#[fg=colour51,bold] Lead | $runtime"
   elif [ "$(session_option "$session" @madw_topology)" != panes ]; then
@@ -1260,15 +1313,19 @@ launch_role_agent() {
       tmux display-message -t "$pane" 'Lead bootstrap failed; check .agent-team/lead-bootstrap.log') &
   fi
   case "$runtime" in
-    pi) pi ;;
+    pi) pi || exit_code=$? ;;
     codex)
       if [ "${MADW_CODEX_NETWORK_ACCESS-1}" = 0 ]; then
-        codex -s workspace-write -c 'sandbox_workspace_write.network_access=false'
+        codex -s workspace-write -c 'sandbox_workspace_write.network_access=false' || exit_code=$?
       else
-        codex -s workspace-write -c 'sandbox_workspace_write.network_access=true'
+        codex -s workspace-write -c 'sandbox_workspace_write.network_access=true' || exit_code=$?
       fi
       ;;
   esac
+  tmux set-option -p -t "$TMUX_PANE" @madw_agent_epoch '' 2>/dev/null || true
+  tmux set-option -p -t "$TMUX_PANE" @madw_role_bound '' 2>/dev/null || true
+  record_event agent_exit "$selected" - - - - "$exit_code"
+  return "$exit_code"
 }
 
 doctor() {
@@ -1382,6 +1439,9 @@ case "$command" in
     pane="$(pane_for_role leader)"
     wait_pane_ready "$pane" "$DEFAULT_BOOT_TIMEOUT" "$(session_option "$(team_session)" @madw_runtime)"
     send_to_pane "$pane" "$(role_prompt leader)"
+    context="$(agent_context_key "$pane")"
+    [ -z "$context" ] || tmux set-option -p -t "$pane" @madw_role_bound "$context"
+    record_event role_init leader
     echo "Lead role prompt sent"
     ;;
   status) preflight_base; status_team ;;

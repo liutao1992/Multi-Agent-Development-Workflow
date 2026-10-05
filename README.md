@@ -9,7 +9,7 @@ Lead
  ├─ tmux → Impl   → Plan / Code / Tests / IMPL
  └─ tmux → Review → PASS / FAIL
                    │
-             FAIL ─┘→ Lead → Impl → fresh Review
+             FAIL ─┘→ Lead → Impl → Review
  ↓
 ACCEPTED
 ```
@@ -87,9 +87,9 @@ MADW_CODEX_NETWORK_ACCESS=1 MADW_NO_ATTACH=1 madw start codex
 ```
 
 这只更新团队保存的启动命令；运行中的 Agent 不会被打断，任务证据和面板排列
-也会保留。待各角色完成当前交接后，分别运行 `madw restart review`、
-`madw restart impl`，再从安全的外部终端重启 `leader`。重启后的角色才会使用
-新策略。若选用了限制模式或其他策略仍阻止连接，只对失败的 `madw` 命令申请
+也会保留。新沙箱策略在下次启动 Agent 时生效；日常升级无需重启 Review。
+确需立即切换策略时，等当前交接完成，再由用户手动重置对应角色。
+若选用了限制模式或其他策略仍阻止连接，只对失败的 `madw` 命令申请
 提升权限并重试；socket 拒绝不表示团队已退出。若需自定义 Codex 启动命令，
 可设置 `MADW_AGENT_CMD`。
 
@@ -146,9 +146,9 @@ madw-<repo>-<path-hash>          Lead | Impl | Review
 | `madw attach impl` | 进入已有团队并聚焦 Impl pane；`leader`、`review` 同理 | 从项目终端进入指定角色；已经在 tmux 中时切换客户端 |
 | `madw watch` | 进入已有团队并聚焦 Lead，查看终端和底部任务状态栏 | 返回团队界面时；不会创建团队或启动 Agent |
 | `madw status` | 打印团队、任务进度及三个角色的 pane、当前命令、进程健康状态和 PID | 排查团队是否运行、各角色是否启动时 |
-| `madw restart review` | 结束 Review 当前进程并刷新上下文；通过 `launch` 启动过则重启所选 Agent，直接启动过则重置为 shell | Lead 开始新一轮正式评审前；也支持 `leader`、`impl` |
+| `madw restart review` | 手动结束 Review 当前进程并刷新上下文；通过 `launch` 启动过则重启所选 Agent，直接启动过则重置为 shell | 异常恢复或用户明确要求重置时；也支持 `leader`、`impl`，日常评审不需要执行 |
 | `madw logs review 200` | 查看 Review 日志最近 200 行；省略行数默认 120 行，也支持其他角色 | Agent 出错或异常退出后，从普通终端排查 |
-| `madw debug off` / `madw debug on` | 停止或恢复当前团队的终端日志采集；关闭时保留已有日志，开启后继续追加 | 需要调整诊断记录时；新团队默认开启 |
+| `madw debug off` / `madw debug on` | 停止或恢复当前团队的终端及事件日志采集；关闭时保留已有日志，开启后继续追加 | 需要调整诊断记录时；新团队默认开启 |
 | `madw stop` | 关闭当前项目整个团队及其中的 Agent，保留任务工件和日志 | 工作结束时；任意角色中直接按 `Ctrl+C` 有相同作用 |
 | `madw doctor` | 检查项目路径、tmux、Skill 和现有团队配置；`madw doctor pi` 或 `codex` 还检查所选 Agent 命令 | 启动失败或环境异常时；不会启动 Agent |
 | `madw id` | 输出当前项目对应的 tmux session 名称 | 需要用原生 tmux 命令定位团队时 |
@@ -194,8 +194,8 @@ Agent 在项目中可使用 `./.agent-team/madw` 替代 `madw`，避免依赖其
 
 | 命令示例 | 谁执行 | 作用 |
 |---|---|---|
-| `madw send impl "TASK-001：按指定计划实现功能"` | Lead | 向 Impl 输入框发送任务，附加 Impl 角色说明并提交；目标 UI 未就绪则失败 |
-| `madw send review "TASK-001：评审指定提交与 IMPL 工件"` | Lead | 向 Review 发送评审任务和角色说明；评审前先刷新 Review 上下文 |
+| `madw send impl "TASK-001：按指定计划实现功能"` | Lead | 向 Impl 发送任务并提交；首次交接初始化角色，目标 UI 未就绪则失败 |
+| `madw send review "TASK-001：评审指定提交与 IMPL 工件"` | Lead | 向 Review 发送本轮任务；首次交接初始化角色，后续保留上下文并重新核验本轮工件和提交 |
 | `madw send leader "TASK-001：需要 Lead 处理的消息"` | 需要通知 Lead 的 Agent | 将消息发送到 Lead 的输入框 |
 | `madw wait impl TASK-001 001` | Lead | 等待 Impl 对该任务第 001 轮发出完成通知，并核对预期工件；`review` 同理 |
 | `madw wait review TASK-001 001 600` | Lead | 为这一轮等待设置 600 秒超时；省略时默认 3600 秒 |
@@ -220,9 +220,25 @@ Agent 在项目中可使用 `./.agent-team/madw` 替代 `madw`，避免依赖其
 
 ## Review 独立性
 
-每轮正式评审需要新上下文。手动模式中通过 `madw launch` 启动的 Review
-会按该角色记录的运行时自动刷新；直接启动的 Review 则会重置为 shell，
-需要用户重新启动。自动三 pane 模式按团队运行时刷新 Review。
+Review 保持长期运行，保留历史上下文，每轮重新读取当前 STATUS、指定 IMPL
+及提交 SHA，并独立核验代码和测试；历史结论不能代替本轮证据。不再每轮自动重启。
+`madw restart review` 只用于异常恢复或用户明确要求的重置，会丢失当前对话上下文。
+
+## 简短提示与沟通诊断
+
+角色初始化先读取短入口 `interactive.md` 和对应角色文件，详细协议与模板按当前
+步骤需要加载。通过 `madw launch` 管理的Impl/Review 会话只在第一次交接时发送
+角色说明，之后只发送任务及本轮工件提醒；手动重启后会重新初始化。
+直接启动 Agent 时无法可靠追踪进程代次，因此派单仍附带简短角色入口，以免复用旧绑定。
+
+Lead 在派单后等待完成并继续下一步，直到完成、取消、阻塞或需要用户决策。
+用户无需反复输入“继续”驱动正常交接。等待期间每秒检查健康状态；支持的 TUI Agent
+退出并返回 shell 时会中止等待，而不会一直等到默认超时。
+
+Debug 模式下，`.agent-team/runtime/logs/events.tsv` 记录 UTC 时间、事件类型、角色、
+任务、轮次、等待耗时（秒）、派单字符数和结果。可用它核对重复派单、初始化和退出，
+避免把终端重绘误算成对话次数。`send` 没有明确轮次参数时该字段为 `-`；`wait` 和
+`signal` 记录实际轮次。字符数不是模型 Token 数。`madw debug off` 同时停用两种日志。
 
 ## 状态与证据
 

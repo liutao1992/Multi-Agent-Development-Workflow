@@ -11,7 +11,7 @@ This skill defines a deterministic, runtime-independent development protocol usi
 
 1. **Lead** — requirements, lifecycle control, plan approval, rework decisions, final acceptance.
 2. **Impl** — investigation, planning, implementation, testing, immutable implementation-round evidence.
-3. **Review** — fresh-context independent verification of an exact Code Plane Git snapshot.
+3. **Review** — independent verification of each exact Code Plane Git snapshot, retaining context across rounds.
 
 Only Lead may declare a task **ACCEPTED**.
 
@@ -27,7 +27,11 @@ Every agent must explicitly map its bound role to the corresponding role file be
 
 Role files are resolved relative to this Skill's directory.
 
-Required startup order:
+Interactive tmux startup: read `interactive.md` and the matching role file.
+Load task STATUS and only the referenced artifacts needed now. This document
+is the detailed protocol reference; do not reload it in full for every handoff.
+
+Process worker startup order:
 
 ```text
 SKILL.md
@@ -144,9 +148,10 @@ Default topology:
 ```text
 User
  ↓
-Lead = project-scoped tmux session
- ├─ Impl session
- └─ Review session
+Project-scoped tmux session
+ ├─ Lead pane → user-facing coordination
+ ├─ Impl pane → planning / implementation
+ └─ Review pane → independent review
 ```
 
 The user talks only to Lead. Lead delegates through tmux until ACCEPTED, CANCELLED,
@@ -194,7 +199,6 @@ Use bounded handoffs:
 madw send impl "<Task ID + action + STATUS/artifact references>"
 madw wait impl TASK-... 001
 
-madw restart review  # uses Review's selected Agent when launched via madw launch
 madw send review "<Task ID + exact IMPL/head + STATUS references>"
 madw wait review TASK-... 001
 madw logs review 200
@@ -220,10 +224,10 @@ A completion signal never authorizes a lifecycle transition by itself; Lead
 must validate the artifact and Code Plane evidence. The tmux launcher does not
 run the standalone Python Orchestrator's per-transition validators.
 
-Impl may keep its context across Plan, implementation and confirmed rework.
-Before every substantive Review round, Lead MUST refresh Review with
-`madw restart review` (or an equivalent runtime-native new-conversation
-operation) so Review does not inherit prior private context.
+Impl and Review retain their context across rounds. Every Review reloads the
+current STATUS, exact IMPL, requirement snapshot and Code Head and independently
+checks that round. Old conclusions do not replace new evidence. Restart is a
+manual recovery/reset command, not part of routine handoff.
 
 The standalone `scripts/agent-team` Python Orchestrator remains a **process
 fallback** for CI/unattended execution. It is not the communication layer for
@@ -445,7 +449,6 @@ Lead handoff helpers:
 madw send impl "<handoff>"
 madw wait impl TASK-... 001
 
-madw restart review  # manual mode: user starts Pi/Codex in Review again
 madw send review "<handoff>"
 madw wait review TASK-... 001
 ```
@@ -503,7 +506,7 @@ The user starts an Agent in each one. Lead, Impl, and Review may run different
 runtimes. `madw send` waits for the destination's full-screen UI and fails
 without delivery if it is not ready within `MADW_TUI_TIMEOUT`.
 
-`madw restart review` respawns the Agent selected by `madw launch` while
+Only for manual reset/recovery, `madw restart review` respawns the Agent selected by `madw launch` while
 keeping the Review address. If the user launched Pi/Codex directly, the pane
 resets to a shell and the user starts a fresh Agent before the next handoff.
 An explicit `madw start pi|codex` keeps the automatic three-pane mode and
@@ -570,7 +573,7 @@ Create a new Task using the New Task invocation protocol.
 Continue TASK-...
 ```
 
-Read STATUS first, determine the next legal Lead action from the Transition Table, load only the required artifacts, execute that action, and stop at the next role handoff boundary.
+Read STATUS first, determine the next legal Lead action from the Transition Table, and load only the required artifacts. Interactive Lead delegates, waits and continues until a terminal state or a required user decision. Only Process Orchestrator workers stop after one action.
 
 ```text
 验收 TASK-...
@@ -631,9 +634,10 @@ For every short command:
 3. read STATUS.md first;
 4. restore Workflow.Type from STATUS;
 5. locate the current Plan / IMPL / Review references from STATUS;
-6. determine the single next legal action from the Transition Table;
+6. determine the next legal action from the Transition Table;
 7. execute only that role's work;
-8. stop at the next handoff boundary;
+8. workers stop and signal at the handoff boundary; interactive Lead delegates,
+   waits and continues until a terminal state or real user decision;
 9. return a concise handoff summary.
 
 The user should not need to restate:
@@ -655,7 +659,9 @@ Artifact: <created/updated artifact>
 Next: <Lead | Impl | Review> — <short action>
 ```
 
-This summary is for the user. The next Agent must still recover authoritative state from STATUS and artifacts rather than trusting the summary alone.
+Lead sends this summary to the user. In tmux mode workers only signal and report
+the artifact/result/blocker concisely. The next Agent recovers authoritative
+state from STATUS and artifacts rather than trusting conversation summaries.
 
 ## Core rule
 
@@ -1013,7 +1019,8 @@ If any check fails, do not perform substantive review. Record protocol status `R
 
 ## Independent Review context
 
-Review should start in a fresh execution context whenever supported.
+Review may retain its context. Re-read current-round authoritative inputs and
+verify the specified code independently; an old PASS never proves the new head.
 
 MUST NOT rely on Impl private reasoning, implementation conversation history, or self-review conclusions as proof.
 

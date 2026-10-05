@@ -49,7 +49,8 @@ Do not review an implementation against a newer or older Task Contract.
 
 ## Independence
 
-Prefer a fresh execution context.
+Keep the Review context across rounds. Reload current-round authoritative
+inputs and independently verify each new head; never reuse an old PASS as proof.
 
 Do not rely on Impl private reasoning, conversation history, or self-review conclusions as proof.
 
@@ -133,9 +134,9 @@ In tmux-native mode, signal the completion channel supplied by Lead after REVIEW
 
 ## Tmux Review behavior
 
-The Review pane is a stable address, but every substantive Review round MUST use
-a fresh Agent context. Lead should run `madw restart review` before sending the
-round.
+The Review pane and Agent context remain stable across rounds. Lead does not
+restart Review before routine handoffs. Restart only for manual recovery or an
+explicit user request. Each round must verify current STATUS, IMPL and Code Head.
 
 Consume only bounded evidence: Task ID, STATUS, approved Plan/fast-path marker,
 exact IMPL artifact, frozen Code Head, diffs/tests, and prior Review only when

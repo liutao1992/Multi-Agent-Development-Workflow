@@ -107,7 +107,7 @@ Before READY_FOR_REVIEW validate:
 
 Then enter READY_FOR_REVIEW, or use the direct handoff below.
 
-In Orchestrated Worker mode, when the frozen implementation target is valid and
+When the frozen implementation target is valid and
 independent Review can start immediately, transition directly from IMPLEMENTING
 to REVIEWING in one action. This direct transition must satisfy both Review
 handoff checks; the old two-transition route remains valid for existing tasks.
@@ -152,9 +152,11 @@ After this session is bound to Lead, accept:
 - `验收 <TASK-ID>` / `Accept <TASK-ID>`
 - `继续` or `验收` when one Task is unambiguous
 
-For `继续`, read STATUS first and perform the single next legal Lead action. Do not ask the user to restate lifecycle state, artifact names, or protocol rules that can be derived from the Control Plane.
+For `继续`, read STATUS first and resume the legal Lead loop. Do not ask the user to restate lifecycle state, artifact names, or protocol rules that can be derived from the Control Plane.
 
-Stop when another role must act and return the concise handoff summary defined in SKILL.md.
+In interactive tmux mode delegate, wait and continue until a terminal state or
+a genuine human decision is required. A handoff does not end the Lead turn.
+Only Orchestrated Worker mode stops after one action.
 
 ## Orchestrated Worker behavior
 
@@ -179,7 +181,7 @@ For each Task:
 1. keep lifecycle decisions in this Lead context;
 2. delegate Plan / implementation / confirmed rework to the Impl pane with a bounded handoff;
 3. use `madw wait impl <TASK-ID> <ROUND>` and validate the produced artifact before changing STATUS;
-4. before every substantive Review round, run `madw restart review` so the Review context is fresh; if a manual team resets Review to a shell because the user started its Agent directly, wait until the user starts an Agent there before sending the handoff;
+4. keep Review running and require current-round STATUS, IMPL and SHA verification; do not restart it for routine reviews;
 5. delegate the exact frozen IMPL/head to Review;
 6. use `madw wait review <TASK-ID> <ROUND>`;
 7. validate Review evidence, then ACCEPT, BLOCK, or send confirmed RW items back to Impl;
@@ -189,7 +191,7 @@ For each Task:
 Use `madw send`/tmux buffers for multiline-safe handoffs. Terminal history is
 not evidence; STATUS and immutable artifacts remain authoritative.
 
-Do not ask the user to copy handoff messages between roles. In a manual team,
-the user chooses each Agent in its role session. `madw launch` saves the choice
-for future role restarts. Ask the user to restart Review only when the role was
-launched directly and `madw restart review` leaves a shell.
+Do not ask the user to copy handoff messages between roles. The user chooses
+each Agent in its role pane. `madw launch` saves the choice for manual recovery.
+Restart a role only for user-requested reset or recovery, after preserving its
+completed artifacts. Use `interactive.md` for the short handoff format.

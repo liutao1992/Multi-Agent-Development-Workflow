@@ -100,13 +100,18 @@ same immutable artifact instead of waiting forever.
 A completion signal means "worker turn finished", not "evidence accepted".
 Lead still validates the artifact before changing STATUS.
 
-## Review freshness
+## Review continuity and manual recovery
+
+Review keeps its Agent context across rounds. Each handoff points to current
+STATUS, exact IMPL and Code Head; previous findings are background for re-review.
+Do not restart Review for routine handoffs. If the user explicitly requests a
+reset, or a role needs recovery, use:
 
 ```bash
 madw restart review
 ```
 
-In manual mode, `madw restart review` respawns the runtime selected by
+For that manual reset, `madw restart review` respawns the runtime selected by
 `madw launch`. A directly started Review Agent has no stored command, so the
 session resets to a shell and the user starts an Agent again. The pane address
 and completion metadata stay stable. In automatic mode the command respawns
@@ -133,6 +138,14 @@ Each role's terminal stream is appended to
 `madw logs review 200`; the default is 120 lines. `madw logs` removes terminal
 color and cursor control sequences for readable output. Debug logging is on
 for new teams; toggle it with `madw debug off|on`.
+
+Debug mode also appends structured events to `.agent-team/runtime/logs/events.tsv`:
+UTC timestamp, event, role, Task, round, elapsed seconds, prompt characters and
+result. Startup/exit, role initialization, send/failure, wait/completion/failure,
+manual restart and signal are recorded without message contents. Send has no
+explicit round argument, so its round is `-`; wait/signal carry the exact round.
+Repeated sends are observable attempts, not automatic retry counts. Character
+counts are not model Token usage. Debug off disables both event and terminal logs.
 
 Terminal scrollback is observational only. Never use it as lifecycle truth.
 

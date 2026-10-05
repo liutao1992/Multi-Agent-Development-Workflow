@@ -31,7 +31,8 @@ If any verification item fails, substantive review stops and Review Result remai
 
 ## Independence
 
-Fresh Execution Context: YES / NO / NOT_SUPPORTED
+Context Retained: YES / NO
+Current STATUS / IMPL / Code Head Reverified: YES / NO
 Impl Private Reasoning Used: NO
 
 ## Diff Scope
