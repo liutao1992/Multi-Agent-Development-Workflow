@@ -185,3 +185,6 @@ or a dependency blocker to BLOCKED with Resume State. Preserve unfinished code;
 do not fabricate IMPL evidence or silently discard work. Resolve it before freezing
 another review target. After resolution issue a new unused completion round;
 the old round remains closed. Normal REVIEW_TARGET_MISMATCH still produces REVIEW.
+
+After abnormal recovery, numbering may have gaps. If no earlier IMPL was submitted,
+use Task Baseline SHA as Previous Head; otherwise use the last submitted IMPL head.

@@ -55,8 +55,8 @@ Before creating IMPL-NNN:
 3. commit intended Code Plane changes;
 4. record Task Baseline SHA from STATUS;
 5. set Previous Head SHA:
-   - IMPL-001 → Task Baseline SHA;
-   - later rounds → prior IMPL Code Head SHA;
+   - no previously submitted IMPL → Task Baseline SHA, regardless of round number;
+   - otherwise → last submitted IMPL Code Head SHA from STATUS, even across gaps;
 6. record current Code Head SHA;
 7. verify Code Plane cleanliness:
    `git diff --quiet`;

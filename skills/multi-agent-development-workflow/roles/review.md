@@ -57,7 +57,8 @@ Always inspect:
 - Task Baseline SHA → Code Head SHA for full-task effect;
 - Previous Head SHA → Code Head SHA for current-round/rework effect.
 
-For IMPL-001 these ranges are equivalent.
+For the first submitted IMPL these ranges are equivalent, even if its round
+number is greater than 001 after an abnormal handoff.
 
 ## Review artifact
 

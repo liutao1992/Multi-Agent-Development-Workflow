@@ -336,6 +336,23 @@ Protocol Status: {protocol}
                 self.head,
             )
 
+    def test_first_submission_after_aborted_round_can_start_at_002(self) -> None:
+        self.write_impl()
+        artifact = self.task / "implementations" / "IMPL-001.md"
+        artifact.rename(artifact.with_name("IMPL-002.md"))
+        self.assertFalse(artifact.exists())
+        after = self.st(
+            "REVIEWING", impl_artifact="IMPL-002.md", code_head=self.head, frozen="true",
+        )
+        state_machine.validate_transition(self.task, self.st("IMPLEMENTING"), after, self.head)
+        self.write_review(reviewed_impl="IMPL-002.md")
+        accepted_review = self.st(
+            "READY_FOR_FINAL_ACCEPTANCE", impl_artifact="IMPL-002.md",
+            code_head=self.head, frozen="true", review_artifact="REVIEW-001.md",
+            review_protocol="READY_FOR_REVIEW", review_result="PASS",
+        )
+        state_machine.validate_transition(self.task, after, accepted_review, self.head)
+
     def test_implementation_head_field_allows_markdown_bullet(self) -> None:
         self.write_impl()
         artifact = self.task / "implementations" / "IMPL-001.md"

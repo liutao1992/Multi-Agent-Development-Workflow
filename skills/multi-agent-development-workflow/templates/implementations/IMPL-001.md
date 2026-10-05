@@ -23,8 +23,8 @@ Code Working Tree: CLEAN
 Control Plane Excluded: YES
 Frozen: true
 
-> For IMPL-001, Previous Head SHA equals Task Baseline SHA.
-> For later rounds, Previous Head SHA equals the previous submitted Code Head SHA.
+> With no previously submitted IMPL, Previous Head SHA equals Task Baseline SHA, regardless of round number.
+> Otherwise use the last submitted IMPL Code Head SHA from STATUS; numbering gaps do not imply missing submission evidence.
 
 ## Summary
 

@@ -76,3 +76,6 @@ than recreating the team. Load `adapters/tmux.md` for startup or transport failu
 `madw logs <role>` and `runtime/logs/events.tsv` are diagnostics, not task evidence.
 `madw debug off|on` controls logging. Ctrl+C closes the project team; `stop` retains
 artifacts/logs. Manual `restart <role>` is for recovery/reset.
+
+After abnormal recovery, numbering may have gaps. If no earlier IMPL was submitted,
+use Task Baseline SHA as Previous Head; otherwise use the last submitted IMPL head.

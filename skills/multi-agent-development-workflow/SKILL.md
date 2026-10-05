@@ -818,17 +818,18 @@ Previous Head SHA: <previous submitted implementation head>
 Code Head SHA: <current submitted implementation head>
 ```
 
-For IMPL-001:
+Previous Head is determined by submitted evidence, not the numeric filename:
 
-```text
-Previous Head SHA = Task Baseline SHA
-```
+- If no earlier implementation has been submitted and validated by Lead,
+  `Previous Head SHA = Task Baseline SHA`, even when the first artifact is
+  IMPL-002 or later after an abnormal handoff.
+- Otherwise use the most recent previously submitted IMPL's Code Head SHA,
+  identified by STATUS before consuming the new artifact. It need not be the
+  immediately preceding numeric round.
 
-For IMPL-002+:
-
-```text
-Previous Head SHA = previous IMPL round Code Head SHA
-```
+Aborted attempts may leave gaps in PLAN/IMPL/REVIEW numbering. A notification
+closes its completion round but does not create a submitted implementation.
+Never fabricate a missing IMPL or reuse a closed round to fill a gap.
 
 Review uses:
 
