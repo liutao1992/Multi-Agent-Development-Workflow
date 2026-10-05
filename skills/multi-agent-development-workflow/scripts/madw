@@ -258,6 +258,18 @@ pane_command() {
   printf 'cd -- %s && export MADW_CLI=%s PATH=%s && exec %s\n' "$quoted_root" "$quoted_cli" "$quoted_path" "$cmd"
 }
 
+manual_shell_command() {
+  local root="$1" shell quoted_root quoted_shell
+  shell="$(tmux show-options -gv default-shell)"
+  [ -n "$shell" ] || shell="${SHELL:-/bin/sh}"
+  printf -v quoted_root '%q' "$root"
+  printf -v quoted_shell '%q' "$shell"
+  # tmux -c can retain the server's old cwd after that directory is replaced.
+  # Enter the project explicitly before starting the interactive role shell.
+  printf 'cd -- %s && export MADW_PROJECT_ROOT=%s && exec %s -l\n' \
+    "$quoted_root" "$quoted_root" "$quoted_shell"
+}
+
 command_head() {
   local cmd="$1"
   set -- $cmd
@@ -648,16 +660,17 @@ create_team() {
 }
 
 create_manual_team() {
-  local root session lead impl review role
+  local root session lead impl review role shell_cmd
   root="$(project_root)"
   session="$(team_session)"
+  shell_cmd="$(manual_shell_command "$root")"
   for role in impl review; do
     ! session_exists "$(role_session "$role")" ||
       die "session already exists: $(role_session "$role")"
   done
-  tmux new-session -d -s "$session" -n lead -c "$root"
-  if ! tmux new-session -d -s "$(role_session impl)" -n impl -c "$root" ||
-     ! tmux new-session -d -s "$(role_session review)" -n review -c "$root"; then
+  tmux new-session -d -s "$session" -n lead -c "$root" "$shell_cmd"
+  if ! tmux new-session -d -s "$(role_session impl)" -n impl -c "$root" "$shell_cmd" ||
+     ! tmux new-session -d -s "$(role_session review)" -n review -c "$root" "$shell_cmd"; then
     tmux kill-session -t "$(role_session review)" 2>/dev/null || true
     tmux kill-session -t "$(role_session impl)" 2>/dev/null || true
     tmux kill-session -t "$session" 2>/dev/null || true
@@ -687,9 +700,10 @@ create_manual_team() {
 }
 
 repair_manual_sessions() {
-  local root session role pane cmd agent_path pane_cmd
+  local root session role pane cmd agent_path pane_cmd shell_cmd
   root="$(project_root)"
   session="$(team_session)"
+  shell_cmd="$(manual_shell_command "$root")"
   for role in impl review; do
     if ! session_exists "$(role_session "$role")"; then
       cmd="$(session_option "$session" "@madw_role_cmd_$role")"
@@ -698,7 +712,7 @@ repair_manual_sessions() {
         pane_cmd="$(pane_command "$root" "$cmd" "${agent_path:-$PATH}")"
         tmux new-session -d -s "$(role_session "$role")" -n "$role" -c "$root" "$pane_cmd"
       else
-        tmux new-session -d -s "$(role_session "$role")" -n "$role" -c "$root"
+        tmux new-session -d -s "$(role_session "$role")" -n "$role" -c "$root" "$shell_cmd"
       fi
       pane="$(tmux display-message -p -t "$(role_session "$role"):$role.0" '#{pane_id}')"
       tmux set-option -t "$session" "@madw_pane_$role" "$pane"
@@ -879,7 +893,8 @@ restart_role() {
       if [ "$role" = leader ]; then send_to_pane "$pane" "$(role_prompt leader)"; fi
       echo "restarted $role in $(role_session "$role") using its selected Agent"
     else
-      tmux respawn-pane -k -t "$pane" -c "$root"
+      pane_cmd="$(manual_shell_command "$root")"
+      tmux respawn-pane -k -t "$pane" -c "$root" "$pane_cmd"
       configure_role_logging "$role" "$pane"
       echo "reset $role shell in $(role_session "$role"); start Pi or Codex there, then dispatch its role prompt"
     fi

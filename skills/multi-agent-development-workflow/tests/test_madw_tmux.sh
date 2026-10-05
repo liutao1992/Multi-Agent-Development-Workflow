@@ -10,9 +10,14 @@ INSTALL="$REPO_ROOT/install.sh"
 
 TMP="$(mktemp -d)"
 export TMUX_TMPDIR="$TMP/tmux"
+# Never inherit a caller's live tmux socket; cleanup must reach only this test's server.
+unset TMUX
 mkdir -p "$TMUX_TMPDIR"
 
 cleanup() {
+  if [ -n "${STALE_SOCKET_DIR:-}" ]; then
+    TMUX_TMPDIR="$STALE_SOCKET_DIR" tmux kill-server >/dev/null 2>&1 || true
+  fi
   tmux kill-server >/dev/null 2>&1 || true
   rm -rf "$TMP"
 }
@@ -441,6 +446,29 @@ STALE_CWD="$TMP/stale-server-cwd"
 mkdir -p "$STALE_CWD"
 (cd "$STALE_CWD" && tmux new-session -d -s madw-stale-server 'sleep 60')
 rm -rf "$STALE_CWD"
+
+# A server with a deleted cwd can ignore new-session -c for an interactive
+# shell. Manual role sessions must explicitly enter the project before launch.
+STALE_SOCKET_DIR="$TMP/isolated-tmux"
+STALE_REPO="$TMP/stale-project"
+STALE_SERVER_CWD="$TMP/isolated-stale-cwd"
+mkdir -p "$STALE_SOCKET_DIR" "$STALE_SERVER_CWD"
+init_repo "$STALE_REPO"
+(cd "$STALE_SERVER_CWD" && TMUX_TMPDIR="$STALE_SOCKET_DIR" tmux new-session -d -s stale-hold 'sleep 60')
+rm -rf "$STALE_SERVER_CWD"
+(cd "$STALE_REPO" && TMUX_TMPDIR="$STALE_SOCKET_DIR" MADW_NO_ATTACH=1 "$MADW" start) >/dev/null
+STALE_SESSION="$(cd "$STALE_REPO" && "$MADW" id)"
+for role in leader impl review; do
+  if [ "$role" = leader ]; then ROLE_SESSION="$STALE_SESSION"; else ROLE_SESSION="$STALE_SESSION-$role"; fi
+  TMUX_TMPDIR="$STALE_SOCKET_DIR" tmux send-keys -t "$ROLE_SESSION" 'ls -1a' Enter
+  for _ in $(seq 1 50); do
+    if TMUX_TMPDIR="$STALE_SOCKET_DIR" tmux capture-pane -p -t "$ROLE_SESSION" | grep -Fxq README.md; then break; fi
+    sleep 0.1
+  done
+  TMUX_TMPDIR="$STALE_SOCKET_DIR" tmux capture-pane -p -t "$ROLE_SESSION" | grep -Fxq README.md
+done
+TMUX_TMPDIR="$STALE_SOCKET_DIR" tmux kill-server
+STALE_SOCKET_DIR=""
 
 start_for "$REPO_A"
 SESSION_A="$(session_for "$REPO_A")"
