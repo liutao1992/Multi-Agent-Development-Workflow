@@ -104,7 +104,9 @@ madw-<repo>-<path-hash>          Lead | Impl | Review
 手动模式中，若 Review 使用 `madw launch` 选过 Agent，
 `madw restart review` 会以同一种 Agent 刷新上下文；直接输入 `pi` 或
 `codex` 的 Review session 会重置为 shell，需手动重新启动。
-`madw stop` 结束整个团队。
+在任意角色 pane 直接按 `Ctrl+C`，或运行 `madw stop`，都会关闭当前项目整个团队
+及其中的 Agent。旧三会话模式下也会同时关闭该项目的三个角色 session。
+快捷键仅绑定到当前团队，其他项目的 tmux 会话继续运行。
 
 如果旧 session 报 `getcwd` 错误，请从能正常进入项目目录的终端运行
 `cd <项目目录> && madw stop && madw start`。新版启动器会在每个角色 shell

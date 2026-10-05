@@ -435,7 +435,9 @@ Lead/Impl/Review 的交接方向。`madw send`、`wait`、`signal` 负责更新�
 对话上下文。
 
 手动模式默认在一个 session 中使用三个并排 pane；通过 `madw attach <role>`
-聚焦角色，`madw stop` 结束整个团队。`madw start --sessions` 保留独立 session 模式。
+聚焦角色。任意角色中直接按 `Ctrl+C`，或运行 `madw stop`，结束当前项目整个团队
+和其中的 Agent。`madw start --sessions` 保留独立 session 模式；该模式的三个角色
+session 同样会一起关闭。快捷键不影响其他项目的会话。
 
 Lead handoff helpers:
 

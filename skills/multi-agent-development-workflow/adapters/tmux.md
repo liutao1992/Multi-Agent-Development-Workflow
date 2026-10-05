@@ -136,6 +136,13 @@ for new teams; toggle it with `madw debug off|on`.
 
 Terminal scrollback is observational only. Never use it as lifecycle truth.
 
+## Ending the team
+
+Press `Ctrl+C` directly in any role pane, without the tmux prefix, or run
+`madw stop`. Both close the current project's whole team and its Agent
+processes. With `--sessions`, all three role sessions close together. The key
+binding is scoped to the team's sessions; other projects keep running.
+
 ## Extended keys
 
 Interactive coding Agents may use modified Enter keys. If needed, add:

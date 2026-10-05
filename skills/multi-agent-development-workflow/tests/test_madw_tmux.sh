@@ -52,6 +52,64 @@ start_for() { local dir="$1"; (cd "$dir" && MADW_AGENT_CMD="$FAKE" MADW_NO_ATTAC
 start_with_layout_for() { local dir="$1"; shift; (cd "$dir" && MADW_AGENT_CMD="$FAKE" MADW_NO_ATTACH=1 "$MADW" start "$@"); }
 stop_for() { local dir="$1"; (cd "$dir" && "$MADW" stop); }
 
+press_ctrl_c() {
+  python3 - "$1" "${2:-$1}" <<'PY'
+import fcntl
+import os
+import pty
+import select
+import signal
+import struct
+import subprocess
+import sys
+import termios
+import time
+
+target, team = sys.argv[1:]
+pid, terminal = pty.fork()
+if pid == 0:
+    os.environ["TERM"] = "xterm-256color"
+    os.execvp("tmux", ["tmux", "attach-session", "-t", target])
+fcntl.ioctl(terminal, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 120, 0, 0))
+try:
+    deadline = time.monotonic() + 10
+    display = b""
+    while time.monotonic() < deadline:
+        clients = subprocess.run(["tmux", "list-clients", "-F", "#{client_session}"], capture_output=True, text=True)
+        if select.select([terminal], [], [], 0.05)[0]:
+            display += os.read(terminal, 65536)
+        # A listed client may not have switched its PTY to raw mode yet.
+        # Wait for tmux's initial screen before sending the terminal key.
+        if target in clients.stdout.splitlines() and b"\x1b[?1049h" in display:
+            break
+    else:
+        raise AssertionError(f"tmux client did not attach to {target}")
+    os.write(terminal, b"\x03")
+    while time.monotonic() < deadline:
+        exists = subprocess.run(["tmux", "has-session", "-t", team], capture_output=True)
+        if exists.returncode != 0:
+            break
+        time.sleep(0.05)
+    else:
+        raise AssertionError(f"Ctrl+C did not close team {team}")
+    while time.monotonic() < deadline:
+        clients = subprocess.run(["tmux", "list-clients", "-F", "#{client_pid}"], capture_output=True, text=True)
+        if str(pid) not in clients.stdout.splitlines():
+            break
+        time.sleep(0.05)
+    else:
+        raise AssertionError("Ctrl+C switched the client to another project instead of exiting")
+finally:
+    os.close(terminal)
+    if os.waitpid(pid, os.WNOHANG)[0] == 0:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        os.waitpid(pid, 0)
+PY
+}
+
 deny_agent_process_probes() {
   kill() {
     if [ "${1:-}" = "-0" ]; then
@@ -351,6 +409,11 @@ fi
 
 # Default startup creates three side-by-side role panes in one session. Users
 # launch different interactive Agents in each pane; handoffs wait for the UI.
+CTRL_OTHER_REPO="$TMP/ctrl-other-project"
+init_repo "$CTRL_OTHER_REPO"
+start_for "$CTRL_OTHER_REPO" >/dev/null
+CTRL_OTHER_SESSION="$(session_for "$CTRL_OTHER_REPO")"
+tmux set-option -g detach-on-destroy off
 MANUAL_REPO="$TMP/manual-project"
 init_repo "$MANUAL_REPO"
 : > "$FAKE_TUI_LOG"
@@ -434,11 +497,13 @@ MANUAL_REVIEW_LOG="$(cd "$MANUAL_REPO" && "$MADW" logs review 200)"
 printf '%s\n' "$MANUAL_REVIEW_LOG" | grep -Fq 'TASK-MANUAL-002: review'
 (cd "$MANUAL_REPO" && MADW_NO_ATTACH=1 "$MADW" start) >/dev/null
 [ "$(tmux list-panes -t "$MANUAL_SESSION:team" -F '#{pane_id}' | wc -l | tr -d ' ')" = 3 ]
-(cd "$MANUAL_REPO" && "$MADW" stop) >/dev/null
+tmux select-pane -t "$MANUAL_REVIEW"
+press_ctrl_c "$MANUAL_SESSION"
 if tmux list-sessions -F '#S' | grep -Fqx "$MANUAL_SESSION"; then
   echo "stop left the manual team session running" >&2
   exit 1
 fi
+tmux has-session -t "$CTRL_OTHER_SESSION"
 
 # The former three-session topology remains available when explicitly chosen.
 SESSION_REPO="$TMP/session-project"
@@ -449,8 +514,18 @@ SESSION_TEAM="$(session_for "$SESSION_REPO")"
 for role in leader impl review; do
   if [ "$role" = leader ]; then ROLE_SESSION="$SESSION_TEAM"; else ROLE_SESSION="$SESSION_TEAM-$role"; fi
   tmux list-sessions -F '#S' | grep -Fqx "$ROLE_SESSION"
+  [ "$(tmux show-options -v -t "$ROLE_SESSION" key-table)" = "$(tmux show-options -v -t "$SESSION_TEAM" key-table)" ]
+  [ "$(tmux show-options -v -t "$ROLE_SESSION" detach-on-destroy)" = on ]
 done
-(cd "$SESSION_REPO" && "$MADW" stop) >/dev/null
+press_ctrl_c "$SESSION_TEAM-impl" "$SESSION_TEAM"
+for ROLE_SESSION in "$SESSION_TEAM" "$SESSION_TEAM-impl" "$SESSION_TEAM-review"; do
+  if tmux has-session -t "$ROLE_SESSION" 2>/dev/null; then
+    echo "Ctrl+C left a role session running: $ROLE_SESSION" >&2
+    exit 1
+  fi
+done
+tmux has-session -t "$CTRL_OTHER_SESSION"
+stop_for "$CTRL_OTHER_REPO" >/dev/null
 
 # Default install goes to the shared Agent Skills directory and removes an old
 # Codex-specific copy from the discovery path.
@@ -515,7 +590,7 @@ tmux show-options -v -t "$SESSION_A" 'status-format[4]' | grep -Fq 'statusline c
 [ "$(tmux show-options -v -t "$SESSION_A" @madw_task_display)" = "尚未记录当前任务" ]
 [ "$(tmux show-options -v -t "$SESSION_A" key-table)" != "root" ]
 TEAM_TABLE="$(tmux show-options -v -t "$SESSION_A" key-table)"
-tmux list-keys -a | grep -E -- "-T ${TEAM_TABLE}[[:space:]]+C-c[[:space:]]+kill-session -t $SESSION_A$" >/dev/null
+tmux list-keys -a -T "$TEAM_TABLE" | grep -E 'C-c[[:space:]]+run-shell' >/dev/null
 tmux list-keys -a | grep -E -- "-T ${TEAM_TABLE}[[:space:]]+MouseDown1Pane[[:space:]]+select-pane -t =" >/dev/null
 [ "$(tmux show-window-options -v -t "$SESSION_A:team" pane-border-status)" = "bottom" ]
 tmux show-window-options -v -t "$SESSION_A:team" pane-border-format | grep -Fq '#[fg=colour51,bold]'

@@ -587,19 +587,34 @@ set_team_progress() {
 }
 
 configure_team_keys() (
-  local session table bindings
+  local session table bindings root stop_cmd quoted_root quoted_session quoted_cli quoted_path role
   session="$(team_session)"
+  root="$(project_root)"
   table="madw-$(printf '%s' "$session" | git hash-object --stdin | cut -c1-12)"
   bindings="$(mktemp)"
   trap 'rm -f "$bindings"' EXIT
 
   # Keep the user's root-table mouse and other shortcuts in this team only.
-  # A session-specific table lets Ctrl+C stop all three panes without changing
-  # Ctrl+C in unrelated tmux sessions.
+  # A team-specific table closes all its roles without changing unrelated sessions.
   tmux list-keys -T root | sed "s/ -T root / -T $table /" > "$bindings"
   tmux source-file "$bindings"
-  tmux bind-key -T "$table" C-c kill-session -t "$session"
+  printf -v quoted_root '%q' "$root"
+  printf -v quoted_session '%q' "$session"
+  printf -v quoted_cli '%q' "$SCRIPT_DIR/madw"
+  printf -v quoted_path '%q' "$PATH"
+  stop_cmd="PATH=$quoted_path MADW_PROJECT_ROOT=$quoted_root MADW_SESSION=$quoted_session $quoted_cli stop"
+  tmux bind-key -T "$table" C-c run-shell "$stop_cmd"
   tmux set-option -t "$session" key-table "$table"
+  tmux set-option -t "$session" detach-on-destroy on
+  if [ "$(session_option "$session" @madw_runtime)" = manual ] &&
+     [ "$(session_option "$session" @madw_topology)" != panes ]; then
+    for role in impl review; do
+      if session_exists "$(role_session "$role")"; then
+        tmux set-option -t "$(role_session "$role")" key-table "$table"
+        tmux set-option -t "$(role_session "$role")" detach-on-destroy on
+      fi
+    done
+  fi
 )
 
 create_team() {
@@ -793,6 +808,7 @@ attach_team() {
   session_exists "$session" || die "team is not running: $session"
   validate_existing_team "$session"
   runtime="$(session_option "$session" @madw_runtime)"
+  configure_team_keys
   if [ "$runtime" = manual ] && [ "$(session_option "$session" @madw_topology)" != panes ]; then
     session="$(role_session "$focus")"
     session_exists "$session" || die "$focus session is missing: $session"
@@ -1024,16 +1040,23 @@ show_role_logs() {
 }
 
 stop_team() {
-  local session runtime role
+  local session runtime role root
   session="$(team_session)"
   if session_exists "$session"; then
+    root="$(project_root)"
+    [ "$(session_option "$session" @madw_project_root)" = "$root" ] ||
+      die "refusing to stop a session belonging to another project: $session"
     runtime="$(session_option "$session" @madw_runtime)"
     if [ "$runtime" = manual ] && [ "$(session_option "$session" @madw_topology)" != panes ]; then
       for role in impl review; do
+        if session_exists "$(role_session "$role")"; then
+          [ "$(session_option "$(role_session "$role")" @madw_project_root)" = "$root" ] ||
+            die "refusing to stop a role session belonging to another project: $(role_session "$role")"
+        fi
+      done
+      for role in impl review; do
         tmux kill-session -t "$(role_session "$role")" 2>/dev/null || true
       done
-    else
-      validate_existing_team "$session"
     fi
     tmux kill-session -t "$session"
     echo "stopped $session"
@@ -1338,6 +1361,7 @@ start_command() {
   fi
 
   configure_team_logging
+  configure_team_keys
   if [ "${MADW_NO_ATTACH:-0}" != "1" ]; then attach_team leader; fi
 }
 
