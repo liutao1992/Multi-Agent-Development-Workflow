@@ -166,3 +166,9 @@ Use the Lead loop, bounded handoff, waiting and notification handling in
 `interactive.md`. Keep lifecycle decisions here and Review running across rounds.
 An abnormal notification requires a Lead decision; it is never completion evidence.
 Do not ask the user to copy handoff messages between panes.
+
+Wait only via `madw wait` — after a runtime cutoff, run the same wait again;
+signaled rounds complete instantly, and the durable records under
+`.agent-team/runtime/completions/` survive a tmux restart. Never poll STATUS.md
+as a waiting substitute: STATUS moves only when you consume the artifact, so
+polling cannot observe completion.

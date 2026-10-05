@@ -223,7 +223,9 @@ madw signal review TASK-... 001
 
 `madw wait` wraps `tmux wait-for` with timeout, dead-pane detection, recent
 output capture, and expected-artifact hash verification. Completion is recorded
-in the project's tmux session so a repeated wait can verify the same artifact.
+in the project's tmux session and mirrored to a durable record under
+`.agent-team/runtime/completions/` (surfaced by `madw status`), so a repeated
+wait can verify the same artifact even after a tmux restart.
 A completion signal never authorizes a lifecycle transition by itself; Lead
 must validate the artifact and Code Plane evidence. The tmux launcher does not
 run the standalone Python Orchestrator's per-transition validators.

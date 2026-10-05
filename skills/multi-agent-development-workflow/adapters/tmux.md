@@ -96,7 +96,10 @@ Internally this uses `tmux wait-for`, while `madw wait` also detects a dead
 pane, enforces a timeout, captures recent output on failure, and verifies the
 expected Plan/IMPL/REVIEW artifact exists. The completion hash is kept in the
 project's tmux session, so repeating a wait after interruption verifies the
-same immutable artifact instead of waiting forever.
+same immutable artifact instead of waiting forever. The hash is also mirrored to
+a durable record at `.agent-team/runtime/completions/<task>/<role>-<kind>-<round>`,
+so a fresh `madw wait` — and the `madw status` summary — still sees the signaled
+round after a tmux server restart, when session options are gone.
 
 A completion signal means "worker turn finished", not "evidence accepted".
 Lead still validates the artifact before changing STATUS.

@@ -116,4 +116,8 @@ After writing exactly the required Plan or IMPL artifact:
 2. stop at the handoff boundary;
 3. signal Lead with `madw signal impl <TASK-ID> <ROUND>`.
 
+The signal is your entire completion report to Lead: it wakes Lead's blocked
+`madw wait`, and Lead then re-reads STATUS and the signaled artifact itself.
+Do not `madw send leader` summaries or progress; use `madw notify` for blockers.
+
 Conversation memory is convenience only. Do not dispatch or impersonate Review.

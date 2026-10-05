@@ -127,3 +127,7 @@ After creating REVIEW-NNN:
 2. do not transition STATUS;
 3. signal Lead with `madw signal review <TASK-ID> <ROUND>`;
 4. stop; do not continue into fixes.
+
+The signal is your entire completion report to Lead: it wakes Lead's blocked
+`madw wait`, and Lead then re-reads STATUS and the signaled artifact itself.
+Do not `madw send leader` summaries; use `madw notify` for blockers.
