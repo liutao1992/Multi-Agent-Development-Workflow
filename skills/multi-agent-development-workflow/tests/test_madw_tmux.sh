@@ -693,10 +693,10 @@ if tmux capture-pane -p -t "$NEW_REVIEW_PANE" -S -100 | grep -Fq 'Review 角色'
 fi
 (cd "$REPO_A" && "$MADW" send review 'TASK-TEST-001: verify the frozen code') >/dev/null
 for _ in $(seq 1 50); do
-  if tmux capture-pane -p -t "$NEW_REVIEW_PANE" -S -100 | grep -Fq 'TASK-TEST-001: verify the frozen code'; then break; fi
+  if tmux capture-pane -p -J -t "$NEW_REVIEW_PANE" -S -100 | grep -Fq 'TASK-TEST-001: verify the frozen code'; then break; fi
   sleep 0.1
 done
-REVIEW_CAPTURE="$(tmux capture-pane -p -t "$NEW_REVIEW_PANE" -S -100)"
+REVIEW_CAPTURE="$(tmux capture-pane -p -J -t "$NEW_REVIEW_PANE" -S -100)"
 if ! printf '%s\n' "$REVIEW_CAPTURE" | grep -Fq 'Review 角色' \
   || ! printf '%s\n' "$REVIEW_CAPTURE" | grep -Fq '【Lead 交接任务】' \
   || ! printf '%s\n' "$REVIEW_CAPTURE" | grep -Fq 'TASK-TEST-001: verify the frozen code'; then
