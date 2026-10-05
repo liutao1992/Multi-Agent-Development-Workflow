@@ -41,11 +41,21 @@ madw start
 Agent 在项目内通过 `./.agent-team/madw` 调用 CLI，无需依赖终端环境变量。
 
 `madw start` 默认创建一个 tmux session，并将其分成 Lead、Impl、Review
-三个并排的 pane。进入各 pane 后运行 `madw launch pi` 或
-`madw launch codex`，可以混用。
-`launch` 会自动给 Lead 发送角色说明，并记住每个角色选择的 Agent，供 Review
-刷新或意外退出后恢复。然后在 Lead 中输入开发需求。`madw send` 会等待目标 Agent 的全屏
-界面就绪；尚未启动 Agent 时会报错，不会把任务粘贴进 shell。
+三个并排的 pane。用鼠标或 `Ctrl+b` 加方向键切换，分别在对应 pane 的 shell
+启动 Agent，例如：
+
+| 角色 pane | 在这个 pane 中执行 | 启动后的职责 |
+|---|---|---|
+| Lead | `madw launch pi` | 接收用户需求，指挥 Impl 和 Review |
+| Impl | `madw launch codex` | 接收 Lead 派发的实现任务 |
+| Review | `madw launch pi` | 接收 Lead 派发的独立评审任务 |
+
+每个角色都可以自行选择 Pi 或 Codex。`launch` 根据当前 pane 识别角色，
+等待 Lead 的 Agent 界面就绪后自动发送角色说明，并记住各角色选择的 Agent，
+供后续重启使用。Impl 和 Review 在收到 Lead 派单时会一并收到角色说明。
+三个 Agent 启动后，只在 Lead 的 Agent 对话中输入开发需求。
+`madw send` 会等待目标 Agent 的全屏界面就绪；尚未启动 Agent 时会报错，
+不会把任务粘贴进 shell。
 
 ```bash
 madw attach impl       # 聚焦 Impl pane，在里面启动 Agent
@@ -119,40 +129,86 @@ madw-<repo>-<path-hash>          Lead | Impl | Review
 需要时运行 `madw debug on` 继续追加。日志保存在本机 Control Plane，
 不会进入 Git 代码快照。
 
-## 常用命令
+## 命令用法
+
+在目标项目的 Git 目录中执行命令。下面的命令是 **shell 命令**：如果某个 pane
+已经运行 Agent，用户应从另一普通终端执行管理命令；Agent 则通过自己的终端工具
+调用命令。将 `madw status` 等文本输入 Agent 对话框，并不等于在 shell 中执行它。
+角色参数使用小写 `leader`、`impl`、`review`。
+
+### 用户启动和管理团队
+
+| 命令示例 | 作用 | 执行位置或时机 |
+|---|---|---|
+| `madw start` | 创建默认三列角色 shell 并进入 Lead；已有团队则复用 | 在项目的普通终端开始工作时 |
+| `madw launch pi` / `madw launch codex` | 在当前角色 pane 启动所选 Agent，保存启动命令；在 Lead 中还会自动发送角色说明 | 在对应角色 pane 的空闲 shell 中，每个 pane 分别执行 |
+| `madw bootstrap leader` | 等待 Lead Agent 就绪，再发送 Lead 角色说明和协作规则 | 直接运行 `pi` 或 `codex` 启动 Lead 后，从另一普通终端执行 |
+| `madw attach impl` | 进入已有团队并聚焦 Impl pane；`leader`、`review` 同理 | 从项目终端进入指定角色；已经在 tmux 中时切换客户端 |
+| `madw watch` | 进入已有团队并聚焦 Lead，查看终端和底部任务状态栏 | 返回团队界面时；不会创建团队或启动 Agent |
+| `madw status` | 打印团队、任务进度及三个角色的 pane、当前命令、进程健康状态和 PID | 排查团队是否运行、各角色是否启动时 |
+| `madw restart review` | 结束 Review 当前进程并刷新上下文；通过 `launch` 启动过则重启所选 Agent，直接启动过则重置为 shell | Lead 开始新一轮正式评审前；也支持 `leader`、`impl` |
+| `madw logs review 200` | 查看 Review 日志最近 200 行；省略行数默认 120 行，也支持其他角色 | Agent 出错或异常退出后，从普通终端排查 |
+| `madw debug off` / `madw debug on` | 停止或恢复当前团队的终端日志采集；关闭时保留已有日志，开启后继续追加 | 需要调整诊断记录时；新团队默认开启 |
+| `madw stop` | 关闭当前项目整个团队及其中的 Agent，保留任务工件和日志 | 工作结束时；任意角色中直接按 `Ctrl+C` 有相同作用 |
+| `madw doctor` | 检查项目路径、tmux、Skill 和现有团队配置；`madw doctor pi` 或 `codex` 还检查所选 Agent 命令 | 启动失败或环境异常时；不会启动 Agent |
+| `madw id` | 输出当前项目对应的 tmux session 名称 | 需要用原生 tmux 命令定位团队时 |
+
+`restart` 会结束该角色正在进行的工作和当前对话上下文，应在该角色完成当前交接后使用。
+如果 Review 被重置为 shell，用户需要在 Review pane 重新启动 Agent，Lead 才能继续派单。
+
+### 启动模式和布局
 
 ```bash
-madw start [pi|codex]
-madw launch pi|codex
+madw start                       # 三列空闲 shell，由用户分别启动 Agent
+madw start --layout balanced     # Lead 在左，Impl/Review 在右上下排列
+madw start --sessions            # 使用三个独立角色 session
+madw start pi                    # 自动在三个 pane 启动 Pi，并初始化 Lead
+madw start codex                 # 自动在三个 pane 启动 Codex，并初始化 Lead
+MADW_NO_ATTACH=1 madw start       # 创建或检查团队，但当前终端不进入 tmux
+```
+
+布局只在新团队创建时选择。已有团队会被复用；切换手动/自动启动模式、自动模式的
+Agent 类型或会话拓扑时，先 `madw stop`，再用所需命令启动。
+
+### Lead 如何知道自己的角色
+
+pane 边框的 `Lead` 名称用于用户识别位置。Agent 需要收到角色说明才能按 Lead 工作。
+推荐在 Lead pane 使用 `madw launch pi` 或 `madw launch codex`，启动器会自动发送说明。
+
+如果已经直接在三个 pane 运行了 `pi` 或 `codex`，从另一普通终端执行：
+
+```bash
+cd /path/to/my-project
 madw bootstrap leader
-madw status
-madw watch
-madw attach leader
-madw attach impl
-madw attach review
-madw restart review
-madw logs review 200
-madw debug off
-madw stop
-madw doctor
-madw id
 ```
 
-Lead 可使用：
+这会告诉 Lead 使用本 Skill、管理任务、向 Impl/Review 派单及汇报结果。
+Impl 和 Review 在首次派单时收到各自的角色说明。Lead 就绪后，用户直接在其 Agent
+对话中提出需求即可。`bootstrap leader` 会再次发送说明；使用 `launch` 正常初始化后
+无需重复执行。
 
-```bash
-madw send impl "<handoff>"
-madw wait impl TASK-... 001
+### Agent 派单、等待和完成通知
 
-madw restart review
-madw send review "<handoff>"
-madw wait review TASK-... 001
-```
+以下命令通常由角色 Agent 通过终端工具执行，用户不需要逐条手动调度。
+Agent 在项目中可使用 `./.agent-team/madw` 替代 `madw`，避免依赖其工具环境的 `PATH`。
 
-Worker 在工件写完后使用 `madw signal ...`。等待封装增加 timeout、Agent
-死亡检测、失败输出抓取和预期工件检查。完成记录保存在 tmux session 内，并
-绑定工件内容哈希；Lead 中断后再次执行同一条 `madw wait` 可以核对已完成
-的交接，工件被修改则会报错。
+| 命令示例 | 谁执行 | 作用 |
+|---|---|---|
+| `madw send impl "TASK-001：按指定计划实现功能"` | Lead | 向 Impl 输入框发送任务，附加 Impl 角色说明并提交；目标 UI 未就绪则失败 |
+| `madw send review "TASK-001：评审指定提交与 IMPL 工件"` | Lead | 向 Review 发送评审任务和角色说明；评审前先刷新 Review 上下文 |
+| `madw send leader "TASK-001：需要 Lead 处理的消息"` | 需要通知 Lead 的 Agent | 将消息发送到 Lead 的输入框 |
+| `madw wait impl TASK-001 001` | Lead | 等待 Impl 对该任务第 001 轮发出完成通知，并核对预期工件；`review` 同理 |
+| `madw wait review TASK-001 001 600` | Lead | 为这一轮等待设置 600 秒超时；省略时默认 3600 秒 |
+| `madw signal impl TASK-001 001` | Impl | 在该轮工件写完后通知 Lead；此命令不修改任务状态 |
+| `madw signal review TASK-001 001` | Review | 在 REVIEW 工件写完后通知 Lead，由 Lead 判断评审结果 |
+
+`TASK-001` 和 `001` 是示例，执行时应使用实际 Task ID 和本轮编号。
+派单内容还应包含 STATUS 路径、指定计划或实现工件，以及精确的代码提交 SHA。
+完成通知表示该轮工作已结束，是否通过仍由 Lead 核验。
+
+`wait` 同时检查超时、Agent 是否退出、预期工件是否存在及其内容哈希，失败时抓取
+最近终端输出。完成记录保存在 tmux session 内；Lead 中断后再次执行同一条 `wait`
+可以核对已完成的交接，工件被修改则会报错。
 
 ## 启动与派单安全
 
