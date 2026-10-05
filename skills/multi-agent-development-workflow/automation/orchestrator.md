@@ -7,9 +7,9 @@ The default interactive architecture is intentionally small:
 ```text
 User
  ↓
-Lead pane
- ├─ tmux → Impl pane
- └─ tmux → fresh Review pane
+Lead session
+ ├─ tmux → Impl session
+ └─ tmux → fresh Review session
  ↓
 ACCEPTED / BLOCKED
 ```
@@ -24,8 +24,9 @@ the reviewed code. Lead remains the only lifecycle authority.
 madw start
 ```
 
-This creates one project-scoped session with Lead/Impl/Review panes and attaches
-to the full team UI.
+This creates three project-scoped shell sessions. The user runs
+`madw launch pi|codex` in each session to choose and start the Agent;
+Lead bootstrapping happens automatically.
 
 ## Dispatch
 
@@ -60,9 +61,9 @@ boundary, the Review target is invalid, or a genuine product decision is needed.
 
 ## Review independence
 
-Use `madw restart review` before each substantive Review round. It uses
-`tmux respawn-pane -k`, keeping pane identity/layout stable while replacing the
-Review Agent context.
+Use `madw restart review` before each substantive Review round. In manual mode
+it respawns the Agent selected with `madw launch`; direct Agent startup leaves
+the command unknown and resets Review to a shell. The pane address remains stable.
 
 ## Process fallback
 

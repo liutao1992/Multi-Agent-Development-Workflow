@@ -40,26 +40,23 @@ madw start
 `.agent-team/` 加入当前仓库的 Git 本地排除规则，使控制面不进入代码提交。
 Agent 在项目内通过 `./.agent-team/madw` 调用 CLI，无需依赖终端环境变量。
 
-启动后，左侧 **Lead** 会提示你输入开发需求。点击左侧输入框，直接描述任务并
-按 `Enter`；右上 Impl 和右下 Review 启动后保持待命，无须手动输入初始化指令。
-Lead 收到你的需求后，把 Plan/实现/返工派给 Impl，把固定 Code Head 派给
-独立 Review，并在 Review FAIL 时形成返工闭环。
-
-如果左侧显示 `Pane is dead`，在项目的普通终端重新运行 `madw start codex`
-（或 `madw start pi`）；它会恢复退出的 Agent，并保留现有团队和任务状态。
-
-### 运行时选择
-
-通常无需指定：
+`madw start` 默认创建三个独立 tmux session，分别是 Lead、Impl、Review。
+进入各 session 后运行 `madw launch pi` 或 `madw launch codex`，可以混用。
+`launch` 会自动给 Lead 发送角色说明，并记住每个角色选择的 Agent，供 Review
+刷新或意外退出后恢复。然后在 Lead 中输入开发需求。`madw send` 会等待目标 Agent 的全屏
+界面就绪；尚未启动 Agent 时会报错，不会把任务粘贴进 shell。
 
 ```bash
-madw start
+madw attach impl       # 在此 session 中运行 madw launch pi 或 codex
+madw attach review     # 在此 session 中运行 madw launch pi 或 codex
+madw attach leader     # 在此 session 中运行 madw launch pi 或 codex
 ```
 
-选择顺序：`MADW_RUNTIME` → 已安装的 `pi` → 已安装的 `codex` → 报错。
-也可以显式使用 `madw start pi` 或 `madw start codex`。
+也可以显式使用 `madw start pi` 或 `madw start codex`，沿用自动启动的三 pane
+模式。设置 `MADW_RUNTIME` 或 `MADW_AGENT_CMD` 也会选择自动启动模式。
+直接在 session 输入 `pi` 或 `codex` 也可用；此时需从另一终端运行
+`madw bootstrap leader`，且 Review 重置后需手动重启 Agent。
 
-截图中手动建立的三个 session 使用 Pi Agent；`madw start pi` 同样使用 Pi。
 下面的沙箱设置只适用于 MADW 启动的 Codex 团队。
 
 MADW 启动的 Codex 团队默认使用 `workspace-write` 沙箱并启用网络访问，
@@ -85,76 +82,35 @@ MADW_CODEX_NETWORK_ACCESS=1 MADW_NO_ATTACH=1 madw start codex
 提升权限并重试；socket 拒绝不表示团队已退出。若需自定义 Codex 启动命令，
 可设置 `MADW_AGENT_CMD`。
 
-## 一个项目一个 tmux session
+## 三个 tmux session
 
-默认拓扑：
-
-```text
-madw-<repo-name>-<git-root-hash>
-└── team
-    ├── Lead
-    ├── Impl
-    └── Review
-```
-
-不同项目不会再复用全局 `leader/impl/review` session；同名 repo 也通过
-Git 根目录短 hash 隔离。
-
-`madw start` 默认进入三 pane UI：
+默认拓扑按项目 Git 根目录命名：
 
 ```text
-┌──────────────────┬──────────────────┐
-│                  │ Impl             │
-│ Lead             ├──────────────────┤
-│                  │ Review           │
-└──────────────────┴──────────────────┘
+madw-<repo>-<path-hash>          Lead
+madw-<repo>-<path-hash>-impl     Impl
+madw-<repo>-<path-hash>-review   Review
 ```
 
-也可以启动为三列布局，Lead、Impl、Review 各占一列。以下命令可分别选择默认布局、
-显式选择 `balanced` 或 `columns`，也可设置环境默认值：
+`madw start` 创建三个位于项目目录的 shell session，不替你选择 Agent。
+`madw attach <role>` 切换到对应 session；`madw watch` 进入 Lead session。
+在 tmux 内也可按 `Ctrl+b`、`s` 选择 session。状态栏会提示当前角色和
+`madw launch pi|codex` 命令。
+`madw status` 查看三位角色当前运行的命令。每个 session 只放一个角色，
+派单和完成信号仍使用 `madw send`、`wait`、`signal`。
 
-```bash
-madw start
-madw start --layout balanced
-madw start --layout columns
-MADW_LAYOUT=balanced madw start
-MADW_LAYOUT=columns madw start
-```
-
-`MADW_LAYOUT` 支持 `balanced` 和 `columns`，未设置时默认为 `balanced`；显式
-`--layout` 参数优先于环境变量。布局选择仅在创建新团队时应用；已有团队保留其当前
-面板排列。
-
-像截图中的 tmux session 名一样，每个 pane 的底部分隔线上固定显示
-青色 `[Leader]`、绿色 `[Impl]`、紫色 `[Review]`。Agent 自己更新终端标题时，
-这些角色标识也不会被覆盖。界面上的 Leader 对应流程中的 Lead 角色。
-
-底部消息栏用深色背景、内边距和空白行分隔内容，留出阅读空间。它分别显示
-**工作目录与当前 Git 分支**、**任务进度**和**Agent 通信**。任务进度用中文
-突出显示当前阶段和任务编号；通信行用 `Leader → Impl`、
-`Impl → Leader`、`Leader → Review` 等箭头显示
-**谁正与谁交接、当前在等待谁、哪一轮已完成**。这些提示由 `madw send`、
-`wait` 和 `signal` 更新。状态栏每 5 秒读取当前任务的 `STATUS.md`，因此
-任务进入 `ACCEPTED` 后会自动显示“已验收”和“等待新需求”，不必等待下一条
-交接命令。所有提示都在 tmux 状态栏中，不会写入 Agent 的对话或增加模型
-上下文；它显示协议状态，不显示 Agent 的内部思考。
-
-在 tmux 面板内点击 Lead、Impl 或 Review，即可将键盘焦点切到对应 Agent；
-再按 `Enter` 可确认该 Agent 当前的提示（例如 Codex 的目录信任确认）。
-`madw start` 和 `madw watch` 会为当前团队启用鼠标操作，不修改其他 tmux 会话。
-
-在三面板界面按 **Ctrl+C** 会结束整个当前项目团队：三个 Agent 进程、三个
-pane 和对应的 tmux session 都会退出。它不会结束其他项目或手动创建的 tmux
-session。若只想暂时离开界面、让团队继续运行，按 **Ctrl+b，然后按 d**；
-之后在项目目录执行 `madw watch` 可重新进入。也可以在普通终端执行
-`madw stop` 结束团队。此快捷键适用于通过 `madw start`、`watch` 或
-`attach` 进入的团队界面；直接使用 `tmux send-keys` 向 Agent 发送 Ctrl+C
-仍只会中断该 Agent。
+自动启动模式保留旧的三 pane 布局，支持 `--layout balanced|columns`。
+手动模式中，若 Review 使用 `madw launch` 选过 Agent，
+`madw restart review` 会以同一种 Agent 刷新上下文；直接输入 `pi` 或
+`codex` 的 Review session 会重置为 shell，需手动重新启动。
+`madw stop` 结束三个 session。
 
 ## 常用命令
 
 ```bash
 madw start [pi|codex]
+madw launch pi|codex
+madw bootstrap leader
 madw status
 madw watch
 madw attach leader
@@ -182,37 +138,19 @@ Worker 在工件写完后使用 `madw signal ...`。等待封装增加 timeout�
 绑定工件内容哈希；Lead 中断后再次执行同一条 `madw wait` 可以核对已完成
 的交接，工件被修改则会报错。
 
-## 启动安全
+## 启动与派单安全
 
-`madw start` 先检查 Git、Skill、tmux、runtime 和已有项目 team，再创建
-pane。不会先创建坏 pane 再发现 runtime 不存在。
-
-每个 Agent pane 启动或重启时都会显式进入当前项目路径，避免长期运行的
-tmux server 仍指向已删除的旧目录，导致 Codex/Pi 报 `No such file or directory`
-或 `uv_cwd ENOENT`。
-
-当前启动检查确认的是 **Agent 进程已经存活**，不是 runtime-specific 的
-“交互界面已经 Ready”。Pi/Codex 的 PTY 通常会保留提前输入；如果后续实测
-出现启动 prompt 被吞的问题，再在各 runtime adapter 中增加专门的 readiness
-探测，不在通用 tmux 层猜测 UI 状态。
-
-启动不依赖固定 `sleep 1`：
-
-```bash
-madw start --boot-timeout 20
-MADW_BOOT_TIMEOUT=20 madw start
-```
+`madw start` 在创建 session 前检查 Git 基线、Skill 和 tmux。手动模式
+不要求预先安装 Pi 或 Codex；三个 shell session 都从当前项目目录启动。
+自动模式还检查所选 Agent 命令。`madw send` 和 `madw bootstrap leader`
+等待目标进入全屏 UI，最多等待 `MADW_TUI_TIMEOUT` 秒（默认 10 秒）；
+超时会失败且不派单。
 
 ## Review 独立性
 
-Review pane 地址稳定，但每轮 substantive Review 必须刷新上下文：
-
-```bash
-madw restart review
-```
-
-内部使用 `tmux respawn-pane -k`，保留 session/layout/pane ID，替换 Review
-Agent context。
+每轮正式评审需要新上下文。手动模式中通过 `madw launch` 启动的 Review
+会按该角色记录的运行时自动刷新；直接启动的 Review 则会重置为 shell，
+需要用户重新启动。自动三 pane 模式按团队运行时刷新 Review。
 
 ## 状态与证据
 
@@ -295,28 +233,16 @@ agent-team → ~/.local/bin/agent-team
 ```
 
 `~/.agents/skills` 作为共享用户级 Skill 目录，可同时服务 Pi 和 Codex，
-因此 `./install.sh` 与 `madw start` 的 runtime 自动选择保持一致，不需要
-为两个 runtime 复制两份 Skill。
+因此 Pi 和 Codex 可共用同一份 Skill，不需要为两个 runtime 复制两份。
 
 升级旧版本时，安装器会删除旧的 `~/.codex/skills/...` 或
 `~/.pi/agent/skills/...` 同名 Skill，再安装共享目录中的新版本，避免重复发现。
 
 可通过 `MADW_SKILL_DIR`、`MADW_BIN_DIR` 覆盖路径。
 
-一个 MADW team 只使用一个 runtime。角色重启只允许：
-
-```bash
-madw restart leader
-madw restart impl
-madw restart review
-```
-
-如果要从 Codex 切换到 Pi（或反向），使用：
-
-```bash
-madw stop
-madw start pi
-```
+默认手动模式允许 Lead、Impl、Review 选择不同 Agent。自动启动模式
+`madw start pi|codex` 仍使用同一种运行时；切换自动模式的团队运行时需先
+`madw stop`，再启动新团队。
 
 ## 文档
 

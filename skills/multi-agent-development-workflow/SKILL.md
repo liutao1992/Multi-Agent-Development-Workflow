@@ -144,9 +144,9 @@ Default topology:
 ```text
 User
  ↓
-Lead = project-scoped tmux pane
- ├─ Impl pane
- └─ Review pane
+Lead = project-scoped tmux session
+ ├─ Impl session
+ └─ Review session
 ```
 
 The user talks only to Lead. Lead delegates through tmux until ACCEPTED, CANCELLED,
@@ -154,24 +154,29 @@ BLOCKED, or a genuine human/product decision is required.
 
 ### Preferred transport: tmux-native
 
-Use one project-scoped tmux session with three role panes. The bundled launcher is:
+Use three project-scoped tmux sessions. `madw start` creates shells in the
+project directory; the user chooses Pi or Codex separately in each role with
+`madw launch pi|codex`. Launch also bootstraps Lead and saves each role's
+runtime for later restarts. Direct Pi/Codex startup remains possible, followed
+by `madw bootstrap leader` from another terminal.
 
 ```bash
 madw start
+madw attach impl
+madw attach review
+madw attach leader
+madw launch pi  # or codex, inside each role session
 ```
 
-The launcher derives the session from the canonical Git root:
+The launcher derives session names from the canonical Git root:
 
 ```text
-madw-<repo-name>-<path-hash>
-└── team
-    ├── Lead
-    ├── Impl
-    └── Review
+madw-<repo-name>-<path-hash>          Lead
+madw-<repo-name>-<path-hash>-impl     Impl
+madw-<repo-name>-<path-hash>-review   Review
 ```
 
-This prevents unrelated projects from reusing global `leader/impl/review`
-sessions.
+An explicit `madw start pi|codex` retains the automatic three-pane mode.
 
 tmux owns only:
 
@@ -190,7 +195,7 @@ Use bounded handoffs:
 madw send impl "<Task ID + action + STATUS/artifact references>"
 madw wait impl TASK-... 001
 
-madw restart review
+madw restart review  # uses Review's selected Agent when launched via madw launch
 madw send review "<Task ID + exact IMPL/head + STATUS references>"
 madw wait review TASK-... 001
 ```
@@ -404,7 +409,7 @@ Impl and Review MUST NOT rewrite lifecycle state in STATUS. Their newly created 
 
 ### Commands
 
-Start the visible project-scoped team:
+Start the project-scoped role sessions:
 
 ```bash
 madw start
@@ -423,10 +428,8 @@ Lead/Impl/Review 的交接方向。`madw send`、`wait`、`signal` 负责更新�
 新需求的提示。这是 tmux 界面信息，不要把同样的进度横幅发送给 Agent 或写入
 对话上下文。
 
-在 MADW 三面板界面按 `Ctrl+C` 会停止整个项目团队，结束 Leader、Impl、Review
-及其 tmux session。仅需暂时离开时按 `Ctrl+b d`，之后用 `madw watch`
-重新进入；也可在普通终端执行 `madw stop`。不要把 `Ctrl+C` 当作单个
-Agent 的任务中断键。
+手动模式使用三个独立 session；通过 `madw attach <role>` 切换，
+`madw stop` 结束整个团队。自动三面板模式仍可用 `Ctrl+C` 结束团队。
 
 Lead handoff helpers:
 
@@ -434,7 +437,7 @@ Lead handoff helpers:
 madw send impl "<handoff>"
 madw wait impl TASK-... 001
 
-madw restart review
+madw restart review  # manual mode: user starts Pi/Codex in Review again
 madw send review "<handoff>"
 madw wait review TASK-... 001
 ```
@@ -485,29 +488,18 @@ agent-team --runtime codex --transport process run <TASK-ID>
 
 The standalone Orchestrator starts headless role workers itself. Use this for CI/unattended execution, not as the interactive tmux team's transport.
 
-### tmux three-pane transport
+### tmux role-session transport
 
-The normal interactive workflow is:
+`madw start` creates three shell sessions after Git, Skill, and tmux preflight.
+The user starts an Agent in each one. Lead, Impl, and Review may run different
+runtimes. `madw send` waits for the destination's full-screen UI and fails
+without delivery if it is not ready within `MADW_TUI_TIMEOUT`.
 
-```text
-┌───────────────────┬──────────────────┐
-│                   │ Impl             │
-│ Lead              ├──────────────────┤
-│                   │ Review           │
-└───────────────────┴──────────────────┘
-```
-
-`madw start` performs preflight before creating panes: Git repository, Skill
-installation, tmux, and Agent runtime. Runtime selection is explicit argument,
-then `MADW_RUNTIME`, then installed Pi, then installed Codex.
-
-The launcher does not depend on a blind fixed `sleep 1`; it verifies pane
-process startup up to a configurable boot timeout and removes a partial team on
-failure.
-
-Review freshness uses `tmux respawn-pane -k` through `madw restart review`,
-which keeps the pane address/layout stable while replacing the Review Agent
-context.
+`madw restart review` respawns the Agent selected by `madw launch` while
+keeping the Review address. If the user launched Pi/Codex directly, the session
+resets to a shell and the user starts a fresh Agent before the next handoff.
+An explicit `madw start pi|codex` keeps the automatic three-pane mode and
+respawns its stored runtime on restart.
 
 No project-defined Queue, mailbox, heartbeat, lease, claim, quarantine, or
 `agent-team worker Impl/Review` communication layer is used in tmux-native mode.
