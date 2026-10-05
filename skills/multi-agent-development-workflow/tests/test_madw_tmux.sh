@@ -856,6 +856,22 @@ tmux show-options -v -t "$SESSION_A" @madw_flow_display | grep -Fq 'Impl → Lea
 
 # Completion survives an interrupted/repeated wait and an early signal.
 (cd "$REPO_A" && "$MADW" wait impl TASK-TEST-001 001 1) | grep -Fq "PLAN-v001.md"
+
+# Signaled rounds are recorded durably and survive a lost tmux session cache:
+# a fresh wait still verifies the signaled artifact and rehydrates the cache.
+COMPLETION_RECORD="$REPO_A/.agent-team/runtime/completions/TASK-TEST-001/impl-plan-001"
+ARTIFACT_HASH="$(git -C "$REPO_A" hash-object "$TASK_ROOT/plans/PLAN-v001.md")"
+[ -f "$COMPLETION_RECORD" ]
+[ "$(cat "$COMPLETION_RECORD")" = "$ARTIFACT_HASH" ]
+COMPLETION_OPTION="@madw_done_$(printf 'madw:%s:%s:%s:%s:%s' "$SESSION_A" 'TASK-TEST-001' 'impl' 'plan' '001' | git hash-object --stdin | cut -c1-20)"
+tmux set-option -u -t "$SESSION_A" "$COMPLETION_OPTION"
+(cd "$REPO_A" && "$MADW" wait impl TASK-TEST-001 001 1) | grep -Fq "PLAN-v001.md"
+[ "$(tmux show-options -v -t "$SESSION_A" "$COMPLETION_OPTION")" = "$ARTIFACT_HASH" ]
+
+# madw status surfaces signaled rounds awaiting Lead validation.
+STATUS_OUT="$(cd "$REPO_A" && "$MADW" status)"
+printf '%s\n' "$STATUS_OUT" | grep -Fq 'Signaled completions awaiting Lead validation'
+printf '%s\n' "$STATUS_OUT" | grep -Fq 'impl-plan-001'
 printf 'early evidence\n' > "$TASK_ROOT/plans/PLAN-v004.md"
 (cd "$REPO_A" && "$MADW" signal impl TASK-TEST-001 004) >/dev/null
 (cd "$REPO_A" && "$MADW" wait impl TASK-TEST-001 004 1) | grep -Fq "PLAN-v004.md"
@@ -866,6 +882,17 @@ if (cd "$REPO_A" && "$MADW" wait impl TASK-TEST-001 004 1) >/dev/null 2>&1; then
 fi
 if (cd "$REPO_A" && "$MADW" signal impl TASK-TEST-001 004) >/dev/null 2>&1; then
   echo "signal replaced a previously completed artifact" >&2
+  exit 1
+fi
+
+# The durable completion record also fails closed when the signaled artifact
+# changed after signaling, even without the tmux session cache.
+COMPLETION_RECORD_004="$REPO_A/.agent-team/runtime/completions/TASK-TEST-001/impl-plan-004"
+[ -f "$COMPLETION_RECORD_004" ]
+COMPLETION_OPTION_004="@madw_done_$(printf 'madw:%s:%s:%s:%s:%s' "$SESSION_A" 'TASK-TEST-001' 'impl' 'plan' '004' | git hash-object --stdin | cut -c1-20)"
+tmux set-option -u -t "$SESSION_A" "$COMPLETION_OPTION_004"
+if (cd "$REPO_A" && "$MADW" wait impl TASK-TEST-001 004 1) >/dev/null 2>&1; then
+  echo "wait accepted an artifact changed after completion via the durable record" >&2
   exit 1
 fi
 
@@ -896,6 +923,21 @@ for notice_role in impl review; do
   fi
 done
 [ "$(git hash-object -- "$TASK_ROOT/STATUS.md")" = "$STATUS_BEFORE" ]
+
+# Durable notice records keep abnormal handoffs observable without the tmux
+# session cache; wait still exits 3 and rehydrates the cache.
+for notice_role in impl review; do
+  if [ "$notice_role" = impl ]; then notice_kind_segment=plan; else notice_kind_segment=review; fi
+  notice_option="@madw_done_$(printf 'madw:%s:%s:%s:%s:%s' "$SESSION_A" 'TASK-TEST-001' "$notice_role" "$notice_kind_segment" '006' | git hash-object --stdin | cut -c1-20)"
+  notice_record="$REPO_A/.agent-team/runtime/notifications/TASK-TEST-001/$notice_role-$notice_kind_segment-006.notice"
+  [ -f "$notice_record" ]
+  tmux set-option -u -t "$SESSION_A" "${notice_option}_notice"
+  NOTICE_RC=0
+  (cd "$REPO_A" && "$MADW" wait "$notice_role" TASK-TEST-001 006 1) > "$TMP/notice-record.log" 2>&1 || NOTICE_RC=$?
+  [ "$NOTICE_RC" -eq 3 ]
+  grep -Fq 'Notification:' "$TMP/notice-record.log"
+  [ -n "$(tmux show-options -v -t "$SESSION_A" "${notice_option}_notice" 2>/dev/null || true)" ]
+done
 [ ! -e "$TASK_ROOT/plans/PLAN-v006.md" ]
 [ ! -e "$TASK_ROOT/reviews/REVIEW-006.md" ]
 if (cd "$REPO_A" && "$MADW" notify review TASK-TEST-001 007 PLAN_REWORK 'invalid role') >/dev/null 2>&1; then

@@ -146,7 +146,7 @@ madw-<repo>-<path-hash>          Lead | Impl | Review
 | `madw bootstrap leader` / `impl` / `review` | 等待对应 Agent 界面就绪，再发送角色说明；已绑定的受管会话不会重复初始化 | 直接运行 `pi` 或 `codex` 启动后，从另一普通终端执行 |
 | `madw attach impl` | 进入已有团队并聚焦 Impl pane；`leader`、`review` 同理 | 从项目终端进入指定角色；已经在 tmux 中时切换客户端 |
 | `madw watch` | 进入已有团队并聚焦 Lead，查看终端和底部任务状态栏 | 返回团队界面时；不会创建团队或启动 Agent |
-| `madw status` | 打印团队、任务进度及三个角色的 pane、当前命令、进程健康状态和 PID | 排查团队是否运行、各角色是否启动时 |
+| `madw status` | 打印团队、任务进度、已信号待 Lead 核验的完成记录，及三个角色的 pane、当前命令、进程健康状态和 PID | 排查团队是否运行、各角色是否启动时 |
 | `madw restart review` | 手动结束 Review 当前进程并刷新上下文；通过 `launch` 启动过则重启所选 Agent，直接启动过则重置为 shell | 异常恢复或用户明确要求重置时；也支持 `leader`、`impl`，日常评审不需要执行 |
 | `madw logs review 200` | 查看 Review 日志最近 200 行；省略行数默认 120 行，也支持其他角色 | Agent 出错或异常退出后，从普通终端排查 |
 | `madw debug off` / `madw debug on` | 停止或恢复当前团队的终端及事件日志采集；关闭时保留已有日志，开启后继续追加 | 需要调整诊断记录时；新团队默认开启 |
@@ -215,8 +215,10 @@ Agent 在项目中可使用 `./.agent-team/madw` 替代 `madw`，避免依赖其
 恢复工作时使用新的未使用完成轮次。读取工件后一起更新 STATUS 的 Artifact、Round 和评审结果。
 
 `wait` 同时检查超时、Agent 是否退出、预期工件是否存在及其内容哈希，失败时抓取
-最近终端输出。完成记录保存在 tmux session 内；Lead 中断后再次执行同一条 `wait`
-可以核对已完成的交接，工件被修改则会报错。
+最近终端输出。完成记录保存在 tmux session 内，并镜像到本机
+`.agent-team/runtime/completions/` 下的持久记录（`madw status` 会列出已信号、
+待 Lead 核验的轮次）；Lead 中断后再次执行同一条 `wait` 可以核对已完成的交接，
+工件被修改则会报错，tmux 重启后新发起的 `wait` 也能凭持久记录完成核对。
 
 ## 启动与派单安全
 

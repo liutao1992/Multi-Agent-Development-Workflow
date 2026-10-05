@@ -58,6 +58,24 @@ Workers write the immutable artifact, run `madw signal <role> <TASK-ID> <ROUND>`
 once and stop with a concise artifact/result/blocker summary. Never edit signaled
 artifacts. Completion verifies identity, not acceptance; Lead validates evidence.
 
+### Completion is a push, not a poll
+
+`madw signal`/`madw notify` IS the worker→Lead push: each records the artifact
+hash and wakes the Lead's blocked `madw wait` through the tmux session — nothing
+polls STATUS or artifact folders. Two rules keep this reliable:
+
+- Lead: wait only by running `madw wait <role> <TASK-ID> <ROUND> [timeout]`.
+  Agent runtimes may cut a long call off; run the same wait again — it returns
+  instantly once the round was signaled (cached completion, backed by a durable
+  record under `.agent-team/runtime/completions/` that survives a tmux restart).
+  Never poll STATUS.md as a waiting strategy: STATUS moves only when Lead
+  consumes the artifact, so polling can never observe completion and looks like
+  a hung Lead. `madw status` lists signaled rounds awaiting Lead validation.
+- Workers: signal/notify is your only completion report. Do not
+  `madw send leader` a summary — while Lead is blocked in `madw wait` its TUI is
+  not read and the pasted text just sits in the terminal buffer. Lead re-reads
+  STATUS and the signaled artifact itself; report blockers with `madw notify`.
+
 If unable to complete, stop and run
 `madw notify <role> <TASK-ID> <ROUND> BLOCKED "<reason; needed action>"`.
 Impl uses PLAN_REWORK instead for a material Plan deviation. No completion
