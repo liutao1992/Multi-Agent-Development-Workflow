@@ -161,9 +161,9 @@ BLOCKED, or a genuine human/product decision is required.
 
 Use one project-scoped tmux session with three role panes. `madw start` creates
 three side-by-side shells in the project directory; the user chooses Pi or Codex separately in each role with
-`madw launch pi|codex`. Launch also bootstraps Lead and saves each role's
+`madw launch pi|codex`. Launch also initializes each role and saves each role's
 runtime for later restarts. Direct Pi/Codex startup remains possible, followed
-by `madw bootstrap leader` from another terminal.
+by `madw bootstrap <role>` from another terminal for each role.
 
 ```bash
 madw start

@@ -1,6 +1,8 @@
 # Interactive tmux team
 
-Initialize once with this guide and `roles/<role>.md`. Later handoffs read STATUS
+`madw launch` initializes each role once with this guide and `roles/<role>.md`.
+Read them, report “队长，<role> 已就绪。” and wait for work; do not resume a task
+until assigned. Later handoffs read STATUS
 and only the current action's artifacts; load detailed protocol, workflow or
 adapters only when needed. The Control Plane is `<project>/.agent-team/`, ignored
 by Git. STATUS owns lifecycle and exact references; TASK owns requirements.

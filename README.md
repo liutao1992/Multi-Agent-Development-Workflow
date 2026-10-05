@@ -51,8 +51,8 @@ Agent 在项目内通过 `./.agent-team/madw` 调用 CLI，无需依赖终端环
 | Review | `madw launch pi` | 接收 Lead 派发的独立评审任务 |
 
 每个角色都可以自行选择 Pi 或 Codex。`launch` 根据当前 pane 识别角色，
-等待 Lead 的 Agent 界面就绪后自动发送角色说明，并记住各角色选择的 Agent，
-供后续重启使用。Impl 和 Review 在收到 Lead 派单时会一并收到角色说明。
+等待当前角色的 Agent 界面就绪后自动发送角色说明，并记住各角色选择的 Agent，
+供后续重启使用。三个角色都读取对应角色文件、报告就绪并等待任务。
 三个 Agent 启动后，只在 Lead 的 Agent 对话中输入开发需求。
 `madw send` 会等待目标 Agent 的全屏界面就绪；尚未启动 Agent 时会报错，
 不会把任务粘贴进 shell。
@@ -66,7 +66,8 @@ madw attach leader     # 聚焦 Lead pane，在里面启动 Agent
 也可以显式使用 `madw start pi` 或 `madw start codex`，沿用自动启动的三 pane
 模式。设置 `MADW_RUNTIME` 或 `MADW_AGENT_CMD` 也会选择自动启动模式。
 直接在对应 pane 输入 `pi` 或 `codex` 也可用；此时需从另一终端运行
-`madw bootstrap leader`，且 Review 重置后需手动重启 Agent。
+对应角色的 `madw bootstrap leader`、`madw bootstrap impl` 或 `madw bootstrap review`；
+直接启动的 Review 重置后需手动重启 Agent。
 
 下面的沙箱设置只适用于 MADW 启动的 Codex 团队。
 
@@ -141,8 +142,8 @@ madw-<repo>-<path-hash>          Lead | Impl | Review
 | 命令示例 | 作用 | 执行位置或时机 |
 |---|---|---|
 | `madw start` | 创建默认三列角色 shell 并进入 Lead；已有团队则复用 | 在项目的普通终端开始工作时 |
-| `madw launch pi` / `madw launch codex` | 在当前角色 pane 启动所选 Agent，保存启动命令；在 Lead 中还会自动发送角色说明 | 在对应角色 pane 的空闲 shell 中，每个 pane 分别执行 |
-| `madw bootstrap leader` | 等待 Lead Agent 就绪，再发送 Lead 角色说明和协作规则 | 直接运行 `pi` 或 `codex` 启动 Lead 后，从另一普通终端执行 |
+| `madw launch pi` / `madw launch codex` | 在当前角色 pane 启动所选 Agent，保存启动命令；自动发送当前角色说明并报告就绪 | 在对应角色 pane 的空闲 shell 中，每个 pane 分别执行 |
+| `madw bootstrap leader` / `impl` / `review` | 等待对应 Agent 界面就绪，再发送角色说明；已绑定的受管会话不会重复初始化 | 直接运行 `pi` 或 `codex` 启动后，从另一普通终端执行 |
 | `madw attach impl` | 进入已有团队并聚焦 Impl pane；`leader`、`review` 同理 | 从项目终端进入指定角色；已经在 tmux 中时切换客户端 |
 | `madw watch` | 进入已有团队并聚焦 Lead，查看终端和底部任务状态栏 | 返回团队界面时；不会创建团队或启动 Agent |
 | `madw status` | 打印团队、任务进度及三个角色的 pane、当前命令、进程健康状态和 PID | 排查团队是否运行、各角色是否启动时 |
@@ -183,9 +184,9 @@ madw bootstrap leader
 ```
 
 这会告诉 Lead 使用本 Skill、管理任务、向 Impl/Review 派单及汇报结果。
-Impl 和 Review 在首次派单时收到各自的角色说明。Lead 就绪后，用户直接在其 Agent
-对话中提出需求即可。`bootstrap leader` 会再次发送说明；使用 `launch` 正常初始化后
-无需重复执行。
+直接启动的 Impl 和 Review 可分别运行 `madw bootstrap impl` 和 `madw bootstrap review`。
+使用 `launch` 时三个角色都会自动初始化。Lead 就绪后，用户直接在其 Agent
+对话中提出需求即可；已绑定的受管会话重复 bootstrap 不会再次发送说明。
 
 ### Agent 派单、等待和完成通知
 
@@ -194,8 +195,8 @@ Agent 在项目中可使用 `./.agent-team/madw` 替代 `madw`，避免依赖其
 
 | 命令示例 | 谁执行 | 作用 |
 |---|---|---|
-| `madw send impl "TASK-001：按指定计划实现功能"` | Lead | 向 Impl 发送任务并提交；首次交接初始化角色，目标 UI 未就绪则失败 |
-| `madw send review "TASK-001：评审指定提交与 IMPL 工件"` | Lead | 向 Review 发送本轮任务；首次交接初始化角色，后续保留上下文并重新核验本轮工件和提交 |
+| `madw send impl "TASK-001：按指定计划实现功能"` | Lead | 向 Impl 发送任务并提交；已初始化会话只发送任务，目标 UI 未就绪则失败 |
+| `madw send review "TASK-001：评审指定提交与 IMPL 工件"` | Lead | 向 Review 发送本轮任务；已初始化会话只发送任务，保留上下文并重新核验本轮工件和提交 |
 | `madw send leader "TASK-001：需要 Lead 处理的消息"` | 需要通知 Lead 的 Agent | 将消息发送到 Lead 的输入框 |
 | `madw wait impl TASK-001 001` | Lead | 等待 Impl 对该任务第 001 轮发出完成通知，并核对预期工件；`review` 同理 |
 | `madw wait review TASK-001 001 600` | Lead | 为这一轮等待设置 600 秒超时；省略时默认 3600 秒 |
@@ -221,7 +222,7 @@ Agent 在项目中可使用 `./.agent-team/madw` 替代 `madw`，避免依赖其
 
 `madw start` 在创建 session 前检查 Git 基线、Skill 和 tmux。手动模式
 不要求预先安装 Pi 或 Codex；三个 shell pane 都从当前项目目录启动。
-自动模式还检查所选 Agent 命令。`madw send` 和 `madw bootstrap leader`
+自动模式还检查所选 Agent 命令。`madw send` 和 `madw bootstrap <role>`
 等待目标进入全屏 UI，最多等待 `MADW_TUI_TIMEOUT` 秒（默认 10 秒）；
 超时会失败且不派单。
 
@@ -234,8 +235,8 @@ Review 保持长期运行，保留历史上下文，每轮重新读取当前 STA
 ## 简短提示与沟通诊断
 
 角色初始化先读取短入口 `interactive.md` 和对应角色文件，详细协议与模板按当前
-步骤需要加载。通过 `madw launch` 管理的Impl/Review 会话只在第一次交接时发送
-角色说明，之后只发送任务及本轮工件提醒；手动重启后会重新初始化。
+步骤需要加载。通过 `madw launch` 管理的三个角色会话在启动时发送
+角色说明，之后只发送任务；手动重启所选 Agent 后会重新初始化。
 直接启动 Agent 时无法可靠追踪进程代次，因此派单仍附带简短角色入口，以免复用旧绑定。
 
 Lead 在派单后等待完成并继续下一步，直到完成、取消、阻塞或需要用户决策。

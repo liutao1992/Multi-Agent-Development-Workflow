@@ -35,10 +35,11 @@ madw start
 
 `madw start` creates three shell panes and attaches to Lead. In each pane run
 `madw launch pi|codex`; the command starts the chosen Agent and automatically
-bootstraps Lead. Use `madw attach impl|review|leader` to focus a role pane.
+initializes the current role, which reports readiness and waits for work. Use `madw attach impl|review|leader` to focus a role pane.
 Direct `pi` or `codex` startup is also supported, followed by
-`madw bootstrap leader` from another terminal. `madw send` prefixes
-Impl/Review handoffs with their role prompt.
+`madw bootstrap leader|impl|review` from another terminal for each role.
+Managed launches initialize once; `madw send` then sends only the task. A role
+prompt is included as a fallback for an unbound or directly started Agent.
 
 `madw start pi|codex` automatically starts that runtime in three panes.
 `MADW_RUNTIME` or `MADW_AGENT_CMD` also selects automatic mode. The default

@@ -360,7 +360,7 @@ for role in leader impl review; do
     exit 1
   fi
 done
-# start delivered the Lead bootstrap only after the UI existed. The fake logs
+# start delivers every role bootstrap only after its UI exists. The fake logs
 # every received line because an alternate-screen UI has no scrollback for
 # capture-pane to inspect.
 for _ in $(seq 1 50); do
@@ -369,6 +369,8 @@ for _ in $(seq 1 50); do
 done
 grep -Fq '请使用 multi-agent-development-workflow Skill' "$FAKE_TUI_LOG"
 grep -Fq 'Lead 角色' "$FAKE_TUI_LOG"
+grep -Fq 'Impl 角色' "$FAKE_TUI_LOG"
+grep -Fq 'Review 角色' "$FAKE_TUI_LOG"
 
 # A role restart also waits for UI readiness before returning, and only then
 # accepts a handoff.
@@ -463,6 +465,19 @@ for _ in $(seq 1 50); do
   sleep 0.1
 done
 grep -Fq 'Lead 角色' "$FAKE_TUI_LOG"
+# Each launch binds its role before the first task; repeated bootstrap is idempotent.
+MANUAL_EVENTS="$MANUAL_REPO/.agent-team/runtime/logs/events.tsv"
+for role in leader impl review; do
+  for _ in $(seq 1 50); do
+    if [ "$(awk -F '\t' -v role="$role" '$2 == "role_init" && $3 == role {n++} END {print n+0}' "$MANUAL_EVENTS")" = 1 ]; then break; fi
+    sleep 0.1
+  done
+  [ "$(awk -F '\t' -v role="$role" '$2 == "role_init" && $3 == role {n++} END {print n+0}' "$MANUAL_EVENTS")" = 1 ]
+  (cd "$MANUAL_REPO" && "$MADW" bootstrap "$role") >/dev/null
+  [ "$(awk -F '\t' -v role="$role" '$2 == "role_init" && $3 == role {n++} END {print n+0}' "$MANUAL_EVENTS")" = 1 ]
+done
+grep -Fq '队长，Impl 已就绪。' "$FAKE_TUI_LOG"
+grep -Fq '队长，Review 已就绪。' "$FAKE_TUI_LOG"
 (cd "$MANUAL_REPO" && "$MADW" send impl 'TASK-MANUAL-001: mixed runtimes') >/dev/null
 for _ in $(seq 1 50); do
   if grep -Fq 'TASK-MANUAL-001: mixed runtimes' "$FAKE_TUI_LOG"; then break; fi
@@ -717,21 +732,15 @@ grep -Fq "unknown layout 'invalid' (choose balanced or columns)" "$TMP/invalid-c
 [ ! -e "$REPO_D/.agent-team" ]
 
 for _ in 1 2 3 4 5 6 7 8 9 10; do
-  if tmux capture-pane -p -t "$LEAD_PANE" -S -100 | grep -Fq '队长，Lead 已就绪。'; then break; fi
+  if tmux capture-pane -p -J -t "$LEAD_PANE" -S -100 | grep -Fq '队长，Lead 已就绪。'; then break; fi
   sleep 0.1
 done
-tmux capture-pane -p -t "$LEAD_PANE" -S -100 | grep -Fq '队长，Lead 已就绪。'
-tmux capture-pane -p -t "$LEAD_PANE" -S -100 | grep -Fq '等待用户需求'
-tmux capture-pane -p -t "$LEAD_PANE" -S -100 | grep -Fq 'interactive.md'
+tmux capture-pane -p -J -t "$LEAD_PANE" -S -100 | grep -Fq '队长，Lead 已就绪。'
+tmux capture-pane -p -J -t "$LEAD_PANE" -S -100 | grep -Fq '等待用户需求'
+tmux capture-pane -p -J -t "$LEAD_PANE" -S -100 | grep -Fq 'interactive.md'
 [ "$(tmux display-message -p -t "$LEAD_PANE" '#{pane_current_path}')" = "$(cd "$REPO_A" && pwd -P)" ]
-if tmux capture-pane -p -t "$IMPL_PANE" -S -100 | grep -Fq 'Impl 角色'; then
-  echo "Impl received a task before Lead dispatched one" >&2
-  exit 1
-fi
-if tmux capture-pane -p -t "$REVIEW_PANE" -S -100 | grep -Fq 'Review 角色'; then
-  echo "Review received a task before Lead dispatched one" >&2
-  exit 1
-fi
+tmux capture-pane -p -J -t "$IMPL_PANE" -S -100 | grep -Fq '队长，Impl 已就绪。'
+tmux capture-pane -p -J -t "$REVIEW_PANE" -S -100 | grep -Fq '队长，Review 已就绪。'
 (cd "$REPO_A" && "$MADW" send impl 'TASK-TEST-001: plan the change') >/dev/null
 [ "$(tmux show-options -v -t "$SESSION_A" @madw_flow_task)" = 'TASK-TEST-001' ]
 tmux show-options -v -t "$SESSION_A" @madw_flow_display | grep -Fq 'Leader → Impl'
@@ -761,7 +770,7 @@ printf '%s\n' "$SANDBOX_STATUS" | grep -E '^review[[:space:]].*alive' >/dev/null
 [ "$(tmux display-message -p -t "$LEAD_PANE" '#{pane_pid}')" = "$LIVE_LEAD_PID" ]
 [ "$(tmux display-message -p -t "$IMPL_PANE" '#{pane_pid}')" = "$LIVE_IMPL_PID" ]
 [ "$(tmux display-message -p -t "$REVIEW_PANE" '#{pane_pid}')" = "$LIVE_REVIEW_PID" ]
-tmux capture-pane -p -t "$LEAD_PANE" -S -100 | grep -Fq '等待用户需求'
+tmux capture-pane -p -J -t "$LEAD_PANE" -S -100 | grep -Fq '等待用户需求'
 
 # Re-entering a team repairs a Lead pane that exited without ending the team.
 OLD_LEAD_PID="$(tmux display-message -p -t "$LEAD_PANE" '#{pane_pid}')"
@@ -795,10 +804,7 @@ NEW_PID="$(tmux display-message -p -t "$NEW_REVIEW_PANE" '#{pane_pid}')"
 [ "$REVIEW_PANE" = "$NEW_REVIEW_PANE" ]
 [ "$OLD_PID" != "$NEW_PID" ]
 [ "$(tmux show-options -v -t "$SESSION_A" @madw_runtime)" = "custom" ]
-if tmux capture-pane -p -t "$NEW_REVIEW_PANE" -S -100 | grep -Fq 'Review 角色'; then
-  echo "Review received a task immediately after a fresh restart" >&2
-  exit 1
-fi
+tmux capture-pane -p -J -t "$NEW_REVIEW_PANE" -S -100 | grep -Fq '队长，Review 已就绪。'
 (cd "$REPO_A" && "$MADW" send review 'TASK-TEST-001: verify the frozen code') >/dev/null
 for _ in $(seq 1 50); do
   if tmux capture-pane -p -J -t "$NEW_REVIEW_PANE" -S -100 | grep -Fq 'TASK-TEST-001: verify the frozen code'; then break; fi

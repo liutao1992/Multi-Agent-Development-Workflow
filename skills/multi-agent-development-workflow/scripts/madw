@@ -20,7 +20,7 @@ usage() {
   cat <<'EOF'
 Usage:
   madw start [pi|codex] [--layout balanced|columns] [--sessions] [--boot-timeout SECONDS]
-  madw bootstrap leader
+  madw bootstrap <leader|impl|review>
   madw launch <pi|codex>   # run inside a role pane
   madw status
   madw logs <leader|impl|review> [lines]
@@ -469,11 +469,11 @@ role_prompt() {
 请使用 multi-agent-development-workflow Skill，按其中的 $title 角色工作。
 项目：${root}。Skill 目录：${SKILL_ROOT}。
 先读 interactive.md 与 roles/$profile.md；详细协议和模板按当前步骤需要读取。
+读完后回复：队长，$title 已就绪。然后等待派单或用户需求，不自行创建或继续任务。
 EOF
   case "$role" in
     leader)
       cat <<EOF
-先回复：队长，Lead 已就绪。
 等待用户需求。收到需求后持续派单、等待、核验并汇报，直到完成、取消、阻塞或需要用户决策。
 Review 保持现有上下文，不自动重启。
 EOF
@@ -491,9 +491,22 @@ EOF
   esac
 }
 
+bootstrap_role() {
+  local role="$1" pane runtime context bound
+  pane="$(pane_for_role "$role")"
+  runtime="$(session_option "$(team_session)" @madw_runtime)"
+  wait_pane_ready "$pane" "$DEFAULT_BOOT_TIMEOUT" "$runtime" || return $?
+  context="$(agent_context_key "$pane")"
+  bound="$(tmux show-options -p -v -t "$pane" @madw_role_bound 2>/dev/null || true)"
+  if [ -n "$context" ] && [ "$bound" = "$context" ]; then return 0; fi
+  send_to_pane "$pane" "$(role_prompt "$role")"
+  [ -z "$context" ] || tmux set-option -p -t "$pane" @madw_role_bound "$context"
+  record_event role_init "$role"
+}
+
 bootstrap_team() {
-  local lead="$1"
-  send_to_pane "$lead" "$(role_prompt leader)"
+  local role
+  for role in leader impl review; do bootstrap_role "$role"; done
 }
 
 configure_team_labels() {
@@ -685,7 +698,7 @@ create_team() {
     die "team startup failed; partial tmux session removed"
   fi
 
-  bootstrap_team "$lead"
+  bootstrap_team
   printf 'Project: %s
 ' "$root"
   printf 'Team:    %s
@@ -732,7 +745,7 @@ create_manual_sessions() {
   printf 'Project: %s\n' "$root"
   printf 'Sessions: %s  %s  %s\n' "$session" "$(role_session impl)" "$(role_session review)"
   printf 'In each session, run madw launch pi|codex; you may mix them.\n'
-  printf 'Direct pi/codex startup also works; then run madw bootstrap leader.\n'
+  printf 'Direct pi/codex startup also works; then run madw bootstrap <leader|impl|review> for each role.\n'
 }
 
 create_manual_team() {
@@ -789,7 +802,7 @@ create_manual_team() {
   printf 'Team: %s\n' "$session"
   printf 'Layout: %s (Lead / Impl / Review)\n' "$layout"
   printf 'In each role pane, run madw launch pi|codex; you may mix them.\n'
-  printf 'Direct pi/codex startup also works; then run madw bootstrap leader.\n'
+  printf 'Direct pi/codex startup also works; then run madw bootstrap <leader|impl|review> for each role.\n'
 }
 
 repair_manual_sessions() {
@@ -1001,7 +1014,7 @@ restart_role() {
       tmux respawn-pane -k -t "$pane" -c "$root" "$pane_cmd"
       wait_pane_ready "$pane" "$DEFAULT_BOOT_TIMEOUT" manual
       configure_role_logging "$role" "$pane"
-      if [ "$role" = leader ]; then send_to_pane "$pane" "$(role_prompt leader)"; fi
+      bootstrap_role "$role"
       echo "restarted $role using its selected Agent"
     else
       tmux set-option -p -t "$pane" @madw_agent_epoch ''
@@ -1036,9 +1049,7 @@ restart_role() {
   wait_pane_ready "$pane" "$DEFAULT_BOOT_TIMEOUT" "$runtime"
   configure_role_logging "$role" "$pane"
 
-  if [ "$role" = "leader" ]; then
-    send_to_pane "$pane" "$(role_prompt "$role")"
-  fi
+  bootstrap_role "$role"
 
   echo "restarted $role in $pane using team runtime $runtime"
 }
@@ -1365,11 +1376,9 @@ launch_role_agent() {
     tmux select-pane -t "$TMUX_PANE" -T "$selected | $runtime"
   fi
   root="$(project_root)"
-  if [ "$selected" = leader ]; then
-    # The helper waits for the UI before delivering the Lead role prompt.
-    ("$SCRIPT_DIR/madw" bootstrap leader >/dev/null 2>"$root/.agent-team/lead-bootstrap.log" ||
-      tmux display-message -t "$pane" 'Lead bootstrap failed; check .agent-team/lead-bootstrap.log') &
-  fi
+  # The helper waits for this role's UI before delivering its role prompt.
+  ("$SCRIPT_DIR/madw" bootstrap "$selected" >/dev/null 2>"$root/.agent-team/$selected-bootstrap.log" ||
+    tmux display-message -t "$pane" "$selected bootstrap failed; check .agent-team/$selected-bootstrap.log") &
   case "$runtime" in
     pi) pi || exit_code=$? ;;
     codex)
@@ -1492,15 +1501,10 @@ case "$command" in
     ;;
   bootstrap)
     preflight_base
-    [ "$#" -eq 1 ] && [ "$1" = leader ] || die "bootstrap supports only leader"
-    [ "$(session_option "$(team_session)" @madw_runtime)" = manual ] || die "bootstrap is only needed for manual teams"
-    pane="$(pane_for_role leader)"
-    wait_pane_ready "$pane" "$DEFAULT_BOOT_TIMEOUT" "$(session_option "$(team_session)" @madw_runtime)"
-    send_to_pane "$pane" "$(role_prompt leader)"
-    context="$(agent_context_key "$pane")"
-    [ -z "$context" ] || tmux set-option -p -t "$pane" @madw_role_bound "$context"
-    record_event role_init leader
-    echo "Lead role prompt sent"
+    [ "$#" -eq 1 ] || die "bootstrap requires leader, impl or review"
+    case "$1" in leader|impl|review) ;; *) die "bootstrap requires leader, impl or review" ;; esac
+    bootstrap_role "$1"
+    echo "$1 role initialized"
     ;;
   status) preflight_base; status_team ;;
   logs)
