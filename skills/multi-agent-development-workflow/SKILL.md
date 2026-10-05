@@ -154,8 +154,8 @@ BLOCKED, or a genuine human/product decision is required.
 
 ### Preferred transport: tmux-native
 
-Use three project-scoped tmux sessions. `madw start` creates shells in the
-project directory; the user chooses Pi or Codex separately in each role with
+Use one project-scoped tmux session with three role panes. `madw start` creates
+three side-by-side shells in the project directory; the user chooses Pi or Codex separately in each role with
 `madw launch pi|codex`. Launch also bootstraps Lead and saves each role's
 runtime for later restarts. Direct Pi/Codex startup remains possible, followed
 by `madw bootstrap leader` from another terminal.
@@ -165,18 +165,17 @@ madw start
 madw attach impl
 madw attach review
 madw attach leader
-madw launch pi  # or codex, inside each role session
+madw launch pi  # or codex, inside each role pane
 ```
 
-The launcher derives session names from the canonical Git root:
+The launcher derives the session name from the canonical Git root:
 
 ```text
-madw-<repo-name>-<path-hash>          Lead
-madw-<repo-name>-<path-hash>-impl     Impl
-madw-<repo-name>-<path-hash>-review   Review
+madw-<repo-name>-<path-hash>          Lead | Impl | Review
 ```
 
-An explicit `madw start pi|codex` retains the automatic three-pane mode.
+`madw start --sessions` retains the former separate-session topology.
+An explicit `madw start pi|codex` starts the chosen runtime in all three panes.
 
 tmux owns only:
 
@@ -416,7 +415,7 @@ Impl and Review MUST NOT rewrite lifecycle state in STATUS. Their newly created 
 
 ### Commands
 
-Start the project-scoped role sessions:
+Start the project-scoped role panes:
 
 ```bash
 madw start
@@ -435,8 +434,8 @@ Lead/Impl/Review 的交接方向。`madw send`、`wait`、`signal` 负责更新�
 新需求的提示。这是 tmux 界面信息，不要把同样的进度横幅发送给 Agent 或写入
 对话上下文。
 
-手动模式使用三个独立 session；通过 `madw attach <role>` 切换，
-`madw stop` 结束整个团队。自动三面板模式仍可用 `Ctrl+C` 结束团队。
+手动模式默认在一个 session 中使用三个并排 pane；通过 `madw attach <role>`
+聚焦角色，`madw stop` 结束整个团队。`madw start --sessions` 保留独立 session 模式。
 
 Lead handoff helpers:
 
@@ -495,15 +494,15 @@ agent-team --runtime codex --transport process run <TASK-ID>
 
 The standalone Orchestrator starts headless role workers itself. Use this for CI/unattended execution, not as the interactive tmux team's transport.
 
-### tmux role-session transport
+### tmux role-pane transport
 
-`madw start` creates three shell sessions after Git, Skill, and tmux preflight.
+`madw start` creates one session with three shell panes after Git, Skill, and tmux preflight.
 The user starts an Agent in each one. Lead, Impl, and Review may run different
 runtimes. `madw send` waits for the destination's full-screen UI and fails
 without delivery if it is not ready within `MADW_TUI_TIMEOUT`.
 
 `madw restart review` respawns the Agent selected by `madw launch` while
-keeping the Review address. If the user launched Pi/Codex directly, the session
+keeping the Review address. If the user launched Pi/Codex directly, the pane
 resets to a shell and the user starts a fresh Agent before the next handoff.
 An explicit `madw start pi|codex` keeps the automatic three-pane mode and
 respawns its stored runtime on restart.

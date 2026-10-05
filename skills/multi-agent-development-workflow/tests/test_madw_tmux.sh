@@ -103,6 +103,14 @@ if tmux list-sessions -F '#S' 2>/dev/null | grep -Fqx "$EMPTY_SESSION"; then
 fi
 [ ! -e "$EMPTY_REPO/.agent-team" ]
 
+# First manual startup must also work when no tmux server exists yet.
+FRESH_REPO="$TMP/fresh-project"
+init_repo "$FRESH_REPO"
+(cd "$FRESH_REPO" && MADW_NO_ATTACH=1 "$MADW" start) >/dev/null
+FRESH_SESSION="$(session_for "$FRESH_REPO")"
+[ "$(tmux list-panes -t "$FRESH_SESSION:team" -F '#{pane_id}' | wc -l | tr -d ' ')" = 3 ]
+(cd "$FRESH_REPO" && "$MADW" stop) >/dev/null
+
 # MADW's Codex command enables network access for tmux socket transport by
 # default, while an explicit zero forces the restrictive policy.
 mkdir -p "$TMP/bin"
@@ -341,18 +349,29 @@ fi
 
 (cd "$TUI_REPO" && "$MADW" stop) >/dev/null
 
-# Default startup creates three independent shell sessions. Users may launch
-# different interactive Agents in each one; handoffs wait for that Agent's UI.
+# Default startup creates three side-by-side role panes in one session. Users
+# launch different interactive Agents in each pane; handoffs wait for the UI.
 MANUAL_REPO="$TMP/manual-project"
 init_repo "$MANUAL_REPO"
 : > "$FAKE_TUI_LOG"
 (cd "$MANUAL_REPO" && MADW_NO_ATTACH=1 "$MADW" start) >/dev/null
 MANUAL_SESSION="$(session_for "$MANUAL_REPO")"
 [ "$(tmux show-options -v -t "$MANUAL_SESSION" @madw_runtime)" = manual ]
+[ "$(tmux show-options -v -t "$MANUAL_SESSION" @madw_topology)" = panes ]
+[ "$(tmux show-options -v -t "$MANUAL_SESSION" @madw_layout)" = columns ]
+[ "$(tmux list-panes -t "$MANUAL_SESSION:team" -F '#{pane_id}' | wc -l | tr -d ' ')" = 3 ]
+tmux show-window-options -v -t "$MANUAL_SESSION:team" pane-border-format | grep -Fq '[Lead]'
+tmux show-window-options -v -t "$MANUAL_SESSION:team" pane-border-format | grep -Fq '[Impl]'
+tmux show-window-options -v -t "$MANUAL_SESSION:team" pane-border-format | grep -Fq '[Review]'
 for role in leader impl review; do
-  if [ "$role" = leader ]; then ROLE_SESSION="$MANUAL_SESSION"; else ROLE_SESSION="$MANUAL_SESSION-$role"; fi
-  tmux list-sessions -F '#S' | grep -Fqx "$ROLE_SESSION"
+  MANUAL_PANE="$(tmux show-options -v -t "$MANUAL_SESSION" "@madw_pane_$role")"
+  [ "$(tmux show-options -v -p -t "$MANUAL_PANE" @madw_role)" = "$role" ]
 done
+LEAD_LEFT="$(tmux display-message -p -t "$(tmux show-options -v -t "$MANUAL_SESSION" @madw_pane_leader)" '#{pane_left}')"
+IMPL_LEFT="$(tmux display-message -p -t "$(tmux show-options -v -t "$MANUAL_SESSION" @madw_pane_impl)" '#{pane_left}')"
+REVIEW_LEFT="$(tmux display-message -p -t "$(tmux show-options -v -t "$MANUAL_SESSION" @madw_pane_review)" '#{pane_left}')"
+[ "$LEAD_LEFT" -lt "$IMPL_LEFT" ]
+[ "$IMPL_LEFT" -lt "$REVIEW_LEFT" ]
 if (cd "$MANUAL_REPO" && MADW_TUI_TIMEOUT=1 "$MADW" send impl 'TASK-MANUAL-001') >"$TMP/manual-unready.log" 2>&1; then
   echo "manual handoff reached a shell before an Agent was started" >&2
   exit 1
@@ -361,9 +380,9 @@ grep -Fq 'handoff was not sent' "$TMP/manual-unready.log"
 cp "$FAKE_TUI" "$TMP/bin/pi"
 cp "$FAKE_TUI" "$TMP/bin/codex"
 for role in impl review leader; do
-  if [ "$role" = leader ]; then ROLE_SESSION="$MANUAL_SESSION"; else ROLE_SESSION="$MANUAL_SESSION-$role"; fi
+  ROLE_PANE="$(tmux show-options -v -t "$MANUAL_SESSION" "@madw_pane_$role")"
   if [ "$role" = impl ]; then ROLE_RUNTIME=codex; else ROLE_RUNTIME=pi; fi
-  tmux send-keys -t "$ROLE_SESSION" "PATH=$TMP/bin:\$PATH $MADW launch $ROLE_RUNTIME" Enter
+  tmux send-keys -t "$ROLE_PANE" "PATH=$TMP/bin:\$PATH $MADW launch $ROLE_RUNTIME" Enter
 done
 for role in leader impl review; do
   MANUAL_PANE="$(tmux show-options -v -t "$MANUAL_SESSION" "@madw_pane_$role")"
@@ -413,18 +432,25 @@ MANUAL_REVIEW="$(tmux show-options -v -t "$MANUAL_SESSION" @madw_pane_review)"
 (cd "$MANUAL_REPO" && "$MADW" send review 'TASK-MANUAL-002: review') >/dev/null
 MANUAL_REVIEW_LOG="$(cd "$MANUAL_REPO" && "$MADW" logs review 200)"
 printf '%s\n' "$MANUAL_REVIEW_LOG" | grep -Fq 'TASK-MANUAL-002: review'
-tmux kill-session -t "$MANUAL_SESSION-review"
 (cd "$MANUAL_REPO" && MADW_NO_ATTACH=1 "$MADW" start) >/dev/null
-tmux list-sessions -F '#S' | grep -Fqx "$MANUAL_SESSION-review"
-[ "$(tmux display-message -p -t "$(tmux show-options -v -t "$MANUAL_SESSION" @madw_pane_review)" '#{pane_dead}')" = 0 ]
+[ "$(tmux list-panes -t "$MANUAL_SESSION:team" -F '#{pane_id}' | wc -l | tr -d ' ')" = 3 ]
 (cd "$MANUAL_REPO" && "$MADW" stop) >/dev/null
+if tmux list-sessions -F '#S' | grep -Fqx "$MANUAL_SESSION"; then
+  echo "stop left the manual team session running" >&2
+  exit 1
+fi
+
+# The former three-session topology remains available when explicitly chosen.
+SESSION_REPO="$TMP/session-project"
+init_repo "$SESSION_REPO"
+(cd "$SESSION_REPO" && MADW_NO_ATTACH=1 "$MADW" start --sessions) >/dev/null
+SESSION_TEAM="$(session_for "$SESSION_REPO")"
+[ "$(tmux show-options -v -t "$SESSION_TEAM" @madw_topology)" = sessions ]
 for role in leader impl review; do
-  if [ "$role" = leader ]; then ROLE_SESSION="$MANUAL_SESSION"; else ROLE_SESSION="$MANUAL_SESSION-$role"; fi
-  if tmux list-sessions -F '#S' | grep -Fqx "$ROLE_SESSION"; then
-    echo "stop left a manual $role session running" >&2
-    exit 1
-  fi
+  if [ "$role" = leader ]; then ROLE_SESSION="$SESSION_TEAM"; else ROLE_SESSION="$SESSION_TEAM-$role"; fi
+  tmux list-sessions -F '#S' | grep -Fqx "$ROLE_SESSION"
 done
+(cd "$SESSION_REPO" && "$MADW" stop) >/dev/null
 
 # Default install goes to the shared Agent Skills directory and removes an old
 # Codex-specific copy from the discovery path.
@@ -459,18 +485,18 @@ rm -rf "$STALE_SERVER_CWD"
 (cd "$STALE_REPO" && TMUX_TMPDIR="$STALE_SOCKET_DIR" MADW_NO_ATTACH=1 "$MADW" start) >/dev/null
 STALE_SESSION="$(cd "$STALE_REPO" && "$MADW" id)"
 for role in leader impl review; do
-  if [ "$role" = leader ]; then ROLE_SESSION="$STALE_SESSION"; else ROLE_SESSION="$STALE_SESSION-$role"; fi
-  TMUX_TMPDIR="$STALE_SOCKET_DIR" tmux send-keys -t "$ROLE_SESSION" 'ls -1a' Enter
+  ROLE_PANE="$(TMUX_TMPDIR="$STALE_SOCKET_DIR" tmux show-options -v -t "$STALE_SESSION" "@madw_pane_$role")"
+  TMUX_TMPDIR="$STALE_SOCKET_DIR" tmux send-keys -t "$ROLE_PANE" 'ls -1a' Enter
   for _ in $(seq 1 50); do
-    if TMUX_TMPDIR="$STALE_SOCKET_DIR" tmux capture-pane -p -t "$ROLE_SESSION" | grep -Fxq README.md; then break; fi
+    if TMUX_TMPDIR="$STALE_SOCKET_DIR" tmux capture-pane -p -t "$ROLE_PANE" | grep -Fxq README.md; then break; fi
     sleep 0.1
   done
-  TMUX_TMPDIR="$STALE_SOCKET_DIR" tmux capture-pane -p -t "$ROLE_SESSION" | grep -Fxq README.md
+  TMUX_TMPDIR="$STALE_SOCKET_DIR" tmux capture-pane -p -t "$ROLE_PANE" | grep -Fxq README.md
 done
 TMUX_TMPDIR="$STALE_SOCKET_DIR" tmux kill-server
 STALE_SOCKET_DIR=""
 
-start_for "$REPO_A"
+start_with_layout_for "$REPO_A" --layout balanced
 SESSION_A="$(session_for "$REPO_A")"
 [ -d "$REPO_A/.agent-team/tasks" ]
 [ -L "$REPO_A/.agent-team/madw" ]
@@ -505,7 +531,7 @@ start_for "$REPO_A" >/dev/null
 LEAD_PANE="$(tmux show-options -v -t "$SESSION_A" @madw_pane_leader)"
 IMPL_PANE="$(tmux show-options -v -t "$SESSION_A" @madw_pane_impl)"
 REVIEW_PANE="$(tmux show-options -v -t "$SESSION_A" @madw_pane_review)"
-[ "$(tmux show-options -p -v -t "$LEAD_PANE" @madw_label)" = "Leader" ]
+[ "$(tmux show-options -p -v -t "$LEAD_PANE" @madw_label)" = "Lead" ]
 [ "$(tmux show-options -p -v -t "$IMPL_PANE" @madw_label)" = "Impl" ]
 [ "$(tmux show-options -p -v -t "$REVIEW_PANE" @madw_label)" = "Review" ]
 LEAD_LEFT="$(tmux display-message -p -t "$LEAD_PANE" '#{pane_left}')"

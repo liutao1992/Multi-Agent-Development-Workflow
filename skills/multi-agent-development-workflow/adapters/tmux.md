@@ -4,18 +4,17 @@ tmux is the default interactive coordination layer for this Skill.
 
 ## Topology
 
-By default each Git project gets three role sessions:
+By default each Git project gets one session with three side-by-side role panes:
 
 ```text
-madw-<repo>-<path-hash>          Lead
-madw-<repo>-<path-hash>-impl     Impl
-madw-<repo>-<path-hash>-review   Review
+madw-<repo>-<path-hash>          Lead | Impl | Review
 ```
 
-Each session starts in the canonical Git root. The user starts Pi or Codex in
-any combination. An explicit `madw start pi|codex` keeps the earlier automatic
-three-pane team for compatibility. The path hash isolates repositories with
-the same name.
+Each pane starts in the canonical Git root. The user starts Pi or Codex in any
+combination. `madw start --sessions` retains the previous three independent
+role sessions when needed. An explicit `madw start pi|codex` starts the same
+runtime automatically in all three panes. The path hash isolates repositories
+with the same name.
 
 ## Responsibilities
 
@@ -34,17 +33,18 @@ Do not add another mailbox/queue/inbox/outbox layer for interactive Agents.
 madw start
 ```
 
-`madw start` creates shell sessions and attaches to Lead. In each session run
+`madw start` creates three shell panes and attaches to Lead. In each pane run
 `madw launch pi|codex`; the command starts the chosen Agent and automatically
-bootstraps Lead. Use `madw attach impl|review|leader` to enter a role session.
+bootstraps Lead. Use `madw attach impl|review|leader` to focus a role pane.
 Direct `pi` or `codex` startup is also supported, followed by
 `madw bootstrap leader` from another terminal. `madw send` prefixes
 Impl/Review handoffs with their role prompt.
 
-`madw start pi|codex` automatically starts that runtime in the old three-pane
-layout. `MADW_RUNTIME` or `MADW_AGENT_CMD` also selects automatic mode. Only
-this mode uses `--layout balanced|columns`, `MADW_BOOT_TIMEOUT`, and the stored
-runtime command. It is retained for existing teams.
+`madw start pi|codex` automatically starts that runtime in three panes.
+`MADW_RUNTIME` or `MADW_AGENT_CMD` also selects automatic mode. The default
+layout is three columns; `--layout balanced` puts Lead on the left and stacks
+Impl/Review on the right. Automatic mode also uses `MADW_BOOT_TIMEOUT` and the
+stored runtime command.
 
 The launcher does not rely on a fixed one-second sleep. It verifies that each
 pane/Agent process is alive, up to `MADW_BOOT_TIMEOUT` (default 15 seconds), and
@@ -124,9 +124,9 @@ madw attach review
 `status` shows the project/team, active Task/state/head/artifacts when
 available, the expected next actor, and pane process health.
 
-`watch` attaches to Lead in manual mode and to the full three-pane UI in
-automatic mode. `attach <role>` selects that role session in manual mode.
-Automatic mode enables tmux mouse mode only for its team session.
+`watch` attaches to Lead. `attach <role>` focuses that role's pane in the
+default layout, or switches sessions with `--sessions` teams. Mouse selection
+is enabled for pane teams.
 
 Each role's terminal stream is appended to
 `.agent-team/runtime/logs/<role>.log`. Inspect recent output with
